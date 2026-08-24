@@ -1,0 +1,30 @@
+{
+  "name": "dsh-context-remdb",
+  "version": "0.1.0",
+  "description": "DSH plugin for semantic code search via RemDB vector database",
+  "private": true,
+  "type": "module",
+  "main": "src/plugins/dsh-context-remdb/index.ts",
+  "types": "src/plugins/dsh-context-remdb/index.ts",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage"
+  },
+  "dependencies": {
+    "remdb-sdk-node": "file:../remdb-sdk-node",
+    "tree-sitter": "^0.25.1",
+    "tree-sitter-go": "^0.25.0",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-rust": "^0.24.0",
+    "tree-sitter-typescript": "^0.23.2"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.4.0"
+  }
+}

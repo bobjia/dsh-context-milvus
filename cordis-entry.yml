@@ -1,0 +1,77 @@
+# dsh-context-remdb — DSH 配置示例
+
+## 安装到 DSH Web Profile
+
+```bash
+# 1. 进入 DSH Web Profile 目录
+cd ~/.dsh/profiles/web
+
+# 2. 安装插件为本地依赖
+pnpm add file:/mnt/home/bobjia/dsh-context-remdb
+
+# 3. 在 package.json 的 dsh.profile.bundles 中添加 "dsh-context-remdb"
+#    编辑 ~/.dsh/profiles/web/package.json，在 bundles 数组中追加：
+#    "dsh-context-remdb"
+```
+
+## 配置插件 (通过 cordis.patch.yml)
+
+编辑 `~/.dsh/profiles/web/cordis.patch.yml`：
+
+```yaml
+# ~/.dsh/profiles/web/cordis.patch.yml
+- id: dsh-context-remdb
+  config:
+    remdbEndpoint: http://localhost:19530
+    remdbCollection: code_embeddings
+    remdbDim: 768
+    embeddingEndpoint: http://localhost:19530/v2/vectordb/embedding
+    embeddingModel: default
+    indexRoot: /path/to/your/code
+    indexExtensions: .ts,.tsx,.js,.py,.rs,.go,.java
+    hybridMode: true
+```
+
+## 配置字段说明
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `remdbEndpoint` | string | `http://localhost:19530` | RemDB 服务地址 |
+| `remdbToken` | string (secret) | `""` | RemDB 鉴权 Token |
+| `remdbCollection` | string | `code_embeddings` | 集合名称 |
+| `remdbDim` | number | `768` | 向量维度 |
+| `embeddingEndpoint` | string | `http://localhost:19530/v2/vectordb/embedding` | Embedding API 地址 |
+| `embeddingApiKey` | string (secret) | `""` | Embedding API 密钥 |
+| `embeddingModel` | string | `default` | 模型名称 |
+| `indexRoot` | string | `""` | 代码仓库根路径 |
+| `indexExtensions` | string | `""` | 文件后缀 (逗号分隔) |
+| `hybridMode` | boolean | `true` | 混合搜索 (BM25 + 向量) |
+| `merkleFilePath` | string | `""` | Merkle 状态文件路径 |
+
+## 环境变量 (fallback)
+
+当 Cordis Config 未提供时，插件会读取环境变量作为回退：
+
+```bash
+export REMDB_ENDPOINT=http://localhost:19530
+export REMDB_TOKEN=your-token
+export REMDB_COLLECTION=code_embeddings
+export REMDB_EMBEDDING_DIM=768
+export EMBEDDING_ENDPOINT=http://localhost:19530/v2/vectordb/embedding
+export EMBEDDING_API_KEY=your-key
+export EMBEDDING_MODEL=default
+export INDEX_ROOT=/path/to/code
+export INDEX_EXTENSIONS=.ts,.tsx,.js
+export HYBRID_MODE=true
+export MERKLE_FILE_PATH=~/.remdb-index/merkle.json
+```
+
+## DSH Web 界面配置
+
+安装后，在 DSH Web 界面 (http://127.0.0.1:3080) 的 **Settings → Plugins** 中可以看到 `dsh-context-remdb` 的配置表单，支持：
+
+- 文本输入框 (普通字段)
+- 密码输入框 (secret 字段，如 `remdbToken`、`embeddingApiKey`)
+- 数值输入框 (number 字段，如 `remdbDim`)
+- 开关 (boolean 字段，如 `hybridMode`)
+- 字段说明/提示文本
