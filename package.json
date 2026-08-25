@@ -4,8 +4,21 @@
   "description": "DSH plugin for semantic code search via RemDB vector database",
   "private": true,
   "type": "module",
-  "main": "src/plugins/dsh-context-remdb/index.ts",
-  "types": "src/plugins/dsh-context-remdb/index.ts",
+  "main": "dist/plugins/dsh-context-remdb/index.js",
+  "types": "dist/plugins/dsh-context-remdb/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/plugins/dsh-context-remdb/index.d.ts",
+      "default": "./dist/plugins/dsh-context-remdb/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "license": "MIT",
   "scripts": {
     "build": "tsc",

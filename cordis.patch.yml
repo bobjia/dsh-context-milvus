@@ -1,0 +1,4 @@
+# dsh-context-remdb bundle patch: inserts the plugin into a profile's layer stack.
+- insert:
+    - id: dsh-context-remdb
+      name: 'dsh-context-remdb'

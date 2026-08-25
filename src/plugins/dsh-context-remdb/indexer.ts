@@ -216,24 +216,8 @@ export async function getIndexStatus(
   tracker: HashTracker,
 ): Promise<IndexStatus> {
   const stats = tracker.getStats()
-
-  // Find the last indexed timestamp
-  const timestamps = tracker.getStats()
-  // We don't have access to individual records here, but we can load the state
-  let lastIndexed: string | undefined
-
-  try {
-    const data = await readFile(config.merkleFilePath, 'utf-8')
-    const parsed = JSON.parse(data)
-    if (parsed.records && Array.isArray(parsed.records)) {
-      const maxTs = Math.max(...parsed.records.map((r: any) => r.lastIndexed ?? 0))
-      if (maxTs > 0) {
-        lastIndexed = new Date(maxTs).toISOString()
-      }
-    }
-  } catch {
-    // No state file yet
-  }
+  const lastIndexedTs = tracker.getLastIndexedTimestamp()
+  const lastIndexed = lastIndexedTs ? new Date(lastIndexedTs).toISOString() : undefined
 
   return {
     totalFiles: stats.totalFiles,

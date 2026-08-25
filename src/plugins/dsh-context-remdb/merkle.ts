@@ -145,4 +145,10 @@ export class HashTracker {
     )
     return { totalFiles, totalChunks }
   }
+
+  /** Get the last indexed timestamp across all records, or undefined */
+  getLastIndexedTimestamp(): number | undefined {
+    if (this.state.records.length === 0) return undefined
+    return Math.max(...this.state.records.map((r) => r.lastIndexed))
+  }
 }

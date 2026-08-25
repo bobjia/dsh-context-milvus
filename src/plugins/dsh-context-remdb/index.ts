@@ -24,6 +24,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { getConfig, type CordisConfig } from './config.js'
 import { RemDbService } from './remdb-service.js'
 import { HashTracker } from './merkle.js'
+import { EmbeddingClient } from './embedding.js'
 import { registerTools } from './tools.js'
 
 export const name = 'dsh-context-remdb'
@@ -100,11 +101,13 @@ export const Config = z.object({
 
 export function apply(ctx: Context, config?: CordisConfig) {
   const resolved = getConfig(config ?? {})
+  const embeddingClient = new EmbeddingClient(resolved.embedding)
   const remdb = new RemDbService({
     endpoint: resolved.remdbEndpoint,
     token: resolved.remdbToken,
     collection: resolved.remdbCollection,
     dim: resolved.remdbDim,
+    embeddingClient,
   })
 
   const tracker = new HashTracker(resolved.merkleFilePath)

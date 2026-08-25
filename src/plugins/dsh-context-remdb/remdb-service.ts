@@ -6,8 +6,9 @@
  */
 
 import { RemDbClient } from 'remdb-sdk-node'
-import type { RemDbResponse, SearchResultItem } from 'remdb-sdk-node'
+import type { SearchResultItem, SearchReq } from 'remdb-sdk-node'
 import type { SearchResult, CodeChunk } from './types.js'
+import { EmbeddingClient } from './embedding.js'
 
 export class RemDbService {
   private client: RemDbClient | null = null
@@ -17,17 +18,20 @@ export class RemDbService {
   private readonly token: string | undefined
   private readonly collection: string
   private readonly dim: number
+  private readonly embeddingClient: EmbeddingClient
 
   constructor(config: {
     endpoint: string
     token: string | undefined
     collection: string
     dim: number
+    embeddingClient: EmbeddingClient
   }) {
     this.endpoint = config.endpoint
     this.token = config.token
     this.collection = config.collection
     this.dim = config.dim
+    this.embeddingClient = config.embeddingClient
   }
 
   // ── Client lazy init ──────────────────────────────────────────────────
@@ -73,7 +77,7 @@ export class RemDbService {
           { name: 'id', type: 'Int64', isPrimary: true, autoId: true },
           { name: 'vector', type: 'FloatVector', params: { dim } },
           { name: 'file_path', type: 'VarChar', params: { max_length: 1024 } },
-          { name: 'code_content', type: 'Text' },
+          { name: 'code_content', type: 'VarChar', params: { max_length: 65535 } },
           { name: 'start_line', type: 'Int32' },
           { name: 'end_line', type: 'Int32' },
           { name: 'language', type: 'VarChar', params: { max_length: 64 } },
@@ -87,30 +91,44 @@ export class RemDbService {
     })
   }
 
-  // ── Text search ───────────────────────────────────────────────────────
+  // ── Text search (via vector embedding) ────────────────────────────────
 
   /**
    * Execute a semantic text search.
-   * RemDB server handles text-to-vector embedding internally.
+   * Queries are embedded locally, then vector search is performed via the SDK.
+   *
+   * @param query - Natural language query text
+   * @param topK - Number of results to return
+   * @param pathPrefix - Optional path prefix filter (e.g., "/workspace/project")
+   *                     Only results with file_path starting with this prefix will be returned.
    */
-  async search(query: string, topK: number): Promise<SearchResult[]> {
+  async search(query: string, topK: number, pathPrefix?: string): Promise<SearchResult[]> {
     const client = this.getClient()
     const { collection } = this
 
-    const response = await client.POST<RemDbResponse<SearchResultItem[]>>(
-      '/v2/vectordb/entities/search',
-      {
-        collectionName: collection,
-        text: query,
-        limit: topK,
-        outputFields: [
-          'file_path', 'code_content', 'start_line', 'end_line',
-          'language', 'chunk_type', 'name',
-        ],
-      },
-    )
+    // Embed the query text using the configured embedding API
+    const vectors = await this.embeddingClient.embed([query])
+    if (vectors.length === 0) return []
+    const vector = vectors[0]
 
-    return (response.data ?? []).map((item) => ({
+    const searchReq: SearchReq = {
+      collectionName: collection,
+      vector,
+      limit: topK,
+      outputFields: [
+        'file_path', 'code_content', 'start_line', 'end_line',
+        'language', 'chunk_type', 'name',
+      ],
+    }
+
+    // If a path prefix is provided, filter results to that workspace
+    if (pathPrefix) {
+      searchReq.filter = `file_path like "${pathPrefix}%"`
+    }
+
+    const response = await client.search(searchReq)
+
+    return (response.data ?? []).map((item: SearchResultItem) => ({
       filePath: item.entity.file_path ?? '',
       content: item.entity.code_content ?? '',
       score: 1 - item.distance,

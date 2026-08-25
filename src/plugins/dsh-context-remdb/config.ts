@@ -6,6 +6,8 @@
  * 2. Cordis Config (passed from apply(ctx, config), for DSH integration)
  */
 
+import { createHash } from 'node:crypto'
+import * as path from 'node:path'
 import type { EmbeddingConfig } from './types.js'
 
 /** Flat config interface that users provide via cordis.yml or env vars */
@@ -61,6 +63,29 @@ export const DEFAULT_EXTENSIONS: Record<string, string[]> = {
 }
 
 /**
+ * Derive a workspace-specific Merkle state file path from an index root path.
+ * Each workspace gets its own state file, so indexing different workspaces
+ * doesn't corrupt the Merkle state.
+ *
+ * @param indexRoot - The index root path (absolute path to workspace)
+ * @returns An absolute path to the Merkle state file for this workspace
+ */
+export function deriveMerkleFilePath(indexRoot: string): string {
+  // Normalize the path to handle symlinks, etc.
+  const normalizedPath = path.resolve(indexRoot)
+  // Create a hash of the path to use as a unique identifier
+  const hash = createHash('sha256').update(normalizedPath, 'utf-8').digest('hex').slice(0, 16)
+  // Use the workspace directory name for readability
+  const dirName = path.basename(normalizedPath) || 'root'
+  // Sanitize dirName for use in a file name
+  const safeName = dirName.replace(/[^a-zA-Z0-9_\-]/g, '_')
+
+  return process.env.HOME
+    ? `${process.env.HOME}/.remdb-index/merkle-${safeName}-${hash}.json`
+    : `.remdb-merkle-${safeName}-${hash}.json`
+}
+
+/**
  * Build runtime config from env vars and Cordis config.
  * Cordis config values take precedence over env vars.
  */
@@ -72,6 +97,8 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
   const indexExtensions = extensionsStr
     ? extensionsStr.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
     : Object.values(DEFAULT_EXTENSIONS).flat()
+
+  const indexRoot = overrides?.indexRoot ?? process.env.INDEX_ROOT ?? process.cwd()
 
   return {
     remdbEndpoint: overrides?.remdbEndpoint ?? process.env.REMDB_ENDPOINT ?? 'http://localhost:19530',
@@ -86,16 +113,12 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
       dim,
     },
 
-    indexRoot: overrides?.indexRoot ?? process.env.INDEX_ROOT ?? process.cwd(),
+    indexRoot,
     indexExtensions,
     hybridMode: overrides?.hybridMode !== undefined
       ? overrides.hybridMode
       : process.env.HYBRID_MODE !== 'false',
 
-    merkleFilePath: overrides?.merkleFilePath ?? process.env.MERKLE_FILE_PATH ?? (
-      process.env.HOME
-        ? `${process.env.HOME}/.remdb-index/merkle.json`
-        : '.remdb-merkle.json'
-    ),
+    merkleFilePath: overrides?.merkleFilePath ?? process.env.MERKLE_FILE_PATH ?? deriveMerkleFilePath(indexRoot),
   }
 }

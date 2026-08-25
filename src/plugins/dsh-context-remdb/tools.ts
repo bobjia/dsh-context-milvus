@@ -11,7 +11,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { RemDbService } from './remdb-service.js'
 import type { PluginConfig } from './config.js'
-import type { HashTracker } from './merkle.js'
+import { deriveMerkleFilePath } from './config.js'
+import { HashTracker } from './merkle.js'
 import type { IndexResult } from './indexer.js'
 import { runIndex, getIndexStatus } from './indexer.js'
 
@@ -47,6 +48,40 @@ function formatIndexResult(result: IndexResult): string {
   return lines.join('\n')
 }
 
+/**
+ * Create a hash tracker for a specific workspace path.
+ * If the path matches the default config's indexRoot, use the default tracker.
+ * Otherwise, create a new tracker with a workspace-specific merkle file.
+ *
+ * Makes sure the tracker is loaded before returning.
+ */
+async function createTrackerForPath(
+  config: PluginConfig,
+  targetPath: string | undefined,
+  defaultTracker: HashTracker,
+): Promise<HashTracker> {
+  if (!targetPath) {
+    return defaultTracker
+  }
+
+  const normalizedTarget = targetPath.replace(/\/$/, '')
+  const normalizedDefault = config.indexRoot.replace(/\/$/, '')
+
+  // If the target path is the same as the default, use the default tracker
+  if (normalizedTarget === normalizedDefault) {
+    return defaultTracker
+  }
+
+  // Create a workspace-specific merkle file path
+  const merklePath = deriveMerkleFilePath(targetPath)
+  const tracker = new HashTracker(merklePath)
+  // Load existing state
+  await tracker.load().catch(() => {
+    // No state file yet — fresh start
+  })
+  return tracker
+}
+
 export function registerTools(
   ctx: Context,
   config: PluginConfig,
@@ -71,6 +106,12 @@ export function registerTools(
         topK: {
           type: 'number',
           description: '返回最相关的结果数量，默认为 5。',
+        },
+        path: {
+          type: 'string',
+          description:
+            '指定要搜索的路径范围，留空则搜索整个索引库。' +
+            '例如 "/workspace/project" 只搜索该路径下的代码。',
         },
       },
 
@@ -100,9 +141,10 @@ export function registerTools(
       async execute(params: any) {
         const query = params.query
         const topK = params.topK ?? 5
+        const path = params.path as string | undefined
 
         await remdb.ensureCollection()
-        return remdb.search(query, topK)
+        return remdb.search(query, topK, path)
       },
     }),
   )
@@ -125,7 +167,8 @@ export function registerTools(
         path: {
           type: 'string',
           description:
-            '指定要索引的路径，留空则使用 INDEX_ROOT 环境变量配置的路径。',
+            '指定要索引的路径，留空则使用 INDEX_ROOT 环境变量配置的路径。' +
+            '不同路径会使用独立的 Merkle 状态文件，互不干扰。',
         },
       },
 
@@ -151,11 +194,20 @@ export function registerTools(
         const mode = (params.mode as 'full' | 'incremental' | undefined) ?? 'incremental'
         const overridePath = params.path as string | undefined
 
+        // Create effective config with optional path override
         const effectiveConfig = overridePath
-          ? { ...config, indexRoot: overridePath }
+          ? {
+              ...config,
+              indexRoot: overridePath,
+              // Derive workspace-specific merkle file path
+              merkleFilePath: deriveMerkleFilePath(overridePath),
+            }
           : config
 
-        return runIndex(effectiveConfig, remdb, tracker, { mode })
+        // Use a workspace-specific tracker if the path is different from default
+        const effectiveTracker = await createTrackerForPath(config, overridePath, tracker)
+
+        return runIndex(effectiveConfig, remdb, effectiveTracker, { mode })
       },
     }),
   )
@@ -167,7 +219,14 @@ export function registerTools(
       name: 'index_status',
       description: '查看当前代码索引的状态，包括已索引文件数、代码块数、最后索引时间。',
 
-      parameters: {},
+      parameters: {
+        path: {
+          type: 'string',
+          description:
+            '指定要查看状态的路径，留空则查看默认工作区的索引状态。' +
+            '不同路径的索引状态是独立的。',
+        },
+      },
 
       output: {
         schema: {
@@ -193,8 +252,22 @@ export function registerTools(
         },
       },
 
-      async execute() {
-        return getIndexStatus(config, tracker)
+      async execute(params: any) {
+        const overridePath = params.path as string | undefined
+
+        // Use a workspace-specific tracker if a path is provided
+        const effectiveTracker = await createTrackerForPath(config, overridePath, tracker)
+
+        // Create effective config with optional path override for status
+        const effectiveConfig = overridePath
+          ? {
+              ...config,
+              indexRoot: overridePath,
+              merkleFilePath: deriveMerkleFilePath(overridePath),
+            }
+          : config
+
+        return getIndexStatus(effectiveConfig, effectiveTracker)
       },
     }),
   )
