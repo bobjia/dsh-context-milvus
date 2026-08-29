@@ -18,7 +18,7 @@
 
 1. **存储 AST 分块后的代码向量**：dsh‑context‑milvus 会用 tree-sitter AST 语法树把代码按函数/类/方法边界切分代码块，生成 embedding 存入 Milvus，避免把一个函数拦腰切断。
 2. **高性能向量检索**：对 query 编码后做向量相似度检索，低延迟，适合 Agent 实时工具调用场景。
-   > 注：BM25 关键词融合**尚未实现**，`hybridMode` 是预留开关——当前所有检索都是纯向量相似度。
+   > 注：BM25 关键词融合**已实现**——Milvus 原生 BM25 全文检索与向量语义双路检索，RRF 融合（`hybridMode` 默认开启）。
 3. **支持自托管 Milvus 实例 / Zilliz Cloud 托管版**，两种部署形态可选，团队可以管控数据；支持增量索引，代码变更后增量更新，不用全量重建索引。
 4. **专门适配代码 RAG**：支持按路径范围过滤（`search_code` 的 `path` 参数），检索时可以限定目录，非常适合代码库场景。
 
@@ -44,7 +44,7 @@
 ### 工作流程
 
 1. 执行 `index_code` 工具：解析项目，tree-sitter AST 拆分代码块 → 调用 Embedding 模型生成向量 → 存入 Milvus 集合。
-2. Agent 遇到编码问题，调用 `search_code` 工具向 Milvus 发起**语义（向量）检索**。
+2. Agent 遇到编码问题，调用 `search_code` 工具向 Milvus 发起**混合检索**（向量语义 + BM25 关键词，RRF 融合）。
 3. Milvus 返回最相关的少量代码片段，注入 Agent 上下文。
 4. Agent 基于精准上下文做调试、重构、开发，不再疯狂 grep 读一堆文件。
 5. 代码变更后，执行 `index_code mode=incremental` 增量更新，只重新索引变更的文件。
@@ -88,7 +88,8 @@
 | `embeddingModel` | `EMBEDDING_MODEL` | string | `nomic-embed-text` | Embedding 模型名称 |
 | `indexRoot` | `INDEX_ROOT` | string | `process.cwd()` | 代码仓库根路径 |
 | `indexExtensions` | `INDEX_EXTENSIONS` | string | 所有支持的扩展名 | 索引的文件后缀（逗号分隔） |
-| `hybridMode` | `HYBRID_MODE` | boolean | `true` | 预留开关，BM25 融合尚未实现（当前仅向量检索） |
+| `hybridMode` | `HYBRID_MODE` | boolean | `true` | 启用混合检索（BM25 全文 + 向量语义，RRF 融合） |
+| `bm25RrfK` | `BM25_RRF_K` | number | `60` | RRF 融合参数 k |
 | `indexIgnoreDirs` | `INDEX_IGNORE_DIRS` | string | dist, build, target, vendor, ... | 扫描时跳过的目录名 |
 | `ignorePatterns` | `IGNORE_PATTERNS` | string (textarea) | 空 | 自定义 gitignore 风格忽略规则 |
 | `merkleFilePath` | `MERKLE_FILE_PATH` | string | `~/.milvus-index/merkle-{name}-{hash}.json` | Merkle 状态文件路径 |
@@ -151,7 +152,7 @@
 | 对比维度 | 自建代码 RAG | dsh‑context‑milvus |
 |----------|-------------|-------------------|
 | AST 分块 | 自行集成 tree-sitter，每种语言单独配置 | 内置 10 种语言 tree-sitter 分块，自动回退到 regex |
-| 语义检索 | 自行调用 embedding 服务并调参 | 内置向量语义检索，开箱即用（BM25 融合暂未实现） |
+| 语义检索 | 自行调用 embedding 服务并调参 | 内置向量语义检索，开箱即用（BM25 关键词融合） |
 | 增量索引 | 自行实现文件哈希对比和状态管理 | 内置 Merkle 文件状态追踪，SHA-256 哈希，增量更新 |
 | 工作区隔离 | 自行处理多工作区状态冲突 | 自动基于路径哈希隔离，互不干扰 |
 | 忽略文件 | 自行实现 .gitignore 解析 | 内置三层忽略规则系统（默认 + 代码库 + 全局） |

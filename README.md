@@ -7,6 +7,7 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 - **`search_code`** — 语义搜索代码：输入自然语言查询，返回匹配的代码片段
 - **`index_code`** — 索引代码仓库：AST 解析 + 分块 → Embedding → 存储到 Milvus
 - **`index_status`** — 查看索引状态：文件数量、最后索引时间、哈希统计
+- **混合检索** — BM25 关键词 + 向量语义双路检索，RRF 融合，`hybridMode` 控制开关
 - **忽略模式系统** — 三层 gitignore 风格忽略规则（默认模式 + 代码库忽略文件 + 全局忽略文件）
 
 ## 安装到 DSH
@@ -63,6 +64,7 @@ pnpm add file:/mnt/home/bobjia/workspace/dsh-context-milvus
     indexRoot: /path/to/your/code
     indexExtensions: .ts,.tsx,.js,.py,.java,.go,.rs,.cpp,.cs,.scala,.php
     hybridMode: true
+    bm25RrfK: 60
 ```
 
 ## 配置项
@@ -80,7 +82,8 @@ pnpm add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 | `embeddingModel` | string | `nomic-embed-text` | Embedding 模型名称 |
 | `indexRoot` | string | `process.cwd()` | 代码仓库根路径 |
 | `indexExtensions` | string | *(见支持语言表)* | 索引的文件后缀 (逗号分隔) |
-| `hybridMode` | boolean | `true` | 预留开关，BM25 融合尚未实现（当前仅向量检索） |
+| `hybridMode` | boolean | `true` | 启用混合检索（BM25 全文 + 向量语义，RRF 融合） |
+| `bm25RrfK` | number | `60` | 混合检索 RRF 融合参数 k |
 | `indexIgnoreDirs` | string | *(内置默认值)* | 忽略的目录名 (逗号分隔，向后兼容) |
 | `ignorePatterns` | string | *(内置默认值)* | 自定义忽略模式 (gitignore 风格，逗号分隔) |
 | `merkleFilePath` | string | *(自动生成)* | Merkle 状态文件路径 |
@@ -100,6 +103,7 @@ export EMBEDDING_MODEL=nomic-embed-text
 export INDEX_ROOT=/path/to/code
 export INDEX_EXTENSIONS=.ts,.tsx,.js,.py,.java,.go,.rs,.cpp,.cs,.scala,.php
 export HYBRID_MODE=true
+export BM25_RRF_K=60
 export INDEX_IGNORE_DIRS=dist,build,target,__pycache__
 export IGNORE_PATTERNS=*.log,*.min.js
 export MERKLE_FILE_PATH=~/.milvus-index/merkle.json

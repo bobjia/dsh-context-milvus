@@ -45,7 +45,8 @@ pnpm add file:/mnt/home/bobjia/dsh-context-milvus
 | `embeddingModel` | string | `default` | 模型名称 |
 | `indexRoot` | string | `""` | 代码仓库根路径 |
 | `indexExtensions` | string | `""` | 文件后缀 (逗号分隔) |
-| `hybridMode` | boolean | `true` | 预留开关，BM25 融合尚未实现（当前仅向量检索） |
+| `hybridMode` | boolean | `true` | 启用混合检索（BM25 全文 + 向量语义，RRF 融合） |
+| `bm25RrfK` | number | `60` | RRF 融合参数 k |
 | `merkleFilePath` | string | `""` | Merkle 状态文件路径 |
 
 ## 环境变量 (fallback)
