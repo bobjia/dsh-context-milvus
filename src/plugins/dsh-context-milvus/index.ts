@@ -21,6 +21,7 @@
 
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
+import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { getConfig, type CordisConfig } from './config.js'
 import { MilvusService } from './milvus-service.js'
 import { HashTracker } from './merkle.js'
@@ -29,6 +30,9 @@ import { registerTools } from './tools.js'
 
 export const name = 'dsh-context-milvus'
 export const inject = ['tools']
+
+/** Settings namespace for dsh-context-milvus configuration */
+const SETTINGS_NAMESPACE = settingsNamespace('dsh-context-milvus')
 
 /**
  * Config schema for dsh-context-milvus.
@@ -116,7 +120,20 @@ export const Config = z.object({
 })
 
 export function apply(ctx: Context, config?: CordisConfig) {
-  const resolved = getConfig(config ?? {})
+  // Register settings section so DSH GUI can display the configuration panel
+  let currentConfig: CordisConfig = config ?? {}
+  installSettingsSection(ctx, SETTINGS_NAMESPACE, Config, currentConfig, {
+    setSource: (getSource) => {
+      // getSource is a thunk that returns the current config value
+      currentConfig = typeof getSource === 'function' ? getSource() : getSource
+    },
+    onChange: () => {
+      // Config changed via GUI; could reload services here if needed
+      console.log('[dsh-context-milvus] Configuration updated via settings')
+    },
+  })
+
+  const resolved = getConfig(currentConfig)
   const embeddingClient = new EmbeddingClient(resolved.embedding)
   const milvus = new MilvusService({
     address: resolved.milvusAddress,

@@ -110,7 +110,7 @@ export function registerTools(
         path: {
           type: 'string',
           description:
-            '指定要搜索的路径范围，留空则搜索整个索引库。' +
+            '指定要搜索的路径范围，留空则自动使用当前 DSH 工作区目录。' +
             '例如 "/workspace/project" 只搜索该路径下的代码。',
         },
       },
@@ -138,10 +138,12 @@ export function registerTools(
         },
       },
 
-      async execute(params: any) {
+      async execute(params: any, exec?: any) {
         const query = params.query
         const topK = params.topK ?? 5
-        const path = params.path as string | undefined
+        // Use explicit path, or the current session's workspace directory
+        const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
+        const path = params.path ?? sessionCwd ?? undefined
 
         await milvus.ensureCollection()
         return milvus.search(query, topK, path)
@@ -167,7 +169,7 @@ export function registerTools(
         path: {
           type: 'string',
           description:
-            '指定要索引的路径，留空则使用 INDEX_ROOT 环境变量配置的路径。' +
+            '指定要索引的路径，留空则自动使用当前 DSH 工作区目录。' +
             '不同路径会使用独立的 Merkle 状态文件，互不干扰。',
         },
       },
@@ -190,9 +192,11 @@ export function registerTools(
         },
       },
 
-      async execute(params: any) {
+      async execute(params: any, exec?: any) {
         const mode = (params.mode as 'full' | 'incremental' | undefined) ?? 'incremental'
-        const overridePath = params.path as string | undefined
+        // Use explicit path, or the current session's workspace directory
+        const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
+        const overridePath = params.path ?? sessionCwd ?? undefined
 
         // Create effective config with optional path override
         const effectiveConfig = overridePath
@@ -223,7 +227,7 @@ export function registerTools(
         path: {
           type: 'string',
           description:
-            '指定要查看状态的路径，留空则查看默认工作区的索引状态。' +
+            '指定要查看状态的路径，留空则自动使用当前 DSH 工作区目录。' +
             '不同路径的索引状态是独立的。',
         },
       },
@@ -252,8 +256,10 @@ export function registerTools(
         },
       },
 
-      async execute(params: any) {
-        const overridePath = params.path as string | undefined
+      async execute(params: any, exec?: any) {
+        // Use explicit path, or the current session's workspace directory
+        const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
+        const overridePath = params.path ?? sessionCwd ?? undefined
 
         // Use a workspace-specific tracker if a path is provided
         const effectiveTracker = await createTrackerForPath(config, overridePath, tracker)
