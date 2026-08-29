@@ -100,6 +100,7 @@ describe('getConfig()', () => {
     delete process.env.INDEX_ROOT
     delete process.env.INDEX_EXTENSIONS
     delete process.env.HYBRID_MODE
+    delete process.env.BM25_RRF_K
   })
 
   afterAll(() => {
@@ -138,6 +139,29 @@ describe('getConfig()', () => {
     process.env.INDEX_EXTENSIONS = '.vue,.svelte,.astro'
     const config = getConfig()
     expect(config.indexExtensions).toEqual(['.vue', '.svelte', '.astro'])
+  })
+
+  it('defaults bm25RrfK to 60', () => {
+    const config = getConfig()
+    expect(config.bm25RrfK).toBe(60)
+  })
+
+  it('reads BM25_RRF_K from environment', () => {
+    process.env.BM25_RRF_K = '30'
+    const config = getConfig()
+    expect(config.bm25RrfK).toBe(30)
+  })
+
+  it('Cordis config overrides BM25_RRF_K env', () => {
+    process.env.BM25_RRF_K = '30'
+    const config = getConfig({ bm25RrfK: 42 })
+    expect(config.bm25RrfK).toBe(42)
+  })
+
+  it('ignores invalid BM25_RRF_K and falls back to 60', () => {
+    process.env.BM25_RRF_K = 'abc'
+    const config = getConfig()
+    expect(config.bm25RrfK).toBe(60)
   })
 
   it('Cordis config overrides environment variables', () => {

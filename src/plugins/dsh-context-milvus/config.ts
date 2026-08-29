@@ -34,6 +34,8 @@ export interface CordisConfig {
   indexExtensions?: string
   /** Enable hybrid search (BM25 + vector) */
   hybridMode?: boolean
+  /** RRF 融合参数 k（越高越偏向名次，默认 60） */
+  bm25RrfK?: number
   /** Directory names to ignore during indexing (comma-separated) */
   indexIgnoreDirs?: string
   /** Custom ignore patterns (gitignore-style, comma-separated) */
@@ -53,6 +55,7 @@ export interface PluginConfig {
   indexRoot: string
   indexExtensions: string[]
   hybridMode: boolean
+  bm25RrfK: number
   indexIgnoreDirs: string[]
   ignorePatterns: string[]
   merkleFilePath: string
@@ -165,6 +168,9 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
     ? customPatternsStr.split(',').map((s) => s.trim()).filter(Boolean)
     : []
 
+  const rrfKRaw = parseInt(process.env.BM25_RRF_K ?? '', 10)
+  const bm25RrfK = overrides?.bm25RrfK ?? (!isNaN(rrfKRaw) && rrfKRaw > 0 ? rrfKRaw : 60)
+
   return {
     milvusAddress: overrides?.milvusAddress ?? process.env.MILVUS_ADDRESS ?? 'localhost:19530',
     milvusToken: overrides?.milvusToken ?? (process.env.MILVUS_TOKEN || undefined),
@@ -185,6 +191,8 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
     hybridMode: overrides?.hybridMode !== undefined
       ? overrides.hybridMode
       : process.env.HYBRID_MODE !== 'false',
+
+    bm25RrfK,
 
     merkleFilePath: overrides?.merkleFilePath ?? process.env.MERKLE_FILE_PATH ?? deriveMerkleFilePath(indexRoot),
   }

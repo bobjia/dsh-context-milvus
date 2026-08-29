@@ -93,6 +93,11 @@ export const Config = z.object({
     .default(true)
     .description('启用混合搜索模式（BM25 全文检索 + 向量语义搜索）'),
 
+  /** BM25 关键词融合 RRF 参数 */
+  bm25RrfK: z.number()
+    .default(60)
+    .description('混合检索 RRF 融合参数 k（默认 60）'),
+
   /** 跳过索引的目录名 (逗号分隔) */
   indexIgnoreDirs: z.string()
     .default('')
