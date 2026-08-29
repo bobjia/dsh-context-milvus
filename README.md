@@ -80,7 +80,7 @@ pnpm add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 | `embeddingModel` | string | `nomic-embed-text` | Embedding 模型名称 |
 | `indexRoot` | string | `process.cwd()` | 代码仓库根路径 |
 | `indexExtensions` | string | *(见支持语言表)* | 索引的文件后缀 (逗号分隔) |
-| `hybridMode` | boolean | `true` | 启用混合搜索 (BM25 + 向量) |
+| `hybridMode` | boolean | `true` | 预留开关，BM25 融合尚未实现（当前仅向量检索） |
 | `indexIgnoreDirs` | string | *(内置默认值)* | 忽略的目录名 (逗号分隔，向后兼容) |
 | `ignorePatterns` | string | *(内置默认值)* | 自定义忽略模式 (gitignore 风格，逗号分隔) |
 | `merkleFilePath` | string | *(自动生成)* | Merkle 状态文件路径 |
