@@ -22,7 +22,7 @@ npm run test:coverage
 
 This is a **DSH plugin** (DeepSeek's Cordis plugin framework) that provides semantic code search in a DSH agent environment. It indexes code into a **Milvus vector database** and searches it via natural language queries.
 
-### Plugin entry: `src/plugins/dsh-context-remdb/index.ts`
+### Plugin entry: `src/plugins/dsh-context-milvus/index.ts`
 
 The `apply()` function bootstraps all services and registers three DSH tools via `ctx.tools.register()`:
 
@@ -37,18 +37,20 @@ Each tool uses `defineTool()` from `@deepseek-ai/dsh-tools` with typed parameter
 ```
 index.ts (entry point)
   ├── config.ts     — config resolution (Cordis config > env vars > defaults)
+  │     └── DEFAULT_IGNORE_PATTERNS — built-in gitignore-style ignore rules
   ├── milvus-service.ts — Milvus vector DB client wrapper (CRUD, search)
   │     └── embedding.ts — OpenAI-compatible embedding API client
   ├── merkle.ts     — SHA-256 hash tracker for incremental indexing (persisted to JSON)
   ├── tools.ts      — DSH tool definitions, formatting, workspace-aware tracker creation
+  ├── ignore-matcher.ts — gitignore-style pattern matching for file exclusion
   └── indexer.ts    — indexing pipeline orchestration
-        └── chunker.ts — tree-sitter AST chunking (TS/JS) + regex fallback (Python/Rust/Go/Java/PHP)
-```
+        └── chunker.ts — tree-sitter AST chunking (TS/JS/Python/Java/Go/Rust/C++/C#/Scala) + regex fallback (PHP)
 
 ### Key design decisions
 
 - **Config precedence**: Cordis config (from `cordis.patch.yml`) > environment variables > defaults. All config fields have env var fallbacks; see `config.ts` for the mapping.
-- **Incremental indexing**: `HashTracker` (merkle.ts) stores SHA-256 hashes per file in a local JSON file. On each index run, it compares current hashes against stored ones to produce a delta (toIndex / toRemove / unchanged). Tree-sitter AST parsing is only used for TypeScript/JavaScript; other languages (Python, Rust, Go, Java, PHP) use a regex-based chunker that detects function/class/method boundaries.
+- **Incremental indexing**: `HashTracker` (merkle.ts) stores SHA-256 hashes per file in a local JSON file. On each index run, it compares current hashes against stored ones to produce a delta (toIndex / toRemove / unchanged). Tree-sitter AST parsing is used for TypeScript, JavaScript, Python, Java, Go, Rust, C++, C#, and Scala; PHP and other languages use a regex-based chunker that detects function/class/method boundaries.
+- **Ignore pattern system**: `IgnoreMatcher` (ignore-matcher.ts) provides gitignore-style pattern matching with three layers: built-in defaults, codebase ignore files (.gitignore, .ignore, .xxxignore), and a global `~/.context/.contextignore` file. Replaces hardcoded directory skipping in walkDirectory.
 - **Workspace isolation**: Different code paths use independent Merkle state files (derived from `deriveMerkleFilePath()` in config.ts), so indexing multiple workspaces doesn't corrupt state.
 - **Milvus collection schema**: `{id, vector, file_path, code_content, start_line, end_line, language, chunk_type, name}` with COSINE metric on the vector index. Uses `@zilliz/milvus2-sdk-node` (gRPC) for all database operations.
 - **Embedding**: The `EmbeddingClient` calls an OpenAI-compatible API. Query text is embedded locally before vector search.
@@ -60,10 +62,13 @@ index.ts (entry point)
 |----------|-----------|-----------------|
 | TypeScript | .ts, .tsx, .mts, .cts | tree-sitter |
 | JavaScript | .js, .jsx, .mjs, .cjs | tree-sitter |
-| Python | .py | regex fallback |
-| Rust | .rs | regex fallback |
-| Go | .go | regex fallback |
-| Java | .java | regex fallback |
+| Python | .py | tree-sitter |
+| Java | .java | tree-sitter |
+| Go | .go | tree-sitter |
+| Rust | .rs | tree-sitter |
+| C++ | .cpp, .cxx, .cc, .hpp, .h, .hh | tree-sitter |
+| C# | .cs | tree-sitter |
+| Scala | .scala | tree-sitter |
 | PHP | .php | regex fallback |
 
 ### Test structure
