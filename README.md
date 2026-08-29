@@ -153,32 +153,54 @@ docker run -it --rm \
 
 ## 安装到 DSH
 
-### 快速安装（DSH CLI）
+### 方式一：从本地 tarball 安装（推荐，无需额外配置）
+
+插件尚未发布到 npm 时，先在本地构建并打包，然后直接安装 tarball，完全绕过 pnpm 的构建脚本拦截：
 
 ```bash
-# 安装到 web 配置
-dsh plugin --profile web add dsh-context-milvus
+# 1. 构建
+npm run build
 
-# 或安装到自定义配置
-dsh plugin --profile <profile-name> add dsh-context-milvus
+# 2. 打包成 tarball
+pnpm pack
+
+# 3. 安装到 profile
+dsh plugin --profile web add ./dsh-context-milvus-0.1.2.tgz
 ```
 
-> 此命令会从 npm 源安装插件并自动注册到指定 profile，重启 DSH 后生效。
+> `pnpm pack` 打包的 tarball 包含编译后的 `dist/` 产物，安装时无需执行构建脚本，所以 pnpm 不会报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`。
 
-### 从 Git 安装（未发布 npm 时）
+### 方式二：从 Git 安装（需额外配置）
 
 ```bash
 dsh plugin --profile web add git+https://github.com/bobjia/dsh-context-milvus.git
 ```
 
-> `dist/` 产物不提交到 git，插件通过 `prepare` 脚本在安装时自动运行 `tsc`
-> 生成构建产物；安装端需要有可用的 TypeScript（devDependencies）。
+> `dist/` 产物不提交到 git，插件通过 `prepare` 脚本在安装时自动运行 `tsc` 生成构建产物。
 >
-> 注意：pnpm 10 默认会阻止依赖执行构建脚本。若安装报
-> `entry file missing: ./dist/plugins/dsh-context-milvus/index.js`，
-> 需要允许该依赖运行构建脚本——在 DSH 插件项目的 `pnpm-workspace.yaml` 中
-> 添加 `onlyBuiltDependencies`，或在项目目录运行 `pnpm approve-builds`
-> 并勾选 `dsh-context-milvus`，然后重新安装。
+> **pnpm 10 限制**：pnpm 10 默认会阻止依赖执行构建脚本。若安装报以下错误：
+> ```
+> ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED
+> The git-hosted package "dsh-context-milvus@0.1.2" needs to execute build scripts
+> but is not in the "onlyBuiltDependencies" allowlist.
+> ```
+> 需要在 profile 的 `pnpm-workspace.yaml` 中添加：
+> ```yaml
+> # ~/.dsh/profiles/<profile-name>/pnpm-workspace.yaml
+> onlyBuiltDependencies:
+> - dsh-context-milvus
+> ```
+> 然后重新运行安装命令。或者运行 `pnpm approve-builds` 并勾选 `dsh-context-milvus`。
+>
+> 不想让用户做这项授权，就使用方式一（tarball）或发布到 npm。
+
+### 方式三：发布到 npm 后安装
+
+待插件发布到 npm registry 后，直接通过 DSH CLI 安装：
+
+```bash
+dsh plugin --profile web add dsh-context-milvus
+```
 
 ### 配置插件
 
@@ -227,22 +249,13 @@ ln -sf /mnt/home/bobjia/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modul
 #### 3. 注册到 DSH
 
 ```bash
-# 进入 DSH 配置文件目录
-cd ~/.dsh/profiles/<profile-name>
-
-# 安装插件为本地依赖
-pnpm add file:/mnt/home/bobjia/workspace/dsh-context-milvus
+# 安装为本地依赖
+dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 ```
 
-#### 4. 添加到 bundles
+> `dsh plugin add` 会自动将插件添加到 `dsh.profile.bundles`，无需手动编辑 `package.json`。
 
-编辑 `~/.dsh/profiles/<profile-name>/package.json`，在 `dsh.profile.bundles` 数组中追加：
-
-```json
-"dsh-context-milvus"
-```
-
-#### 5. 配置插件
+#### 4. 配置插件
 
 编辑 `~/.dsh/profiles/<profile-name>/cordis.patch.yml`（同上）后重启 DSH。
 
