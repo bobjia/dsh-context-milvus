@@ -165,7 +165,7 @@ npm run build
 pnpm pack
 
 # 3. 安装到 profile
-dsh plugin --profile web add ./dsh-context-milvus-0.1.2.tgz
+dsh plugin --profile web add ./dsh-context-milvus-0.1.3.tgz
 ```
 
 > `pnpm pack` 打包的 tarball 包含编译后的 `dist/` 产物，安装时无需执行构建脚本，所以 pnpm 不会报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`。
