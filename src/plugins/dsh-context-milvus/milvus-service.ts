@@ -78,7 +78,34 @@ export class MilvusService {
 
     // Check if collection already exists
     const hasRes = await client.hasCollection({ collection_name: collection })
-    if (hasRes.value) return
+    if (hasRes.value) {
+      // Hybrid mode needs the BM25 sparse field. Detect a legacy dense-only
+      // collection and rename it so we can recreate with the hybrid schema.
+      if (this.hybridMode) {
+        const desc = await client.describeCollection({ collection_name: collection })
+        const fields = (desc?.schema?.fields ?? []) as Array<{ name: string }>
+        const hasSparse = fields.some((f) => f.name === 'sparse_vector')
+        if (!hasSparse) {
+          const legacyName = `${collection}_legacy_${Date.now()}`
+          console.log(
+            `[dsh-context-milvus] 检测到旧版纯向量集合 "${collection}"，` +
+              `已重命名为 "${legacyName}" 并重建混合索引。` +
+              `请运行 index_code(mode=full) 重新索引。`,
+          )
+          await client.renameCollection({
+            collection_name: collection,
+            new_collection_name: legacyName,
+          } as any)
+          // fall through to create the hybrid collection under the original name
+        } else {
+          this.collectionReady = true
+          return
+        }
+      } else {
+        this.collectionReady = true
+        return
+      }
+    }
 
     // Hybrid-mode fields: sparse_vector
     const hybridFields: any[] = this.hybridMode

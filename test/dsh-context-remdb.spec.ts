@@ -479,6 +479,50 @@ describe('MilvusService', () => {
         }),
       )
     })
+
+    it('renames a legacy dense-only collection and recreates hybrid', async () => {
+      mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
+      mockDescribeCollection.mockResolvedValue({
+        schema: { fields: [{ name: 'id' }, { name: 'vector' }, { name: 'code_content' }] },
+      })
+      mockRenameCollection.mockResolvedValue({ error_code: 'Success' })
+      mockCreateCollection.mockResolvedValue({ error_code: 'Success' })
+      mockCreateIndex.mockResolvedValue({ error_code: 'Success' })
+      mockLoadCollectionSync.mockResolvedValue({ error_code: 'Success' })
+
+      const service = new MilvusService({ ...defaultConfig, hybridMode: true })
+      await service.ensureCollection()
+
+      expect(mockRenameCollection).toHaveBeenCalledWith(
+        expect.objectContaining({ collection_name: 'test_collection' }),
+      )
+      const newName = (mockRenameCollection.mock.calls[0][0] as any).new_collection_name
+      expect(newName).toMatch(/^test_collection_legacy_\d+$/)
+      expect(mockCreateCollection).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not rename when the hybrid schema already exists', async () => {
+      mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
+      mockDescribeCollection.mockResolvedValue({
+        schema: { fields: [{ name: 'id' }, { name: 'sparse_vector' }] },
+      })
+
+      const service = new MilvusService({ ...defaultConfig, hybridMode: true })
+      await service.ensureCollection()
+
+      expect(mockRenameCollection).not.toHaveBeenCalled()
+      expect(mockCreateCollection).not.toHaveBeenCalled()
+    })
+
+    it('does not probe schema when hybridMode is off', async () => {
+      mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
+
+      const service = new MilvusService({ ...defaultConfig }) // hybridMode defaults false
+      await service.ensureCollection()
+
+      expect(mockDescribeCollection).not.toHaveBeenCalled()
+      expect(mockRenameCollection).not.toHaveBeenCalled()
+    })
   })
 
   describe('search()', () => {
