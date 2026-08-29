@@ -14,7 +14,8 @@ import { HashTracker, type IndexDelta } from './merkle.js'
 import { chunkCode } from './chunker.js'
 import { EmbeddingClient } from './embedding.js'
 import type { MilvusService } from './milvus-service.js'
-import { type PluginConfig } from './config.js'
+import { type PluginConfig, DEFAULT_IGNORE_PATTERNS } from './config.js'
+import { IgnoreMatcher } from './ignore-matcher.js'
 import type { CodeChunk, IndexStatus } from './types.js'
 
 /** Result of a single indexing run */
@@ -34,11 +35,10 @@ export interface IndexResult {
 async function walkDirectory(
   rootDir: string,
   extensions: string[],
-  ignoreDirs: string[],
+  ignoreMatcher: IgnoreMatcher,
   progress?: (filePath: string) => void,
 ): Promise<Map<string, string>> {
   const extSet = new Set(extensions)
-  const ignoreSet = new Set(ignoreDirs)
   const files = new Map<string, string>()
 
   async function walk(dir: string): Promise<void> {
@@ -50,12 +50,6 @@ async function walkDirectory(
     }
 
     for (const entry of entries) {
-      // Skip hidden directories, VCS dirs, node_modules, and configured ignore dirs
-      if (entry === '.git' || entry === '.hg' || entry === '.svn') continue
-      if (entry === 'node_modules') continue
-      if (entry.startsWith('.') && entry !== '.') continue
-      if (ignoreSet.has(entry)) continue
-
       const fullPath = path.join(dir, entry)
       let stats: any
       try {
@@ -63,6 +57,10 @@ async function walkDirectory(
       } catch {
         continue
       }
+
+      // Check ignore patterns
+      const relativePath = path.relative(rootDir, fullPath)
+      if (ignoreMatcher.ignores(relativePath, stats.isDirectory())) continue
 
       if (stats.isDirectory()) {
         await walk(fullPath)
@@ -85,6 +83,55 @@ async function walkDirectory(
 
   await walk(rootDir)
   return files
+}
+
+/**
+ * Find all ignore files (.gitignore, .ignore, .xxxignore) in the codebase root.
+ */
+async function findIgnoreFiles(codebasePath: string): Promise<string[]> {
+  let entries: string[]
+  try {
+    entries = await readdir(codebasePath)
+  } catch {
+    return []
+  }
+
+  const ignoreFiles: string[] = []
+  for (const entry of entries) {
+    if (entry.startsWith('.') && entry.endsWith('ignore')) {
+      ignoreFiles.push(path.join(codebasePath, entry))
+    }
+  }
+  return ignoreFiles
+}
+
+/**
+ * Read ignore patterns from a file.
+ */
+async function readIgnoreFile(filePath: string): Promise<string[]> {
+  try {
+    const content = await readFile(filePath, 'utf-8')
+    return content
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line && !line.startsWith('#'))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Load global ignore file from ~/.context/.contextignore.
+ */
+async function loadGlobalIgnoreFile(): Promise<string[]> {
+  try {
+    const homeDir = process.env.HOME || process.env.USERPROFILE || ''
+    if (!homeDir) return []
+    const globalIgnorePath = path.join(homeDir, '.context', '.contextignore')
+    return await readIgnoreFile(globalIgnorePath)
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -112,10 +159,28 @@ export async function runIndex(
 
   // 2. Walk directory
   progress('扫描代码仓库...')
+
+  // Create ignore matcher with default + custom patterns
+  const ignoreMatcher = new IgnoreMatcher([
+    ...DEFAULT_IGNORE_PATTERNS,
+    ...config.ignorePatterns,
+  ])
+
+  // Load codebase-specific ignore files
+  const ignoreFiles = await findIgnoreFiles(config.indexRoot)
+  for (const ignoreFile of ignoreFiles) {
+    const patterns = await readIgnoreFile(ignoreFile)
+    ignoreMatcher.addPatterns(patterns)
+  }
+
+  // Load global ignore file
+  const globalPatterns = await loadGlobalIgnoreFile()
+  ignoreMatcher.addPatterns(globalPatterns)
+
   const currentFiles = await walkDirectory(
     config.indexRoot,
     config.indexExtensions,
-    config.indexIgnoreDirs,
+    ignoreMatcher,
     onFileProgress,
   )
 
@@ -157,7 +222,7 @@ export async function runIndex(
         const hash = currentFiles.get(filePath) ?? HashTracker.hashContent(content)
 
         // Parse and chunk
-        const chunks = chunkCode(filePath, content, ext)
+        const chunks = await chunkCode(filePath, content, ext)
 
         if (chunks.length === 0) {
           // No chunkable structures found — still record the hash to avoid re-scanning

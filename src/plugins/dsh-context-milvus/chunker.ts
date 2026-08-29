@@ -1,8 +1,8 @@
 /**
  * Tree-sitter based code chunker with regex fallback.
  *
- * Uses tree-sitter AST for TypeScript/JavaScript (which works with the
- * installed version). For other languages (Python, Rust, Go, Java, PHP),
+ * Uses tree-sitter AST for TypeScript/JavaScript/Python/Java/Go/Rust/C++/C#/Scala
+ * (which works with the installed version). For other languages (PHP),
  * uses a regex-based fallback that detects function/class/method boundaries.
  *
  * The regex fallback is less precise than AST parsing but covers the
@@ -18,8 +18,8 @@ const require = createRequire(import.meta.url)
 
 interface LanguageDef {
   config: LanguageConfig
-  /** Load the tree-sitter Language object (may throw if incompatible) */
-  loadTs?: () => any
+  /** Load the tree-sitter Language object (sync for CJS, async for ESM packages) */
+  loadTs?: () => any | Promise<any>
 }
 
 const LANGUAGES: LanguageDef[] = [
@@ -69,6 +69,7 @@ const LANGUAGES: LanguageDef[] = [
         'decorated_definition',
       ],
     },
+    loadTs: () => require('tree-sitter-python'),
   },
   {
     config: {
@@ -86,6 +87,7 @@ const LANGUAGES: LanguageDef[] = [
         'macro_definition',
       ],
     },
+    loadTs: () => require('tree-sitter-rust'),
   },
   {
     config: {
@@ -98,6 +100,7 @@ const LANGUAGES: LanguageDef[] = [
         'type_spec',
       ],
     },
+    loadTs: () => require('tree-sitter-go'),
   },
   {
     config: {
@@ -112,6 +115,7 @@ const LANGUAGES: LanguageDef[] = [
         'record_declaration',
       ],
     },
+    loadTs: () => require('tree-sitter-java'),
   },
   {
     config: {
@@ -126,6 +130,55 @@ const LANGUAGES: LanguageDef[] = [
       ],
     },
   },
+  {
+    config: {
+      name: 'cpp',
+      extensions: ['.cpp', '.cxx', '.cc', '.hpp', '.h', '.hh'],
+      chunkNodeTypes: [
+        'function_definition',
+        'class_specifier',
+        'namespace_definition',
+        'declaration',
+        'struct_specifier',
+        'enum_specifier',
+      ],
+    },
+    loadTs: () => require('tree-sitter-cpp'),
+  },
+  {
+    config: {
+      name: 'csharp',
+      extensions: ['.cs'],
+      chunkNodeTypes: [
+        'method_declaration',
+        'class_declaration',
+        'interface_declaration',
+        'struct_declaration',
+        'enum_declaration',
+        'constructor_declaration',
+      ],
+    },
+    // tree-sitter-c-sharp is ESM-only with top-level await, so use import() instead of require()
+    loadTs: async () => {
+      const mod = await import('tree-sitter-c-sharp')
+      return mod.default || mod
+    },
+  },
+  {
+    config: {
+      name: 'scala',
+      extensions: ['.scala'],
+      chunkNodeTypes: [
+        'class_definition',
+        'function_definition',
+        'function_declaration',
+        'trait_definition',
+        'object_definition',
+        'constructor_definition',
+      ],
+    },
+    loadTs: () => require('tree-sitter-scala'),
+  },
 ]
 
 // Build extension → config map
@@ -139,15 +192,17 @@ for (const def of LANGUAGES) {
 // Parser cache
 const parserCache = new Map<string, any>()
 
-function createTsParser(def: LanguageDef): any {
+async function createTsParser(def: LanguageDef): Promise<any> {
   if (!def.loadTs) throw new Error(`No tree-sitter parser for ${def.config.name}`)
   const Parser = require('tree-sitter')
   const parser = new Parser()
-  parser.setLanguage(def.loadTs())
+  // Promise.resolve handles both sync and async loadTs
+  const lang = await Promise.resolve(def.loadTs())
+  parser.setLanguage(lang)
   return parser
 }
 
-function getParser(ext: string): any {
+async function getParser(ext: string): Promise<any> {
   let cached = parserCache.get(ext)
   if (!cached) {
     const def = EXT_MAP.get(ext)
@@ -212,10 +267,10 @@ function collectChunks(node: any, chunkTypes: Set<string>, depth: number, maxDep
   return result
 }
 
-function chunkWithTreeSitter(
+async function chunkWithTreeSitter(
   filePath: string, content: string, ext: string, def: LanguageDef,
-): CodeChunk[] {
-  const parser = getParser(ext)
+): Promise<CodeChunk[]> {
+  const parser = await getParser(ext)
   const tree = parser.parse(content)
   const root = tree.rootNode
   const chunkTypes = new Set(def.config.chunkNodeTypes)
@@ -239,7 +294,7 @@ function chunkWithTreeSitter(
     }))
 }
 
-// ── Regex-based chunking (fallback for Python, Rust, Go, Java) ─────────
+// ── Regex-based chunking (fallback for Python, Rust, Go, Java, PHP, C++, C#, Scala) ─────────
 
 // Patterns for each language
 const REGEX_PATTERNS: Record<string, RegExp[]> = {
@@ -297,9 +352,29 @@ const REGEX_PATTERNS: Record<string, RegExp[]> = {
     // enum
     /^enum\s+(\w+)/gm,
   ],
+  cpp: [
+    /^(?:(?:virtual|inline|static|const|constexpr|noexcept)\s+)*(?:\w+(?:\s*\*|\s*&)?\s+)?(\w+)\s*\(/gm,
+    /^class\s+(\w+)/gm,
+    /^struct\s+(\w+)/gm,
+    /^enum\s+(?:class\s+)?(\w+)/gm,
+    /^namespace\s+(\w+)/gm,
+  ],
+  csharp: [
+    /^(?:public|private|protected|internal)\s+(?:static\s+)?(?:async\s+)?(?:partial\s+)?(?:class|struct|interface|record)\s+(\w+)/gm,
+    /^(?:public|private|protected|internal)\s+(?:static\s+)?(?:async\s+)?(?:override\s+)?(?:\w+\s+)?(\w+)\s*\(/gm,
+    /^enum\s+(\w+)/gm,
+  ],
+  scala: [
+    /^def\s+(\w+)/gm,
+    /^class\s+(\w+)/gm,
+    /^trait\s+(\w+)/gm,
+    /^object\s+(\w+)/gm,
+    /^enum\s+(\w+)/gm,
+    /^case class\s+(\w+)/gm,
+  ],
 }
 
-/** Determine the chunk type name from a regex match context */
+/** Determine the chunk type name from a regex match context (Python, Rust, Go, Java, PHP, C++, C#, Scala) */
 function regexChunkType(language: string, match: RegExpExecArray, line: string): string {
   if (language === 'python') {
     if (/^class\s/.test(line)) return 'class_definition'
@@ -332,6 +407,28 @@ function regexChunkType(language: string, match: RegExpExecArray, line: string):
     if (/^trait\s/.test(line)) return 'trait_declaration'
     if (/^enum\s/.test(line)) return 'enum_declaration'
     return 'function_definition'
+  }
+  if (language === 'cpp') {
+    if (/^class\s/.test(line)) return 'class_specifier'
+    if (/^struct\s/.test(line)) return 'struct_specifier'
+    if (/^enum\s/.test(line)) return 'enum_specifier'
+    if (/^namespace\s/.test(line)) return 'namespace_definition'
+    return 'function_definition'
+  }
+  if (language === 'csharp') {
+    if (/^class\s/.test(line)) return 'class_declaration'
+    if (/^interface\s/.test(line)) return 'interface_declaration'
+    if (/^struct\s/.test(line)) return 'struct_declaration'
+    if (/^enum\s/.test(line)) return 'enum_declaration'
+    if (/^record\s/.test(line)) return 'record_declaration'
+    return 'method_declaration'
+  }
+  if (language === 'scala') {
+    if (/^class\s/.test(line)) return 'class_declaration'
+    if (/^trait\s/.test(line)) return 'trait_declaration'
+    if (/^object\s/.test(line)) return 'object_definition'
+    if (/^enum\s/.test(line)) return 'enum_declaration'
+    return 'method_declaration'
   }
   return 'unknown'
 }
@@ -427,14 +524,14 @@ function chunkWithRegex(
  *
  * Uses tree-sitter AST for TypeScript/JavaScript, regex fallback for others.
  */
-export function chunkCode(filePath: string, content: string, ext: string): CodeChunk[] {
+export async function chunkCode(filePath: string, content: string, ext: string): Promise<CodeChunk[]> {
   const def = EXT_MAP.get(ext.toLowerCase())
   if (!def) throw new Error(`Unsupported file extension: ${ext}`)
 
-  // Try tree-sitter first (for TypeScript/JavaScript)
+  // Try tree-sitter first
   if (hasTsParser(ext)) {
     try {
-      return chunkWithTreeSitter(filePath, content, ext, def)
+      return await chunkWithTreeSitter(filePath, content, ext, def)
     } catch {
       // Tree-sitter failed — fall through to regex
     }

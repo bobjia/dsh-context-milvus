@@ -514,7 +514,7 @@ class Greeter {
   }
 }
 `
-    const chunks = chunkCode('/tmp/test.ts', code, '.ts')
+    const chunks = await chunkCode('/tmp/test.ts', code, '.ts')
     expect(chunks.length).toBeGreaterThanOrEqual(2)
 
     const func = chunks.find((c) => c.name === 'hello')
@@ -538,7 +538,7 @@ class Greeter:
     def greet(self, name):
         return f"Hi {name}"
 `
-    const chunks = chunkCode('/tmp/test.py', code, '.py')
+    const chunks = await chunkCode('/tmp/test.py', code, '.py')
     expect(chunks.length).toBeGreaterThanOrEqual(2)
 
     const func = chunks.find((c) => c.name === 'hello')
@@ -562,12 +562,180 @@ struct User {
     name: String,
 }
 `
-    const chunks = chunkCode('/tmp/test.rs', code, '.rs')
+    const chunks = await chunkCode('/tmp/test.rs', code, '.rs')
     expect(chunks.length).toBeGreaterThanOrEqual(2)
 
     const func = chunks.find((c) => c.name === 'main')
     expect(func).toBeDefined()
     expect(func!.chunkType).toBe('function_item')
+  })
+
+  it('extracts classes and methods from Java code', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `
+public class Greeter {
+    private String name;
+
+    public Greeter(String name) {
+        this.name = name;
+    }
+
+    public String greet(String greeting) {
+        return greeting + " " + this.name;
+    }
+}
+
+interface Logger {
+    void log(String message);
+}
+`
+    const chunks = await chunkCode('/tmp/test.java', code, '.java')
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+
+    const cls = chunks.find((c) => c.name === 'Greeter')
+    expect(cls).toBeDefined()
+    expect(cls!.chunkType).toBe('class_declaration')
+
+    const method = chunks.find((c) => c.name === 'greet')
+    expect(method).toBeDefined()
+    expect(method!.chunkType).toBe('method_declaration')
+  })
+
+  it('extracts functions and types from Go code', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `
+package main
+
+func hello(name string) string {
+    return "Hello " + name
+}
+
+type User struct {
+    Name string
+    Age  int
+}
+
+func (u *User) Greet() string {
+    return "Hi " + u.Name
+}
+`
+    const chunks = await chunkCode('/tmp/test.go', code, '.go')
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+
+    const func_ = chunks.find((c) => c.name === 'hello')
+    expect(func_).toBeDefined()
+    expect(func_!.chunkType).toBe('function_declaration')
+
+    const method = chunks.find((c) => c.name === 'Greet')
+    expect(method).toBeDefined()
+    expect(method!.chunkType).toBe('method_declaration')
+  })
+
+  it('extracts functions and classes from C++ code', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `
+#include <string>
+
+class Greeter {
+private:
+    std::string name;
+
+public:
+    Greeter(const std::string& name) : name(name) {}
+
+    std::string greet(const std::string& greeting) {
+        return greeting + " " + name;
+    }
+};
+
+namespace utils {
+    int add(int a, int b) {
+        return a + b;
+    }
+}
+`
+    const chunks = await chunkCode('/tmp/test.cpp', code, '.cpp')
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+
+    const cls = chunks.find((c) => c.name === 'Greeter')
+    expect(cls).toBeDefined()
+    expect(cls!.chunkType).toBe('class_specifier')
+  })
+
+  it('extracts classes and methods from C# code', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `
+using System;
+
+namespace HelloWorld
+{
+    public class Greeter
+    {
+        private string name;
+
+        public Greeter(string name)
+        {
+            this.name = name;
+        }
+
+        public string Greet(string greeting)
+        {
+            return greeting + " " + name;
+        }
+    }
+
+    public interface ILogger
+    {
+        void Log(string message);
+    }
+}
+`
+    const chunks = await chunkCode('/tmp/test.cs', code, '.cs')
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+
+    const cls = chunks.find((c) => c.name === 'Greeter')
+    expect(cls).toBeDefined()
+    expect(cls!.chunkType).toBe('class_declaration')
+
+    const iface = chunks.find((c) => c.name === 'ILogger')
+    expect(iface).toBeDefined()
+    expect(iface!.chunkType).toBe('interface_declaration')
+  })
+
+  it('extracts classes and methods from Scala code', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `
+class Greeter(name: String) {
+    def greet(greeting: String): String = {
+        greeting + " " + name
+    }
+}
+
+trait Logger {
+    def log(message: String): Unit
+}
+
+object Main {
+    def main(args: Array[String]): Unit = {
+        println("Hello")
+    }
+}
+`
+    const chunks = await chunkCode('/tmp/test.scala', code, '.scala')
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+
+    const cls = chunks.find((c) => c.name === 'Greeter')
+    expect(cls).toBeDefined()
+    expect(cls!.chunkType).toBe('class_definition')
+
+    const trait_ = chunks.find((c) => c.name === 'Logger')
+    expect(trait_).toBeDefined()
+    expect(trait_!.chunkType).toBe('trait_definition')
   })
 
   it('extracts functions, classes, and interfaces from PHP code', async () => {
@@ -600,7 +768,7 @@ enum Status {
     case Inactive;
 }
 `
-    const chunks = chunkCode('/tmp/test.php', code, '.php')
+    const chunks = await chunkCode('/tmp/test.php', code, '.php')
     expect(chunks.length).toBeGreaterThanOrEqual(5)
 
     const func = chunks.find((c) => c.name === 'greet')
@@ -627,14 +795,14 @@ enum Status {
   it('returns empty array for code with no chunkable structures', async () => {
     const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
 
-    const chunks = chunkCode('/tmp/test.ts', 'const x = 1;', '.ts')
+    const chunks = await chunkCode('/tmp/test.ts', 'const x = 1;', '.ts')
     expect(chunks).toEqual([])
   })
 
   it('throws for unsupported extension', async () => {
     const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
 
-    expect(() => chunkCode('/tmp/test.xyz', 'some content', '.xyz')).toThrow(
+    await expect(chunkCode('/tmp/test.xyz', 'some content', '.xyz')).rejects.toThrow(
       'Unsupported file extension',
     )
   })
@@ -1327,5 +1495,70 @@ function b(): void {}
     expect(status.lastIndexed).toBeUndefined()
 
     await rm(tempDir, { recursive: true, force: true })
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════
+// IgnoreMatcher
+// ═════════════════════════════════════════════════════════════════════════
+
+describe('IgnoreMatcher', () => {
+  it('ignores node_modules directory', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['node_modules/**', 'node_modules'])
+    expect(m.ignores('node_modules/some/file.js', false)).toBe(true)
+    expect(m.ignores('node_modules', true)).toBe(true)
+  })
+
+  it('ignores .git directory', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['.git/**', '.git'])
+    expect(m.ignores('.git/HEAD', false)).toBe(true)
+    expect(m.ignores('.git', true)).toBe(true)
+  })
+
+  it('does not ignore source files', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['node_modules/**', '.git/**'])
+    expect(m.ignores('src/index.ts', false)).toBe(false)
+    expect(m.ignores('src/utils/helper.ts', false)).toBe(false)
+  })
+
+  it('ignores hidden segments', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher([])
+    expect(m.ignores('.vscode/settings.json', false)).toBe(true)
+    expect(m.ignores('.github/workflows/ci.yml', false)).toBe(true)
+  })
+
+  it('supports wildcard patterns', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['*.log', 'dist/**', '*.min.js'])
+    expect(m.ignores('app.log', false)).toBe(true)
+    expect(m.ignores('dist/bundle.js', false)).toBe(true)
+    expect(m.ignores('dist/sub/bundle.js', false)).toBe(true)
+    expect(m.ignores('app.min.js', false)).toBe(true)
+    expect(m.ignores('src/index.ts', false)).toBe(false)
+  })
+
+  it('supports dynamic addPatterns', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['node_modules/**'])
+    expect(m.ignores('src/file.ts', false)).toBe(false)
+    m.addPatterns(['*.log'])
+    expect(m.ignores('app.log', false)).toBe(true)
+  })
+
+  it('handles empty patterns', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher([])
+    expect(m.ignores('src/file.ts', false)).toBe(false)
+  })
+
+  it('ignores comment lines and empty patterns', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['# comment', '', 'node_modules/**'])
+    expect(m.ignores('node_modules/pkg/index.js', false)).toBe(true)
+    expect(m.ignores('src/main.ts', false)).toBe(false)
   })
 })
