@@ -78,50 +78,97 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 
 ---
 
+## 前置条件
+
+### 1. 安装 Ollama（Embedding 服务）
+
+```bash
+# macOS
+brew install ollama
+
+# Linux
+curl -fsSL https://ollama.com/install.sh | sh
+
+# 启动 Ollama 服务
+ollama serve
+```
+
+> 或使用任意 OpenAI 兼容的 Embedding API 服务（如 OpenAI、阿里云百炼等），通过配置 `embeddingEndpoint` 和 `embeddingApiKey` 切换。
+
+### 2. 安装 Embedding 模型
+
+```bash
+# 拉取 nomic-embed-text 模型（默认配置）
+ollama pull nomic-embed-text
+
+# 或其他支持的 Embedding 模型，如：
+ollama pull bge-m3
+ollama pull mxbai-embed-large
+```
+
+### 3. 安装 Milvus（向量数据库）
+
+**Docker 方式（推荐）：**
+
+```bash
+# 拉取并启动 Milvus 单机版
+docker run -d --name milvus \
+  -p 19530:19530 \
+  -p 9091:9091 \
+  milvusdb/milvus:latest
+
+# 验证连接
+docker ps | grep milvus
+```
+
+**Milvus 集群模式（Docker Compose）：**
+
+```bash
+# 下载 docker-compose 文件
+wget https://github.com/milvus-io/milvus/releases/latest/download/milvus-standalone-docker-compose.yml -O docker-compose.yml
+
+# 启动
+docker compose up -d
+```
+
+> 或使用 [Zilliz Cloud](https://cloud.zilliz.com) 托管版，无需自运维。
+
+### 验证安装
+
+```bash
+# 验证 Ollama
+curl http://localhost:11434/api/tags
+
+# 验证 Milvus
+docker run -it --rm \
+  -e MILVUS_URL=localhost:19530 \
+  milvusdb/milvus-sdk-node:latest \
+  node -e "const {MilvusClient} = require('@zilliz/milvus2-sdk-node'); \
+  new MilvusClient({address:'localhost:19530'}).listCollections().then(r=>console.log(r))"
+```
+
+---
+
 ## 安装到 DSH
 
-### 1. 安装依赖
+### 快速安装（DSH CLI）
 
 ```bash
-cd /mnt/home/bobjia/workspace/dsh-context-milvus
-npm install --legacy-peer-deps
+# 安装到 web 配置
+dsh plugin --profile web add dsh-context-milvus
+
+# 或安装到自定义配置
+dsh plugin --profile <profile-name> add dsh-context-milvus
 ```
 
-### 2. 创建 @deepseek-ai 包的符号链接
+> 此命令会从 npm 源安装插件并自动注册到指定 profile，重启 DSH 后生效。
 
-```bash
-# 链接 DSH 运行时的包（npm install 可能破坏这些链接）
-ln -sf /mnt/home/bobjia/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/cordis \
-  node_modules/@deepseek-ai/cordis
-ln -sf /mnt/home/bobjia/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-tools \
-  node_modules/@deepseek-ai/dsh-tools
-ln -sf /mnt/home/bobjia/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery \
-  node_modules/@deepseek-ai/schemastery
-```
+### 配置插件
 
-### 3. 注册到 DSH
-
-```bash
-# 进入 DSH 配置文件目录
-cd ~/.dsh/profiles/<profile-name>
-
-# 安装插件为本地依赖
-pnpm add file:/mnt/home/bobjia/workspace/dsh-context-milvus
-```
-
-### 4. 添加到 bundles
-
-编辑 `~/.dsh/profiles/<profile-name>/package.json`，在 `dsh.profile.bundles` 数组中追加：
-
-```json
-"dsh-context-milvus"
-```
-
-### 5. 配置插件
-
-编辑 `~/.dsh/profiles/<profile-name>/cordis.patch.yml`：
+安装后，编辑 profile 下的 `cordis.patch.yml` 配置插件参数：
 
 ```yaml
+# ~/.dsh/profiles/<profile-name>/cordis.patch.yml
 - id: dsh-context-milvus
   config:
     milvusAddress: localhost:19530
@@ -134,6 +181,53 @@ pnpm add file:/mnt/home/bobjia/workspace/dsh-context-milvus
     hybridMode: true
     bm25RrfK: 60
 ```
+
+配置完成后重启 DSH 即可使用。
+
+### 从源码构建（本地开发）
+
+如果使用本地开发版本，按以下步骤操作：
+
+#### 1. 安装依赖
+
+```bash
+cd /mnt/home/bobjia/workspace/dsh-context-milvus
+npm install --legacy-peer-deps
+```
+
+#### 2. 创建 @deepseek-ai 包的符号链接
+
+```bash
+# 链接 DSH 运行时的包（npm install 可能破坏这些链接）
+ln -sf /mnt/home/bobjia/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/cordis \
+  node_modules/@deepseek-ai/cordis
+ln -sf /mnt/home/bobjia/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-tools \
+  node_modules/@deepseek-ai/dsh-tools
+ln -sf /mnt/home/bobjia/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/schemastery \
+  node_modules/@deepseek-ai/schemastery
+```
+
+#### 3. 注册到 DSH
+
+```bash
+# 进入 DSH 配置文件目录
+cd ~/.dsh/profiles/<profile-name>
+
+# 安装插件为本地依赖
+pnpm add file:/mnt/home/bobjia/workspace/dsh-context-milvus
+```
+
+#### 4. 添加到 bundles
+
+编辑 `~/.dsh/profiles/<profile-name>/package.json`，在 `dsh.profile.bundles` 数组中追加：
+
+```json
+"dsh-context-milvus"
+```
+
+#### 5. 配置插件
+
+编辑 `~/.dsh/profiles/<profile-name>/cordis.patch.yml`（同上）后重启 DSH。
 
 ---
 
