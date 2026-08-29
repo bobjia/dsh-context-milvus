@@ -570,6 +570,174 @@ struct User {
     expect(func!.chunkType).toBe('function_item')
   })
 
+  it('extracts classes and methods from Java code', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `
+public class Greeter {
+    private String name;
+
+    public Greeter(String name) {
+        this.name = name;
+    }
+
+    public String greet(String greeting) {
+        return greeting + " " + this.name;
+    }
+}
+
+interface Logger {
+    void log(String message);
+}
+`
+    const chunks = await chunkCode('/tmp/test.java', code, '.java')
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+
+    const cls = chunks.find((c) => c.name === 'Greeter')
+    expect(cls).toBeDefined()
+    expect(cls!.chunkType).toBe('class_declaration')
+
+    const method = chunks.find((c) => c.name === 'greet')
+    expect(method).toBeDefined()
+    expect(method!.chunkType).toBe('method_declaration')
+  })
+
+  it('extracts functions and types from Go code', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `
+package main
+
+func hello(name string) string {
+    return "Hello " + name
+}
+
+type User struct {
+    Name string
+    Age  int
+}
+
+func (u *User) Greet() string {
+    return "Hi " + u.Name
+}
+`
+    const chunks = await chunkCode('/tmp/test.go', code, '.go')
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+
+    const func_ = chunks.find((c) => c.name === 'hello')
+    expect(func_).toBeDefined()
+    expect(func_!.chunkType).toBe('function_declaration')
+
+    const method = chunks.find((c) => c.name === 'Greet')
+    expect(method).toBeDefined()
+    expect(method!.chunkType).toBe('method_declaration')
+  })
+
+  it('extracts functions and classes from C++ code', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `
+#include <string>
+
+class Greeter {
+private:
+    std::string name;
+
+public:
+    Greeter(const std::string& name) : name(name) {}
+
+    std::string greet(const std::string& greeting) {
+        return greeting + " " + name;
+    }
+};
+
+namespace utils {
+    int add(int a, int b) {
+        return a + b;
+    }
+}
+`
+    const chunks = await chunkCode('/tmp/test.cpp', code, '.cpp')
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+
+    const cls = chunks.find((c) => c.name === 'Greeter')
+    expect(cls).toBeDefined()
+    expect(cls!.chunkType).toBe('class_specifier')
+  })
+
+  it('extracts classes and methods from C# code', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `
+using System;
+
+namespace HelloWorld
+{
+    public class Greeter
+    {
+        private string name;
+
+        public Greeter(string name)
+        {
+            this.name = name;
+        }
+
+        public string Greet(string greeting)
+        {
+            return greeting + " " + name;
+        }
+    }
+
+    public interface ILogger
+    {
+        void Log(string message);
+    }
+}
+`
+    const chunks = await chunkCode('/tmp/test.cs', code, '.cs')
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+
+    const cls = chunks.find((c) => c.name === 'Greeter')
+    expect(cls).toBeDefined()
+    expect(cls!.chunkType).toBe('class_declaration')
+
+    const iface = chunks.find((c) => c.name === 'ILogger')
+    expect(iface).toBeDefined()
+    expect(iface!.chunkType).toBe('interface_declaration')
+  })
+
+  it('extracts classes and methods from Scala code', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `
+class Greeter(name: String) {
+    def greet(greeting: String): String = {
+        greeting + " " + name
+    }
+}
+
+trait Logger {
+    def log(message: String): Unit
+}
+
+object Main {
+    def main(args: Array[String]): Unit = {
+        println("Hello")
+    }
+}
+`
+    const chunks = await chunkCode('/tmp/test.scala', code, '.scala')
+    expect(chunks.length).toBeGreaterThanOrEqual(2)
+
+    const cls = chunks.find((c) => c.name === 'Greeter')
+    expect(cls).toBeDefined()
+    expect(cls!.chunkType).toBe('class_definition')
+
+    const trait_ = chunks.find((c) => c.name === 'Logger')
+    expect(trait_).toBeDefined()
+    expect(trait_!.chunkType).toBe('trait_definition')
+  })
+
   it('extracts functions, classes, and interfaces from PHP code', async () => {
     const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
 
