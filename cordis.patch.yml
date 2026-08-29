@@ -1,4 +1,4 @@
-# dsh-context-remdb bundle patch: inserts the plugin into a profile's layer stack.
+# dsh-context-milvus bundle patch: inserts the plugin into a profile's layer stack.
 - insert:
-    - id: dsh-context-remdb
-      name: 'dsh-context-remdb'
+    - id: dsh-context-milvus
+      name: 'dsh-context-milvus'

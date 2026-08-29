@@ -2,8 +2,8 @@
  * Tree-sitter based code chunker with regex fallback.
  *
  * Uses tree-sitter AST for TypeScript/JavaScript (which works with the
- * installed version). For other languages (Python, Rust, Go, Java), uses
- * a regex-based fallback that detects function/class/method boundaries.
+ * installed version). For other languages (Python, Rust, Go, Java, PHP),
+ * uses a regex-based fallback that detects function/class/method boundaries.
  *
  * The regex fallback is less precise than AST parsing but covers the
  * most common patterns in each language.
@@ -110,6 +110,19 @@ const LANGUAGES: LanguageDef[] = [
         'method_declaration',
         'constructor_declaration',
         'record_declaration',
+      ],
+    },
+  },
+  {
+    config: {
+      name: 'php',
+      extensions: ['.php'],
+      chunkNodeTypes: [
+        'function_definition',
+        'class_declaration',
+        'interface_declaration',
+        'trait_declaration',
+        'enum_declaration',
       ],
     },
   },
@@ -272,6 +285,18 @@ const REGEX_PATTERNS: Record<string, RegExp[]> = {
     // method
     /^(?:public|private|protected)\s+(?:static\s+)?(?:\w+)\s+(\w+)\s*\(/gm,
   ],
+  php: [
+    // function (including public, private, protected, static, abstract)
+    /^(?:(?:public|protected|private)\s+)?(?:static\s+)?(?:abstract\s+)?function\s+(?:\&\s*)?(\w+)\s*\(/gm,
+    // class (including abstract, final, readonly)
+    /^(?:abstract\s+|final\s+|readonly\s+)?class\s+(\w+)/gm,
+    // interface
+    /^interface\s+(\w+)/gm,
+    // trait
+    /^trait\s+(\w+)/gm,
+    // enum
+    /^enum\s+(\w+)/gm,
+  ],
 }
 
 /** Determine the chunk type name from a regex match context */
@@ -300,6 +325,13 @@ function regexChunkType(language: string, match: RegExpExecArray, line: string):
     if (/^enum\s/.test(line)) return 'enum_declaration'
     if (/^record\s/.test(line)) return 'record_declaration'
     return 'method_declaration'
+  }
+  if (language === 'php') {
+    if (/^class\s/.test(line)) return 'class_declaration'
+    if (/^interface\s/.test(line)) return 'interface_declaration'
+    if (/^trait\s/.test(line)) return 'trait_declaration'
+    if (/^enum\s/.test(line)) return 'enum_declaration'
+    return 'function_definition'
   }
   return 'unknown'
 }

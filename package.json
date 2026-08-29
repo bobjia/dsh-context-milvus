@@ -1,15 +1,15 @@
 {
-  "name": "dsh-context-remdb",
+  "name": "dsh-context-milvus",
   "version": "0.1.0",
-  "description": "DSH plugin for semantic code search via RemDB vector database",
+  "description": "DSH plugin for semantic code search via Milvus vector database",
   "private": true,
   "type": "module",
-  "main": "dist/plugins/dsh-context-remdb/index.js",
-  "types": "dist/plugins/dsh-context-remdb/index.d.ts",
+  "main": "dist/plugins/dsh-context-milvus/index.js",
+  "types": "dist/plugins/dsh-context-milvus/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/plugins/dsh-context-remdb/index.d.ts",
-      "default": "./dist/plugins/dsh-context-remdb/index.js"
+      "types": "./dist/plugins/dsh-context-milvus/index.d.ts",
+      "default": "./dist/plugins/dsh-context-milvus/index.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
@@ -26,7 +26,7 @@
     "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage"
   },
   "dependencies": {
-    "remdb-sdk-node": "file:../remdb-sdk-node",
+    "@zilliz/milvus2-sdk-node": "^3.0.4",
     "tree-sitter": "^0.25.1",
     "tree-sitter-go": "^0.25.0",
     "tree-sitter-java": "^0.23.5",

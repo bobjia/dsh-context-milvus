@@ -1,7 +1,7 @@
 /**
- * dsh-context-remdb tests
+ * dsh-context-milvus tests
  *
- * Covers: config, merkle, chunker, embedding, remdb-service, and formatting helpers.
+ * Covers: config, merkle, chunker, embedding, milvus-service, and formatting helpers.
  * Uses jest.unstable_mockModule for ESM compatibility.
  */
 
@@ -12,23 +12,63 @@ import { tmpdir } from 'node:os'
 import { existsSync, mkdirSync } from 'node:fs'
 
 // ═════════════════════════════════════════════════════════════════════════
-// Mock remdb-sdk-node
+// Mock @zilliz/milvus2-sdk-node
 // ═════════════════════════════════════════════════════════════════════════
 
+const mockConnectPromise = Promise.resolve()
 const mockHasCollection = jest.fn()
 const mockCreateCollection = jest.fn()
+const mockCreateIndex = jest.fn()
+const mockLoadCollectionSync = jest.fn()
 const mockInsert = jest.fn()
 const mockDelete = jest.fn()
 const mockSearch = jest.fn()
 
-jest.unstable_mockModule('remdb-sdk-node', () => ({
-  RemDbClient: jest.fn(() => ({
+jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
+  MilvusClient: jest.fn(() => ({
+    connectPromise: mockConnectPromise,
     hasCollection: mockHasCollection,
     createCollection: mockCreateCollection,
+    createIndex: mockCreateIndex,
+    loadCollectionSync: mockLoadCollectionSync,
     insert: mockInsert,
     delete: mockDelete,
     search: mockSearch,
   })),
+  DataType: {
+    None: 0,
+    Bool: 1,
+    Int8: 2,
+    Int16: 3,
+    Int32: 4,
+    Int64: 5,
+    Float: 10,
+    Double: 11,
+    VarChar: 21,
+    Array: 22,
+    JSON: 23,
+    Geometry: 24,
+    Text: 25,
+    Timestamptz: 26,
+    BinaryVector: 100,
+    FloatVector: 101,
+    Float16Vector: 102,
+    BFloat16Vector: 103,
+    SparseFloatVector: 104,
+    Int8Vector: 105,
+    ArrayOfVector: 106,
+    Struct: 201,
+  },
+  MetricType: {
+    L2: 'L2',
+    IP: 'IP',
+    COSINE: 'COSINE',
+  },
+  ErrorCode: {
+    SUCCESS: 'Success',
+    IndexNotExist: 'IndexNotExist',
+    UnexpectedError: 'UnexpectedError',
+  },
 }))
 
 // Helper to create a mock EmbeddingClient
@@ -37,11 +77,11 @@ function mockEmbeddingClient(vectors: number[][] = [[0.1, 0.2, 0.3]]): any {
 }
 
 // Dynamic imports after mocking
-const { getConfig } = await import('../src/plugins/dsh-context-remdb/config.js')
-const { HashTracker } = await import('../src/plugins/dsh-context-remdb/merkle.js')
-const { RemDbService } = await import('../src/plugins/dsh-context-remdb/remdb-service.js')
-const { EmbeddingClient } = await import('../src/plugins/dsh-context-remdb/embedding.js')
-const { runIndex, getIndexStatus } = await import('../src/plugins/dsh-context-remdb/indexer.js')
+const { getConfig } = await import('../src/plugins/dsh-context-milvus/config.js')
+const { HashTracker } = await import('../src/plugins/dsh-context-milvus/merkle.js')
+const { MilvusService } = await import('../src/plugins/dsh-context-milvus/milvus-service.js')
+const { EmbeddingClient } = await import('../src/plugins/dsh-context-milvus/embedding.js')
+const { runIndex, getIndexStatus } = await import('../src/plugins/dsh-context-milvus/indexer.js')
 
 // ═════════════════════════════════════════════════════════════════════════
 // getConfig
@@ -53,10 +93,10 @@ describe('getConfig()', () => {
   beforeEach(() => {
     jest.resetModules()
     process.env = { ...OLD_ENV }
-    delete process.env.REMDB_ENDPOINT
-    delete process.env.REMDB_TOKEN
-    delete process.env.REMDB_COLLECTION
-    delete process.env.REMDB_EMBEDDING_DIM
+    delete process.env.MILVUS_ADDRESS
+    delete process.env.MILVUS_TOKEN
+    delete process.env.MILVUS_COLLECTION
+    delete process.env.MILVUS_EMBEDDING_DIM
     delete process.env.INDEX_ROOT
     delete process.env.INDEX_EXTENSIONS
     delete process.env.HYBRID_MODE
@@ -68,26 +108,29 @@ describe('getConfig()', () => {
 
   it('returns default values when no env vars are set', () => {
     const config = getConfig()
-    expect(config.remdbEndpoint).toBe('http://localhost:19530')
-    expect(config.remdbToken).toBeUndefined()
-    expect(config.remdbCollection).toBe('code_embeddings')
-    expect(config.remdbDim).toBe(768)
+    expect(config.milvusAddress).toBe('localhost:19530')
+    expect(config.milvusToken).toBeUndefined()
+    expect(config.milvusCollection).toBe('code_embeddings')
+    expect(config.milvusDim).toBe(768)
     expect(config.hybridMode).toBe(true)
     expect(config.indexExtensions.length).toBeGreaterThan(0)
+    expect(config.embedding.endpoint).toBe('http://localhost:11434/api/embed')
+    expect(config.embedding.model).toBe('nomic-embed-text')
+    expect(config.embedding.dim).toBe(768)
   })
 
   it('reads values from environment variables', () => {
-    process.env.REMDB_ENDPOINT = 'http://custom:19530'
-    process.env.REMDB_TOKEN = 'my-token'
-    process.env.REMDB_COLLECTION = 'my_codes'
-    process.env.REMDB_EMBEDDING_DIM = '1024'
+    process.env.MILVUS_ADDRESS = 'custom:19530'
+    process.env.MILVUS_TOKEN = 'my-token'
+    process.env.MILVUS_COLLECTION = 'my_codes'
+    process.env.MILVUS_EMBEDDING_DIM = '1024'
     process.env.HYBRID_MODE = 'false'
 
     const config = getConfig()
-    expect(config.remdbEndpoint).toBe('http://custom:19530')
-    expect(config.remdbToken).toBe('my-token')
-    expect(config.remdbCollection).toBe('my_codes')
-    expect(config.remdbDim).toBe(1024)
+    expect(config.milvusAddress).toBe('custom:19530')
+    expect(config.milvusToken).toBe('my-token')
+    expect(config.milvusCollection).toBe('my_codes')
+    expect(config.milvusDim).toBe(1024)
     expect(config.hybridMode).toBe(false)
   })
 
@@ -98,27 +141,27 @@ describe('getConfig()', () => {
   })
 
   it('Cordis config overrides environment variables', () => {
-    process.env.REMDB_ENDPOINT = 'http://env:19530'
-    process.env.REMDB_COLLECTION = 'env_collection'
+    process.env.MILVUS_ADDRESS = 'env:19530'
+    process.env.MILVUS_COLLECTION = 'env_collection'
 
     const config = getConfig({
-      remdbEndpoint: 'http://config:19530',
-      remdbCollection: 'config_collection',
+      milvusAddress: 'config:19530',
+      milvusCollection: 'config_collection',
     })
 
-    expect(config.remdbEndpoint).toBe('http://config:19530')
-    expect(config.remdbCollection).toBe('config_collection')
+    expect(config.milvusAddress).toBe('config:19530')
+    expect(config.milvusCollection).toBe('config_collection')
   })
 
   it('merges partial Cordis config with env var defaults', () => {
-    process.env.REMDB_ENDPOINT = 'http://env:19530'
+    process.env.MILVUS_ADDRESS = 'env:19530'
 
     const config = getConfig({
-      remdbCollection: 'custom_collection',
+      milvusCollection: 'custom_collection',
     })
 
-    expect(config.remdbEndpoint).toBe('http://env:19530') // from env
-    expect(config.remdbCollection).toBe('custom_collection') // from config
+    expect(config.milvusAddress).toBe('env:19530') // from env
+    expect(config.milvusCollection).toBe('custom_collection') // from config
   })
 })
 
@@ -131,7 +174,7 @@ describe('HashTracker', () => {
   let tracker: HashTracker
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(path.join(tmpdir(), 'remdb-test-'))
+    tempDir = await mkdtemp(path.join(tmpdir(), 'milvus-test-'))
     tracker = new HashTracker(path.join(tempDir, 'merkle.json'))
   })
 
@@ -250,6 +293,30 @@ describe('EmbeddingClient', () => {
     expect(vectors[1]).toEqual([0.4, 0.5, 0.6])
   })
 
+  it('returns embeddings from Ollama API', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        model: 'nomic-embed-text',
+        embeddings: [
+          [0.1, 0.2, 0.3],
+          [0.4, 0.5, 0.6],
+        ],
+      }),
+    })
+
+    const client = new EmbeddingClient({
+      endpoint: 'http://localhost:11434/api/embed',
+      model: 'nomic-embed-text',
+      dim: 768,
+    })
+
+    const vectors = await client.embed(['hello', 'world'])
+    expect(vectors).toHaveLength(2)
+    expect(vectors[0]).toEqual([0.1, 0.2, 0.3])
+    expect(vectors[1]).toEqual([0.4, 0.5, 0.6])
+  })
+
   it('returns empty array for empty input', async () => {
     const client = new EmbeddingClient({
       endpoint: 'http://localhost:19530/v2/vectordb/embedding',
@@ -279,12 +346,12 @@ describe('EmbeddingClient', () => {
 })
 
 // ═════════════════════════════════════════════════════════════════════════
-// RemDbService
+// MilvusService
 // ═════════════════════════════════════════════════════════════════════════
 
-describe('RemDbService', () => {
+describe('MilvusService', () => {
   const defaultConfig = {
-    endpoint: 'http://localhost:19530',
+    address: 'localhost:19530',
     token: undefined as string | undefined,
     collection: 'test_collection',
     dim: 768,
@@ -294,6 +361,8 @@ describe('RemDbService', () => {
   beforeEach(() => {
     mockHasCollection.mockReset()
     mockCreateCollection.mockReset()
+    mockCreateIndex.mockReset()
+    mockLoadCollectionSync.mockReset()
     mockInsert.mockReset()
     mockDelete.mockReset()
     mockSearch.mockReset()
@@ -301,58 +370,75 @@ describe('RemDbService', () => {
 
   describe('ensureCollection()', () => {
     it('does nothing when the collection already exists', async () => {
-      mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
+      mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
 
-      const service = new RemDbService(defaultConfig)
+      const service = new MilvusService(defaultConfig)
       await service.ensureCollection()
 
-      expect(mockHasCollection).toHaveBeenCalledWith({ collectionName: 'test_collection' })
+      expect(mockHasCollection).toHaveBeenCalledWith({ collection_name: 'test_collection' })
       expect(mockCreateCollection).not.toHaveBeenCalled()
+      expect(mockCreateIndex).not.toHaveBeenCalled()
+      expect(mockLoadCollectionSync).not.toHaveBeenCalled()
     })
 
     it('creates collection when it does not exist', async () => {
-      mockHasCollection.mockResolvedValue({ code: 0, data: { has: false } })
-      mockCreateCollection.mockResolvedValue({ code: 0 })
+      mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: false })
+      mockCreateCollection.mockResolvedValue({ error_code: 'Success' })
+      mockCreateIndex.mockResolvedValue({ error_code: 'Success' })
+      mockLoadCollectionSync.mockResolvedValue({ error_code: 'Success' })
 
-      const service = new RemDbService(defaultConfig)
+      const service = new MilvusService(defaultConfig)
       await service.ensureCollection()
 
       expect(mockCreateCollection).toHaveBeenCalledTimes(1)
       const callArgs = (mockCreateCollection.mock.calls[0] as any[])[0] as any
-      expect(callArgs.collectionName).toBe('test_collection')
-      expect(callArgs.indexParams[0].metricType).toBe('COSINE')
+      expect(callArgs.collection_name).toBe('test_collection')
+      // Verify fields include vector field with correct dimension
+      const vectorField = callArgs.fields.find((f: any) => f.name === 'vector')
+      expect(vectorField).toBeDefined()
+      expect(vectorField.dim).toBe(768)
+
+      expect(mockCreateIndex).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collection_name: 'test_collection',
+          field_name: 'vector',
+          metric_type: 'COSINE',
+        }),
+      )
+      expect(mockLoadCollectionSync).toHaveBeenCalledWith({
+        collection_name: 'test_collection',
+      })
     })
   })
 
   describe('search()', () => {
     it('returns formatted results', async () => {
       mockSearch.mockResolvedValue({
-        code: 0,
-        data: [
+        results: [
           {
-            id: 1,
-            distance: 0.1,
-            entity: {
-              file_path: 'src/auth.ts',
-              code_content: 'export function login() {}',
-              start_line: 42,
-              end_line: 45,
-              language: 'typescript',
-              chunk_type: 'function_declaration',
-              name: 'login',
-            },
+            score: 0.9,
+            id: '1',
+            file_path: 'src/auth.ts',
+            code_content: 'export function login() {}',
+            start_line: 42,
+            end_line: 45,
+            language: 'typescript',
+            chunk_type: 'function_declaration',
+            name: 'login',
           },
         ],
+        recalls: [],
+        session_ts: 0,
+        collection_name: 'test_collection',
       })
 
-      const service = new RemDbService(defaultConfig)
+      const service = new MilvusService(defaultConfig)
       const results = await service.search('login', 5)
 
       // The search method should first embed the query, then call client.search()
       expect(mockSearch).toHaveBeenCalledWith(
         expect.objectContaining({
-          collectionName: 'test_collection',
-          vector: [0.1, 0.2, 0.3],
+          collection_name: 'test_collection',
           limit: 5,
         }),
       )
@@ -365,9 +451,9 @@ describe('RemDbService', () => {
 
   describe('insertChunks()', () => {
     it('inserts chunks in batches', async () => {
-      mockInsert.mockResolvedValue({ code: 0, data: { insertCount: 1 } })
+      mockInsert.mockResolvedValue({ insert_cnt: '1', succ_index: [0], err_index: [] })
 
-      const service = new RemDbService(defaultConfig)
+      const service = new MilvusService(defaultConfig)
       const count = await service.insertChunks([
         {
           filePath: 'src/test.ts',
@@ -386,7 +472,7 @@ describe('RemDbService', () => {
     })
 
     it('returns 0 for empty input', async () => {
-      const service = new RemDbService(defaultConfig)
+      const service = new MilvusService(defaultConfig)
       const count = await service.insertChunks([])
       expect(count).toBe(0)
       expect(mockInsert).not.toHaveBeenCalled()
@@ -395,14 +481,14 @@ describe('RemDbService', () => {
 
   describe('deleteByFilePath()', () => {
     it('deletes by file path filter', async () => {
-      mockDelete.mockResolvedValue({ code: 0, data: { deleteCount: 3 } })
+      mockDelete.mockResolvedValue({ delete_cnt: '3', succ_index: [0], err_index: [] })
 
-      const service = new RemDbService(defaultConfig)
+      const service = new MilvusService(defaultConfig)
       const count = await service.deleteByFilePath('src/test.ts')
 
       expect(count).toBe(3)
       expect(mockDelete).toHaveBeenCalledWith({
-        collectionName: 'test_collection',
+        collection_name: 'test_collection',
         filter: 'file_path == "src/test.ts"',
       })
     })
@@ -415,7 +501,7 @@ describe('RemDbService', () => {
 
 describe('chunkCode (tree-sitter)', () => {
   it('extracts functions from TypeScript code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-remdb/chunker.js')
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
 
     const code = `
 function hello(name: string): string {
@@ -442,7 +528,7 @@ class Greeter {
   })
 
   it('extracts functions from Python code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-remdb/chunker.js')
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
 
     const code = `
 def hello(name):
@@ -465,7 +551,7 @@ class Greeter:
   })
 
   it('extracts functions from Rust code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-remdb/chunker.js')
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
 
     const code = `
 fn main() {
@@ -484,17 +570,71 @@ struct User {
     expect(func!.chunkType).toBe('function_item')
   })
 
+  it('extracts functions, classes, and interfaces from PHP code', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `<?php
+
+function greet(string $name): string {
+    return "Hello " . $name;
+}
+
+class Greeter {
+    public function sayHello(string $name): string {
+        return "Hi " . $name;
+    }
+}
+
+interface Logger {
+    public function log(string $message): void;
+}
+
+trait Loggable {
+    public function log(string $message): void {
+        echo $message;
+    }
+}
+
+enum Status {
+    case Active;
+    case Inactive;
+}
+`
+    const chunks = chunkCode('/tmp/test.php', code, '.php')
+    expect(chunks.length).toBeGreaterThanOrEqual(5)
+
+    const func = chunks.find((c) => c.name === 'greet')
+    expect(func).toBeDefined()
+    expect(func!.chunkType).toBe('function_definition')
+
+    const cls = chunks.find((c) => c.name === 'Greeter')
+    expect(cls).toBeDefined()
+    expect(cls!.chunkType).toBe('class_declaration')
+
+    const iface = chunks.find((c) => c.name === 'Logger')
+    expect(iface).toBeDefined()
+    expect(iface!.chunkType).toBe('interface_declaration')
+
+    const trait = chunks.find((c) => c.name === 'Loggable')
+    expect(trait).toBeDefined()
+    expect(trait!.chunkType).toBe('trait_declaration')
+
+    const enumType = chunks.find((c) => c.name === 'Status')
+    expect(enumType).toBeDefined()
+    expect(enumType!.chunkType).toBe('enum_declaration')
+  })
+
   it('returns empty array for code with no chunkable structures', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-remdb/chunker.js')
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
 
     const chunks = chunkCode('/tmp/test.ts', 'const x = 1;', '.ts')
     expect(chunks).toEqual([])
   })
 
   it('throws for unsupported extension', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-remdb/chunker.js')
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
 
-    expect(() => chunkCode('/tmp/test.php', '<?php echo "hi";', '.php')).toThrow(
+    expect(() => chunkCode('/tmp/test.xyz', 'some content', '.xyz')).toThrow(
       'Unsupported file extension',
     )
   })
@@ -559,6 +699,8 @@ describe('runIndex()', () => {
   beforeEach(() => {
     mockHasCollection.mockReset()
     mockCreateCollection.mockReset()
+    mockCreateIndex.mockReset()
+    mockLoadCollectionSync.mockReset()
     mockInsert.mockReset()
     mockDelete.mockReset()
     mockSearch.mockReset()
@@ -580,11 +722,11 @@ function add(a: number, b: number): number {
 `,
     })
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
-    mockInsert.mockResolvedValue({ code: 0, data: { insertCount: 1 } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
+    mockInsert.mockResolvedValue({ insert_cnt: '1', succ_index: [0], err_index: [] })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -599,7 +741,7 @@ function add(a: number, b: number): number {
     })
 
     const errors: string[] = []
-    const result = await runIndex(config, remdb, tracker, {
+    const result = await runIndex(config, milvus, tracker, {
       mode: 'full',
       progress: (msg: string) => {
         if (msg.includes('失败')) errors.push(msg)
@@ -626,11 +768,11 @@ function hello(): void {
 `,
     })
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
-    mockInsert.mockResolvedValue({ code: 0, data: { insertCount: 1 } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
+    mockInsert.mockResolvedValue({ insert_cnt: '1', succ_index: [0], err_index: [] })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -644,10 +786,10 @@ function hello(): void {
       merkleFilePath: path.join(tempDir, '.merkle.json'),
     })
 
-    const result1 = await runIndex(config, remdb, tracker, { mode: 'full' })
+    const result1 = await runIndex(config, milvus, tracker, { mode: 'full' })
     expect(result1.filesIndexed).toBe(1)
 
-    const result2 = await runIndex(config, remdb, tracker, { mode: 'full' })
+    const result2 = await runIndex(config, milvus, tracker, { mode: 'full' })
     expect(result2.filesIndexed).toBe(1)
     expect(result2.filesSkipped).toBe(0)
 
@@ -672,11 +814,11 @@ fn compute(x: i32) -> i32 {
 `,
     })
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
-    mockInsert.mockResolvedValue({ code: 0, data: { insertCount: 1 } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
+    mockInsert.mockResolvedValue({ insert_cnt: '1', succ_index: [0], err_index: [] })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -691,7 +833,7 @@ fn compute(x: i32) -> i32 {
     })
 
     const errors: string[] = []
-    const result = await runIndex(config, remdb, tracker, {
+    const result = await runIndex(config, milvus, tracker, {
       mode: 'full',
       progress: (msg: string) => {
         if (msg.includes('失败')) errors.push(msg)
@@ -716,12 +858,12 @@ function run(): void {
 `,
     })
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
-    mockInsert.mockResolvedValue({ code: 0, data: { insertCount: 1 } })
-    mockDelete.mockResolvedValue({ code: 0, data: { deleteCount: 1 } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
+    mockInsert.mockResolvedValue({ insert_cnt: '1', succ_index: [0], err_index: [] })
+    mockDelete.mockResolvedValue({ delete_cnt: '1', succ_index: [0], err_index: [] })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -736,7 +878,7 @@ function run(): void {
     })
 
     const errors: string[] = []
-    const result = await runIndex(config, remdb, tracker, {
+    const result = await runIndex(config, milvus, tracker, {
       mode: 'incremental',
       progress: (msg: string) => {
         if (msg.includes('失败')) errors.push(msg)
@@ -760,12 +902,12 @@ function stable(): string {
 `,
     })
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
-    mockInsert.mockResolvedValue({ code: 0, data: { insertCount: 1 } })
-    mockDelete.mockResolvedValue({ code: 0, data: { deleteCount: 1 } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
+    mockInsert.mockResolvedValue({ insert_cnt: '1', succ_index: [0], err_index: [] })
+    mockDelete.mockResolvedValue({ delete_cnt: '1', succ_index: [0], err_index: [] })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -779,12 +921,12 @@ function stable(): string {
       merkleFilePath: path.join(tempDir, '.merkle.json'),
     })
 
-    const result1 = await runIndex(config, remdb, tracker, {
+    const result1 = await runIndex(config, milvus, tracker, {
       mode: 'incremental',
     })
     expect(result1.filesIndexed).toBe(1)
 
-    const result2 = await runIndex(config, remdb, tracker, {
+    const result2 = await runIndex(config, milvus, tracker, {
       mode: 'incremental',
     })
     expect(result2.filesIndexed).toBe(0)
@@ -804,12 +946,12 @@ function original(): string {
 `,
     })
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
-    mockInsert.mockResolvedValue({ code: 0, data: { insertCount: 1 } })
-    mockDelete.mockResolvedValue({ code: 0, data: { deleteCount: 1 } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
+    mockInsert.mockResolvedValue({ insert_cnt: '1', succ_index: [0], err_index: [] })
+    mockDelete.mockResolvedValue({ delete_cnt: '1', succ_index: [0], err_index: [] })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -823,7 +965,7 @@ function original(): string {
       merkleFilePath: path.join(tempDir, '.merkle.json'),
     })
 
-    const result1 = await runIndex(config, remdb, tracker, {
+    const result1 = await runIndex(config, milvus, tracker, {
       mode: 'incremental',
     })
     expect(result1.filesIndexed).toBe(1)
@@ -839,11 +981,11 @@ function updated(): string {
     )
 
     mockInsert.mockClear()
-    mockInsert.mockResolvedValue({ code: 0, data: { insertCount: 1 } })
+    mockInsert.mockResolvedValue({ insert_cnt: '1', succ_index: [0], err_index: [] })
     mockDelete.mockClear()
-    mockDelete.mockResolvedValue({ code: 0, data: { deleteCount: 1 } })
+    mockDelete.mockResolvedValue({ delete_cnt: '1', succ_index: [0], err_index: [] })
 
-    const result2 = await runIndex(config, remdb, tracker, {
+    const result2 = await runIndex(config, milvus, tracker, {
       mode: 'incremental',
     })
     expect(result2.filesIndexed).toBe(1)
@@ -868,12 +1010,12 @@ function remove(): string {
 `,
     })
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
-    mockInsert.mockResolvedValue({ code: 0, data: { insertCount: 1 } })
-    mockDelete.mockResolvedValue({ code: 0, data: { deleteCount: 1 } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
+    mockInsert.mockResolvedValue({ insert_cnt: '1', succ_index: [0], err_index: [] })
+    mockDelete.mockResolvedValue({ delete_cnt: '1', succ_index: [0], err_index: [] })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -887,7 +1029,7 @@ function remove(): string {
       merkleFilePath: path.join(tempDir, '.merkle.json'),
     })
 
-    const result1 = await runIndex(config, remdb, tracker, {
+    const result1 = await runIndex(config, milvus, tracker, {
       mode: 'incremental',
     })
     expect(result1.filesIndexed).toBe(2)
@@ -895,10 +1037,10 @@ function remove(): string {
     await rm(path.join(tempDir, 'remove.ts'))
 
     mockInsert.mockClear()
-    mockInsert.mockResolvedValue({ code: 0, data: { insertCount: 1 } })
+    mockInsert.mockResolvedValue({ insert_cnt: '1', succ_index: [0], err_index: [] })
     mockDelete.mockClear()
 
-    const result2 = await runIndex(config, remdb, tracker, {
+    const result2 = await runIndex(config, milvus, tracker, {
       mode: 'incremental',
     })
     expect(result2.filesIndexed).toBe(0)
@@ -915,10 +1057,10 @@ function remove(): string {
   it('handles an empty directory', async () => {
     const tempDir = await createTestDir({})
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -932,7 +1074,7 @@ function remove(): string {
       merkleFilePath: path.join(tempDir, '.merkle.json'),
     })
 
-    const result = await runIndex(config, remdb, tracker, { mode: 'full' })
+    const result = await runIndex(config, milvus, tracker, { mode: 'full' })
 
     expect(result.filesIndexed).toBe(0)
     expect(result.chunksIndexed).toBe(0)
@@ -947,10 +1089,10 @@ function remove(): string {
       'empty.ts': 'const x = 1;',
     })
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -964,7 +1106,7 @@ function remove(): string {
       merkleFilePath: path.join(tempDir, '.merkle.json'),
     })
 
-    const result = await runIndex(config, remdb, tracker, { mode: 'full' })
+    const result = await runIndex(config, milvus, tracker, { mode: 'full' })
 
     expect(result.filesIndexed).toBe(0)
     expect(result.chunksIndexed).toBe(0)
@@ -980,10 +1122,10 @@ function remove(): string {
       'notes.md': '# Readme',
     })
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -997,7 +1139,7 @@ function remove(): string {
       merkleFilePath: path.join(tempDir, '.merkle.json'),
     })
 
-    const result = await runIndex(config, remdb, tracker, { mode: 'full' })
+    const result = await runIndex(config, milvus, tracker, { mode: 'full' })
 
     expect(result.filesIndexed).toBe(0)
     expect(result.chunksIndexed).toBe(0)
@@ -1018,11 +1160,11 @@ function c(): void {}
 `,
     })
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
-    mockInsert.mockResolvedValue({ code: 0, data: { insertCount: 1 } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
+    mockInsert.mockResolvedValue({ insert_cnt: '1', succ_index: [0], err_index: [] })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -1037,7 +1179,7 @@ function c(): void {}
     })
 
     const errors: string[] = []
-    const result = await runIndex(config, remdb, tracker, {
+    const result = await runIndex(config, milvus, tracker, {
       mode: 'full',
       progress: (msg: string) => {
         if (msg.includes('失败')) errors.push(msg)
@@ -1061,10 +1203,10 @@ function broken(): void {
 `,
     })
 
-    mockHasCollection.mockResolvedValue({ code: 0, data: { has: true } })
+    mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: true })
 
-    const remdb = new RemDbService({
-      endpoint: 'http://localhost:19530',
+    const milvus = new MilvusService({
+      address: 'localhost:19530',
       token: undefined,
       collection: 'test_collection',
       dim: 768,
@@ -1087,7 +1229,7 @@ function broken(): void {
     })
 
     const errors: string[] = []
-    const result = await runIndex(config, remdb, tracker, {
+    const result = await runIndex(config, milvus, tracker, {
       mode: 'full',
       progress: (msg: string) => {
         if (msg.includes('失败')) errors.push(msg)

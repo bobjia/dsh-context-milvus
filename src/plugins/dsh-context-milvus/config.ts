@@ -1,5 +1,5 @@
 /**
- * Configuration management for dsh-context-remdb
+ * Configuration management for dsh-context-milvus
  *
  * Supports two sources (merged, config takes precedence):
  * 1. Environment variables (for quick setup)
@@ -12,14 +12,14 @@ import type { EmbeddingConfig } from './types.js'
 
 /** Flat config interface that users provide via cordis.yml or env vars */
 export interface CordisConfig {
-  /** RemDB server endpoint */
-  remdbEndpoint?: string
-  /** RemDB auth token */
-  remdbToken?: string
-  /** RemDB collection name */
-  remdbCollection?: string
+  /** Milvus server address (host:port) */
+  milvusAddress?: string
+  /** Milvus auth token */
+  milvusToken?: string
+  /** Milvus collection name */
+  milvusCollection?: string
   /** Vector dimension */
-  remdbDim?: number
+  milvusDim?: number
 
   /** Embedding API endpoint */
   embeddingEndpoint?: string
@@ -34,6 +34,8 @@ export interface CordisConfig {
   indexExtensions?: string
   /** Enable hybrid search (BM25 + vector) */
   hybridMode?: boolean
+  /** Directory names to ignore during indexing (comma-separated) */
+  indexIgnoreDirs?: string
 
   /** Path to Merkle state file */
   merkleFilePath?: string
@@ -41,14 +43,15 @@ export interface CordisConfig {
 
 /** Resolved runtime config (all fields have values) */
 export interface PluginConfig {
-  remdbEndpoint: string
-  remdbToken: string | undefined
-  remdbCollection: string
-  remdbDim: number
+  milvusAddress: string
+  milvusToken: string | undefined
+  milvusCollection: string
+  milvusDim: number
   embedding: EmbeddingConfig
   indexRoot: string
   indexExtensions: string[]
   hybridMode: boolean
+  indexIgnoreDirs: string[]
   merkleFilePath: string
 }
 
@@ -60,7 +63,15 @@ export const DEFAULT_EXTENSIONS: Record<string, string[]> = {
   rust: ['.rs'],
   go: ['.go'],
   java: ['.java'],
+  php: ['.php'],
 }
+
+/** Default directory names to ignore during indexing */
+export const DEFAULT_IGNORE_DIRS = [
+  'dist', 'build', 'target', 'out',
+  '__pycache__', 'vendor', 'bower_components',
+  'coverage', '.nyc_output',
+]
 
 /**
  * Derive a workspace-specific Merkle state file path from an index root path.
@@ -81,8 +92,8 @@ export function deriveMerkleFilePath(indexRoot: string): string {
   const safeName = dirName.replace(/[^a-zA-Z0-9_\-]/g, '_')
 
   return process.env.HOME
-    ? `${process.env.HOME}/.remdb-index/merkle-${safeName}-${hash}.json`
-    : `.remdb-merkle-${safeName}-${hash}.json`
+    ? `${process.env.HOME}/.milvus-index/merkle-${safeName}-${hash}.json`
+    : `.milvus-merkle-${safeName}-${hash}.json`
 }
 
 /**
@@ -90,31 +101,37 @@ export function deriveMerkleFilePath(indexRoot: string): string {
  * Cordis config values take precedence over env vars.
  */
 export function getConfig(overrides?: CordisConfig): PluginConfig {
-  const dimRaw = parseInt(process.env.REMDB_EMBEDDING_DIM ?? '768', 10)
-  const dim = overrides?.remdbDim ?? (!isNaN(dimRaw) && dimRaw > 0 ? dimRaw : 768)
+  const dimRaw = parseInt(process.env.MILVUS_EMBEDDING_DIM ?? '768', 10)
+  const dim = overrides?.milvusDim ?? (!isNaN(dimRaw) && dimRaw > 0 ? dimRaw : 768)
 
   const extensionsStr = overrides?.indexExtensions ?? process.env.INDEX_EXTENSIONS
   const indexExtensions = extensionsStr
     ? extensionsStr.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
     : Object.values(DEFAULT_EXTENSIONS).flat()
 
+  const ignoreDirsStr = overrides?.indexIgnoreDirs ?? process.env.INDEX_IGNORE_DIRS
+  const indexIgnoreDirs = ignoreDirsStr
+    ? ignoreDirsStr.split(',').map((s) => s.trim()).filter(Boolean)
+    : DEFAULT_IGNORE_DIRS
+
   const indexRoot = overrides?.indexRoot ?? process.env.INDEX_ROOT ?? process.cwd()
 
   return {
-    remdbEndpoint: overrides?.remdbEndpoint ?? process.env.REMDB_ENDPOINT ?? 'http://localhost:19530',
-    remdbToken: overrides?.remdbToken ?? (process.env.REMDB_TOKEN || undefined),
-    remdbCollection: overrides?.remdbCollection ?? process.env.REMDB_COLLECTION ?? 'code_embeddings',
-    remdbDim: dim,
+    milvusAddress: overrides?.milvusAddress ?? process.env.MILVUS_ADDRESS ?? 'localhost:19530',
+    milvusToken: overrides?.milvusToken ?? (process.env.MILVUS_TOKEN || undefined),
+    milvusCollection: overrides?.milvusCollection ?? process.env.MILVUS_COLLECTION ?? 'code_embeddings',
+    milvusDim: dim,
 
     embedding: {
-      endpoint: overrides?.embeddingEndpoint ?? process.env.EMBEDDING_ENDPOINT ?? 'http://localhost:19530/v2/vectordb/embedding',
+      endpoint: overrides?.embeddingEndpoint ?? process.env.EMBEDDING_ENDPOINT ?? 'http://localhost:11434/api/embed',
       apiKey: overrides?.embeddingApiKey ?? (process.env.EMBEDDING_API_KEY || undefined),
-      model: overrides?.embeddingModel ?? process.env.EMBEDDING_MODEL ?? 'default',
+      model: overrides?.embeddingModel ?? process.env.EMBEDDING_MODEL ?? 'nomic-embed-text',
       dim,
     },
 
     indexRoot,
     indexExtensions,
+    indexIgnoreDirs,
     hybridMode: overrides?.hybridMode !== undefined
       ? overrides.hybridMode
       : process.env.HYBRID_MODE !== 'false',

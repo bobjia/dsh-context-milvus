@@ -1,33 +1,33 @@
 /**
- * RemDB service — client wrapper for collection management, search, and indexing.
+ * Milvus service — client wrapper for collection management, search, and indexing.
  *
- * Provides text search (server-side embedding) and chunk insert/delete operations
- * for the indexing pipeline.
+ * Provides vector search and chunk insert/delete operations
+ * for the indexing pipeline using the @zilliz/milvus2-sdk-node.
  */
 
-import { RemDbClient } from 'remdb-sdk-node'
-import type { SearchResultItem, SearchReq } from 'remdb-sdk-node'
+import { MilvusClient, DataType, MetricType, ErrorCode } from '@zilliz/milvus2-sdk-node'
+import type { SearchResultData, SearchSimpleReq } from '@zilliz/milvus2-sdk-node'
 import type { SearchResult, CodeChunk } from './types.js'
 import { EmbeddingClient } from './embedding.js'
 
-export class RemDbService {
-  private client: RemDbClient | null = null
+export class MilvusService {
+  private client: MilvusClient | null = null
   private collectionReady = false
   private initPromise: Promise<void> | null = null
-  private readonly endpoint: string
+  private readonly address: string
   private readonly token: string | undefined
   private readonly collection: string
   private readonly dim: number
   private readonly embeddingClient: EmbeddingClient
 
   constructor(config: {
-    endpoint: string
+    address: string
     token: string | undefined
     collection: string
     dim: number
     embeddingClient: EmbeddingClient
   }) {
-    this.endpoint = config.endpoint
+    this.address = config.address
     this.token = config.token
     this.collection = config.collection
     this.dim = config.dim
@@ -36,12 +36,11 @@ export class RemDbService {
 
   // ── Client lazy init ──────────────────────────────────────────────────
 
-  private getClient(): RemDbClient {
+  private getClient(): MilvusClient {
     if (!this.client) {
-      this.client = new RemDbClient({
-        endpoint: this.endpoint,
-        token: this.token,
-        timeout: 30_000,
+      this.client = new MilvusClient({
+        address: this.address,
+        ...(this.token ? { token: this.token } : {}),
       })
     }
     return this.client
@@ -66,28 +65,76 @@ export class RemDbService {
     const client = this.getClient()
     const { collection, dim } = this
 
-    const hasRes = await client.hasCollection({ collectionName: collection })
-    if (hasRes.data?.has) return
+    // Wait for connection to be ready
+    await client.connectPromise
 
+    // Check if collection already exists
+    const hasRes = await client.hasCollection({ collection_name: collection })
+    if (hasRes.value) return
+
+    // Create collection with schema
     await client.createCollection({
-      collectionName: collection,
-      schema: {
-        autoId: true,
-        fields: [
-          { name: 'id', type: 'Int64', isPrimary: true, autoId: true },
-          { name: 'vector', type: 'FloatVector', params: { dim } },
-          { name: 'file_path', type: 'VarChar', params: { max_length: 1024 } },
-          { name: 'code_content', type: 'VarChar', params: { max_length: 65535 } },
-          { name: 'start_line', type: 'Int32' },
-          { name: 'end_line', type: 'Int32' },
-          { name: 'language', type: 'VarChar', params: { max_length: 64 } },
-          { name: 'chunk_type', type: 'VarChar', params: { max_length: 64 } },
-          { name: 'name', type: 'VarChar', params: { max_length: 256 } },
-        ],
-      },
-      indexParams: [
-        { fieldName: 'vector', indexName: 'idx_vector', metricType: 'COSINE' },
+      collection_name: collection,
+      fields: [
+        {
+          name: 'id',
+          data_type: DataType.Int64,
+          is_primary_key: true,
+          autoID: true,
+        },
+        {
+          name: 'vector',
+          data_type: DataType.FloatVector,
+          dim,
+        },
+        {
+          name: 'file_path',
+          data_type: DataType.VarChar,
+          max_length: 1024,
+        },
+        {
+          name: 'code_content',
+          data_type: DataType.VarChar,
+          max_length: 65535,
+        },
+        {
+          name: 'start_line',
+          data_type: DataType.Int32,
+        },
+        {
+          name: 'end_line',
+          data_type: DataType.Int32,
+        },
+        {
+          name: 'language',
+          data_type: DataType.VarChar,
+          max_length: 64,
+        },
+        {
+          name: 'chunk_type',
+          data_type: DataType.VarChar,
+          max_length: 64,
+        },
+        {
+          name: 'name',
+          data_type: DataType.VarChar,
+          max_length: 256,
+        },
       ],
+      enable_dynamic_field: true,
+    } as any)
+
+    // Create index on vector field
+    await client.createIndex({
+      collection_name: collection,
+      field_name: 'vector',
+      metric_type: MetricType.COSINE,
+      index_name: 'idx_vector',
+    } as any)
+
+    // Load collection for search
+    await client.loadCollectionSync({
+      collection_name: collection,
     })
   }
 
@@ -111,11 +158,11 @@ export class RemDbService {
     if (vectors.length === 0) return []
     const vector = vectors[0]
 
-    const searchReq: SearchReq = {
-      collectionName: collection,
-      vector,
+    const searchParams: SearchSimpleReq = {
+      collection_name: collection,
+      vector: vector,
       limit: topK,
-      outputFields: [
+      output_fields: [
         'file_path', 'code_content', 'start_line', 'end_line',
         'language', 'chunk_type', 'name',
       ],
@@ -123,20 +170,23 @@ export class RemDbService {
 
     // If a path prefix is provided, filter results to that workspace
     if (pathPrefix) {
-      searchReq.filter = `file_path like "${pathPrefix}%"`
+      searchParams.filter = `file_path like "${pathPrefix}%"`
     }
 
-    const response = await client.search(searchReq)
+    const response = await client.search(searchParams)
 
-    return (response.data ?? []).map((item: SearchResultItem) => ({
-      filePath: item.entity.file_path ?? '',
-      content: item.entity.code_content ?? '',
-      score: 1 - item.distance,
-      language: item.entity.language ?? '',
-      startLine: item.entity.start_line ?? 0,
-      endLine: item.entity.end_line ?? 0,
-      name: item.entity.name ?? '',
-      chunkType: item.entity.chunk_type ?? '',
+    // Milvus returns results as SearchResultData[] when nq === 1
+    const results = (response.results ?? []) as SearchResultData[]
+
+    return results.map((item: SearchResultData) => ({
+      filePath: item.file_path ?? '',
+      content: item.code_content ?? '',
+      score: item.score,
+      language: item.language ?? '',
+      startLine: Number(item.start_line ?? 0),
+      endLine: Number(item.end_line ?? 0),
+      name: item.name ?? '',
+      chunkType: item.chunk_type ?? '',
     }))
   }
 
@@ -162,7 +212,7 @@ export class RemDbService {
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize)
       const response = await client.insert({
-        collectionName: collection,
+        collection_name: collection,
         data: batch.map((chunk) => ({
           vector: chunk.vector,
           file_path: chunk.filePath,
@@ -174,7 +224,7 @@ export class RemDbService {
           name: chunk.name,
         })),
       })
-      totalInserted += response.data?.insertCount ?? 0
+      totalInserted += Number(response.insert_cnt ?? 0)
     }
 
     return totalInserted
@@ -193,11 +243,11 @@ export class RemDbService {
     const { collection } = this
 
     const response = await client.delete({
-      collectionName: collection,
+      collection_name: collection,
       filter: `file_path == "${filePath}"`,
     })
 
-    return response.data?.deleteCount ?? 0
+    return Number(response.delete_cnt ?? 0)
   }
 
   /**

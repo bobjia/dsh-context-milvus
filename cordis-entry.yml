@@ -1,4 +1,4 @@
-# dsh-context-remdb — DSH 配置示例
+# dsh-context-milvus — DSH 配置示例
 
 ## 安装到 DSH Web Profile
 
@@ -7,11 +7,11 @@
 cd ~/.dsh/profiles/web
 
 # 2. 安装插件为本地依赖
-pnpm add file:/mnt/home/bobjia/dsh-context-remdb
+pnpm add file:/mnt/home/bobjia/dsh-context-milvus
 
-# 3. 在 package.json 的 dsh.profile.bundles 中添加 "dsh-context-remdb"
+# 3. 在 package.json 的 dsh.profile.bundles 中添加 "dsh-context-milvus"
 #    编辑 ~/.dsh/profiles/web/package.json，在 bundles 数组中追加：
-#    "dsh-context-remdb"
+#    "dsh-context-milvus"
 ```
 
 ## 配置插件 (通过 cordis.patch.yml)
@@ -20,11 +20,11 @@ pnpm add file:/mnt/home/bobjia/dsh-context-remdb
 
 ```yaml
 # ~/.dsh/profiles/web/cordis.patch.yml
-- id: dsh-context-remdb
+- id: dsh-context-milvus
   config:
-    remdbEndpoint: http://localhost:19530
-    remdbCollection: code_embeddings
-    remdbDim: 768
+    milvusAddress: localhost:19530
+    milvusCollection: code_embeddings
+    milvusDim: 768
     embeddingEndpoint: http://localhost:19530/v2/vectordb/embedding
     embeddingModel: default
     indexRoot: /path/to/your/code
@@ -36,10 +36,10 @@ pnpm add file:/mnt/home/bobjia/dsh-context-remdb
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `remdbEndpoint` | string | `http://localhost:19530` | RemDB 服务地址 |
-| `remdbToken` | string (secret) | `""` | RemDB 鉴权 Token |
-| `remdbCollection` | string | `code_embeddings` | 集合名称 |
-| `remdbDim` | number | `768` | 向量维度 |
+| `milvusAddress` | string | `localhost:19530` | Milvus 服务地址 (host:port) |
+| `milvusToken` | string (secret) | `""` | Milvus 鉴权 Token |
+| `milvusCollection` | string | `code_embeddings` | 集合名称 |
+| `milvusDim` | number | `768` | 向量维度 |
 | `embeddingEndpoint` | string | `http://localhost:19530/v2/vectordb/embedding` | Embedding API 地址 |
 | `embeddingApiKey` | string (secret) | `""` | Embedding API 密钥 |
 | `embeddingModel` | string | `default` | 模型名称 |
@@ -53,25 +53,25 @@ pnpm add file:/mnt/home/bobjia/dsh-context-remdb
 当 Cordis Config 未提供时，插件会读取环境变量作为回退：
 
 ```bash
-export REMDB_ENDPOINT=http://localhost:19530
-export REMDB_TOKEN=your-token
-export REMDB_COLLECTION=code_embeddings
-export REMDB_EMBEDDING_DIM=768
+export MILVUS_ADDRESS=localhost:19530
+export MILVUS_TOKEN=your-token
+export MILVUS_COLLECTION=code_embeddings
+export MILVUS_EMBEDDING_DIM=768
 export EMBEDDING_ENDPOINT=http://localhost:19530/v2/vectordb/embedding
 export EMBEDDING_API_KEY=your-key
 export EMBEDDING_MODEL=default
 export INDEX_ROOT=/path/to/code
 export INDEX_EXTENSIONS=.ts,.tsx,.js
 export HYBRID_MODE=true
-export MERKLE_FILE_PATH=~/.remdb-index/merkle.json
+export MERKLE_FILE_PATH=~/.milvus-index/merkle.json
 ```
 
 ## DSH Web 界面配置
 
-安装后，在 DSH Web 界面 (http://127.0.0.1:3080) 的 **Settings → Plugins** 中可以看到 `dsh-context-remdb` 的配置表单，支持：
+安装后，在 DSH Web 界面 (http://127.0.0.1:3080) 的 **Settings → Plugins** 中可以看到 `dsh-context-milvus` 的配置表单，支持：
 
 - 文本输入框 (普通字段)
-- 密码输入框 (secret 字段，如 `remdbToken`、`embeddingApiKey`)
-- 数值输入框 (number 字段，如 `remdbDim`)
+- 密码输入框 (secret 字段，如 `milvusToken`、`embeddingApiKey`)
+- 数值输入框 (number 字段，如 `milvusDim`)
 - 开关 (boolean 字段，如 `hybridMode`)
 - 字段说明/提示文本

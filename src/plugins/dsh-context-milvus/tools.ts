@@ -1,5 +1,5 @@
 /**
- * DSH tool definitions for dsh-context-remdb.
+ * DSH tool definitions for dsh-context-milvus.
  *
  * Registers three tools:
  * - search_code: Semantic code search
@@ -9,7 +9,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { RemDbService } from './remdb-service.js'
+import type { MilvusService } from './milvus-service.js'
 import type { PluginConfig } from './config.js'
 import { deriveMerkleFilePath } from './config.js'
 import { HashTracker } from './merkle.js'
@@ -85,7 +85,7 @@ async function createTrackerForPath(
 export function registerTools(
   ctx: Context,
   config: PluginConfig,
-  remdb: RemDbService,
+  milvus: MilvusService,
   tracker: HashTracker,
 ): void {
   // ── search_code ───────────────────────────────────────────────────────
@@ -143,8 +143,8 @@ export function registerTools(
         const topK = params.topK ?? 5
         const path = params.path as string | undefined
 
-        await remdb.ensureCollection()
-        return remdb.search(query, topK, path)
+        await milvus.ensureCollection()
+        return milvus.search(query, topK, path)
       },
     }),
   )
@@ -207,7 +207,7 @@ export function registerTools(
         // Use a workspace-specific tracker if the path is different from default
         const effectiveTracker = await createTrackerForPath(config, overridePath, tracker)
 
-        return runIndex(effectiveConfig, remdb, effectiveTracker, { mode })
+        return runIndex(effectiveConfig, milvus, effectiveTracker, { mode })
       },
     }),
   )

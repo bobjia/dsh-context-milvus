@@ -1,7 +1,7 @@
 /**
- * dsh-context-remdb — DSH plugin entry point
+ * dsh-context-milvus — DSH plugin entry point
  *
- * A complete index ↔ search plugin for semantic code search via RemDB.
+ * A complete index ↔ search plugin for semantic code search via Milvus.
  * - search_code: 语义搜索代码
  * - index_code:  索引代码仓库
  * - index_status: 查看索引状态
@@ -9,29 +9,29 @@
  * Configuration (优先顺序: Cordis Config > 环境变量 > 默认值):
  *
  *   Cordis Config (通过 cordis.yml / DSH GUI 设置):
- *     remdbEndpoint, remdbToken, remdbCollection, remdbDim,
+ *     milvusAddress, milvusToken, milvusCollection, milvusDim,
  *     embeddingEndpoint, embeddingApiKey, embeddingModel,
- *     indexRoot, indexExtensions, hybridMode, merkleFilePath
+ *     indexRoot, indexExtensions, indexIgnoreDirs, hybridMode, merkleFilePath
  *
  *   环境变量 (fallback):
- *     REMDB_ENDPOINT, REMDB_TOKEN, REMDB_COLLECTION, REMDB_EMBEDDING_DIM,
+ *     MILVUS_ADDRESS, MILVUS_TOKEN, MILVUS_COLLECTION, MILVUS_EMBEDDING_DIM,
  *     EMBEDDING_ENDPOINT, EMBEDDING_API_KEY, EMBEDDING_MODEL,
- *     INDEX_ROOT, INDEX_EXTENSIONS, HYBRID_MODE, MERKLE_FILE_PATH
+ *     INDEX_ROOT, INDEX_EXTENSIONS, INDEX_IGNORE_DIRS, HYBRID_MODE, MERKLE_FILE_PATH
  */
 
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import { getConfig, type CordisConfig } from './config.js'
-import { RemDbService } from './remdb-service.js'
+import { MilvusService } from './milvus-service.js'
 import { HashTracker } from './merkle.js'
 import { EmbeddingClient } from './embedding.js'
 import { registerTools } from './tools.js'
 
-export const name = 'dsh-context-remdb'
+export const name = 'dsh-context-milvus'
 export const inject = ['tools']
 
 /**
- * Config schema for dsh-context-remdb.
+ * Config schema for dsh-context-milvus.
  *
  * This schema is used by:
  * - Cordis loader for config validation before the plugin starts
@@ -41,31 +41,31 @@ export const inject = ['tools']
  * Fields with `.description(...)` show tooltips/labels in the GUI.
  */
 export const Config = z.object({
-  /** RemDB 服务地址 */
-  remdbEndpoint: z.string()
-    .default('http://localhost:19530')
-    .description('RemDB 服务地址，例如 http://localhost:19530'),
+  /** Milvus 服务地址 */
+  milvusAddress: z.string()
+    .default('localhost:19530')
+    .description('Milvus 服务地址，例如 localhost:19530'),
 
-  /** RemDB 鉴权 Token (可选) */
-  remdbToken: z.string()
+  /** Milvus 鉴权 Token (可选) */
+  milvusToken: z.string()
     .default('')
-    .description('RemDB 鉴权 Token（如不需要可留空）')
+    .description('Milvus 鉴权 Token（如不需要可留空）')
     .role('secret'),
 
-  /** RemDB 集合名称 */
-  remdbCollection: z.string()
+  /** Milvus 集合名称 */
+  milvusCollection: z.string()
     .default('code_embeddings')
-    .description('RemDB 集合名称，用于存储代码向量'),
+    .description('Milvus 集合名称，用于存储代码向量'),
 
   /** 向量维度 */
-  remdbDim: z.number()
+  milvusDim: z.number()
     .default(768)
     .description('Embedding 向量维度（需与模型匹配）'),
 
   /** Embedding API 地址 */
   embeddingEndpoint: z.string()
-    .default('http://localhost:19530/v2/vectordb/embedding')
-    .description('Embedding API 地址'),
+    .default('http://localhost:11434/api/embed')
+    .description('Embedding API 地址（例如 Ollama: http://localhost:11434/api/embed）'),
 
   /** Embedding API 密钥 (可选) */
   embeddingApiKey: z.string()
@@ -75,8 +75,8 @@ export const Config = z.object({
 
   /** Embedding 模型名称 */
   embeddingModel: z.string()
-    .default('default')
-    .description('Embedding 模型名称（需与 API 兼容）'),
+    .default('nomic-embed-text')
+    .description('Embedding 模型名称（例如 Ollama: nomic-embed-text）'),
 
   /** 代码仓库根路径 */
   indexRoot: z.string()
@@ -93,6 +93,11 @@ export const Config = z.object({
     .default(true)
     .description('启用混合搜索模式（BM25 全文检索 + 向量语义搜索）'),
 
+  /** 跳过索引的目录名 (逗号分隔) */
+  indexIgnoreDirs: z.string()
+    .default('')
+    .description('扫描时跳过的目录名（逗号分隔，默认跳过 dist, build, target, __pycache__, vendor 等）'),
+
   /** Merkle 状态文件路径 */
   merkleFilePath: z.string()
     .default('')
@@ -102,11 +107,11 @@ export const Config = z.object({
 export function apply(ctx: Context, config?: CordisConfig) {
   const resolved = getConfig(config ?? {})
   const embeddingClient = new EmbeddingClient(resolved.embedding)
-  const remdb = new RemDbService({
-    endpoint: resolved.remdbEndpoint,
-    token: resolved.remdbToken,
-    collection: resolved.remdbCollection,
-    dim: resolved.remdbDim,
+  const milvus = new MilvusService({
+    address: resolved.milvusAddress,
+    token: resolved.milvusToken,
+    collection: resolved.milvusCollection,
+    dim: resolved.milvusDim,
     embeddingClient,
   })
 
@@ -118,17 +123,17 @@ export function apply(ctx: Context, config?: CordisConfig) {
   })
 
   // Try to initialize collection; failure doesn't block tool registration
-  remdb.ensureCollection().catch((err: Error) => {
+  milvus.ensureCollection().catch((err: Error) => {
     console.warn(
-      `[dsh-context-remdb] 集合初始化失败，将在首次使用工具时重试: ${err.message}`,
+      `[dsh-context-milvus] 集合初始化失败，将在首次使用工具时重试: ${err.message}`,
     )
   })
 
   // Register all tools
-  registerTools(ctx, resolved, remdb, tracker)
+  registerTools(ctx, resolved, milvus, tracker)
 
   console.log(
-    `[dsh-context-remdb] 已加载 (${resolved.indexExtensions.length} 种文件类型, ` +
+    `[dsh-context-milvus] 已加载 (${resolved.indexExtensions.length} 种文件类型, ` +
     `hybrid=${resolved.hybridMode})`,
   )
 }

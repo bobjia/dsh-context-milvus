@@ -2,6 +2,7 @@
  * Embedding API client.
  *
  * Calls an OpenAI-compatible embedding API to convert text chunks into vectors.
+ * Also supports Ollama's embedding API format transparently.
  * Configurable endpoint, model, and API key.
  */
 
@@ -45,6 +46,11 @@ export class EmbeddingClient {
     }
 
     const body = await response.json() as any
+
+    // Handle Ollama /api/embed response format: { model, embeddings: [[...], ...] }
+    if (body.embeddings && Array.isArray(body.embeddings)) {
+      return body.embeddings as number[][]
+    }
 
     // Handle OpenAI-compatible response format: { data: [{ embedding: number[] }] }
     if (body.data && Array.isArray(body.data)) {

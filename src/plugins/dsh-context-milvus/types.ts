@@ -1,5 +1,5 @@
 /**
- * Shared types for dsh-context-remdb
+ * Shared types for dsh-context-milvus
  */
 
 /** 代码块（从 AST 中提取的语义单元） */

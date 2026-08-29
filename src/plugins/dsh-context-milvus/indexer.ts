@@ -4,7 +4,7 @@
  * 1. Walk the directory tree and discover files
  * 2. Compute file hashes and compare with Merkle state
  * 3. For changed files: parse → chunk → embed → insert
- * 4. For deleted files: remove from RemDB
+ * 4. For deleted files: remove from Milvus
  * 5. Update Merkle state
  */
 
@@ -13,7 +13,7 @@ import * as path from 'node:path'
 import { HashTracker, type IndexDelta } from './merkle.js'
 import { chunkCode } from './chunker.js'
 import { EmbeddingClient } from './embedding.js'
-import type { RemDbService } from './remdb-service.js'
+import type { MilvusService } from './milvus-service.js'
 import { type PluginConfig } from './config.js'
 import type { CodeChunk, IndexStatus } from './types.js'
 
@@ -34,9 +34,11 @@ export interface IndexResult {
 async function walkDirectory(
   rootDir: string,
   extensions: string[],
+  ignoreDirs: string[],
   progress?: (filePath: string) => void,
 ): Promise<Map<string, string>> {
   const extSet = new Set(extensions)
+  const ignoreSet = new Set(ignoreDirs)
   const files = new Map<string, string>()
 
   async function walk(dir: string): Promise<void> {
@@ -48,9 +50,11 @@ async function walkDirectory(
     }
 
     for (const entry of entries) {
-      // Skip hidden directories and node_modules
-      if (entry === '.git' || entry === 'node_modules' || entry === '.hg' || entry === '.svn') continue
+      // Skip hidden directories, VCS dirs, node_modules, and configured ignore dirs
+      if (entry === '.git' || entry === '.hg' || entry === '.svn') continue
+      if (entry === 'node_modules') continue
       if (entry.startsWith('.') && entry !== '.') continue
+      if (ignoreSet.has(entry)) continue
 
       const fullPath = path.join(dir, entry)
       let stats: any
@@ -88,7 +92,7 @@ async function walkDirectory(
  */
 export async function runIndex(
   config: PluginConfig,
-  remdb: RemDbService,
+  milvus: MilvusService,
   tracker: HashTracker,
   options?: {
     mode?: 'full' | 'incremental'
@@ -102,15 +106,16 @@ export async function runIndex(
 
   const startTime = Date.now()
 
-  // 1. Ensure RemDB collection exists
-  progress('检查 RemDB 集合...')
-  await remdb.ensureCollection()
+  // 1. Ensure Milvus collection exists
+  progress('检查 Milvus 集合...')
+  await milvus.ensureCollection()
 
   // 2. Walk directory
   progress('扫描代码仓库...')
   const currentFiles = await walkDirectory(
     config.indexRoot,
     config.indexExtensions,
+    config.indexIgnoreDirs,
     onFileProgress,
   )
 
@@ -132,7 +137,7 @@ export async function runIndex(
   let chunksRemoved = 0
   if (delta.toRemove.length > 0) {
     progress(`移除已删除文件: ${delta.toRemove.length} 个...`)
-    chunksRemoved = await remdb.deleteByFilePaths(delta.toRemove)
+    chunksRemoved = await milvus.deleteByFilePaths(delta.toRemove)
     tracker.removeRecords(delta.toRemove)
   }
 
@@ -170,7 +175,7 @@ export async function runIndex(
           )
         }
 
-        // Insert into RemDB
+        // Insert into Milvus
         const chunksWithVectors = chunks.map((chunk, i) => ({
           ...chunk,
           vector: vectors[i],
@@ -178,10 +183,10 @@ export async function runIndex(
 
         // For incremental mode, remove old chunks first
         if (mode === 'incremental') {
-          await remdb.deleteByFilePath(filePath)
+          await milvus.deleteByFilePath(filePath)
         }
 
-        const inserted = await remdb.insertChunks(chunksWithVectors)
+        const inserted = await milvus.insertChunks(chunksWithVectors)
         tracker.updateRecord(filePath, hash, inserted)
 
         filesIndexed++
