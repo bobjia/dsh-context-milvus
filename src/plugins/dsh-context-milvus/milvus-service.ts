@@ -5,7 +5,7 @@
  * for the indexing pipeline using the @zilliz/milvus2-sdk-node.
  */
 
-import { MilvusClient, DataType, MetricType, FunctionType, ErrorCode } from '@zilliz/milvus2-sdk-node'
+import { MilvusClient, DataType, MetricType, FunctionType, ErrorCode, RANKER_TYPE } from '@zilliz/milvus2-sdk-node'
 import type { SearchResultData, SearchSimpleReq } from '@zilliz/milvus2-sdk-node'
 import type { SearchResult, CodeChunk } from './types.js'
 import { EmbeddingClient } from './embedding.js'
@@ -244,27 +244,45 @@ export class MilvusService {
     if (vectors.length === 0) return []
     const vector = vectors[0]
 
-    const searchParams: SearchSimpleReq = {
-      collection_name: collection,
-      vector: vector,
-      limit: topK,
-      output_fields: [
-        'file_path', 'code_content', 'start_line', 'end_line',
-        'language', 'chunk_type', 'name',
-      ],
+    const outputFields = [
+      'file_path', 'code_content', 'start_line', 'end_line',
+      'language', 'chunk_type', 'name',
+    ]
+
+    let response: any
+    if (this.effectiveHybridMode) {
+      response = await client.hybridSearch({
+        collection_name: collection,
+        data: [
+          { anns_field: 'vector', data: vector, params: { metric_type: 'COSINE' } },
+          { anns_field: 'sparse_vector', data: query, params: { metric_type: 'BM25' } },
+        ],
+        rerank: { strategy: RANKER_TYPE.RRF, params: { k: this.bm25RrfK } },
+        limit: topK,
+        output_fields: outputFields,
+        ...(pathPrefix ? { filter: `file_path like "${pathPrefix}%"` } : {}),
+      } as any)
+    } else {
+      const searchParams: SearchSimpleReq = {
+        collection_name: collection,
+        vector: vector,
+        limit: topK,
+        output_fields: outputFields,
+      }
+      if (pathPrefix) {
+        searchParams.filter = `file_path like "${pathPrefix}%"`
+      }
+      response = await client.search(searchParams)
     }
 
-    // If a path prefix is provided, filter results to that workspace
-    if (pathPrefix) {
-      searchParams.filter = `file_path like "${pathPrefix}%"`
-    }
+    // Milvus returns SearchResultData[] for nq === 1; guard against the
+    // nested form the SDK types allow for multi-vector hybrid queries.
+    const raw = (response.results ?? []) as unknown
+    const items = Array.isArray(raw) && raw.length > 0 && Array.isArray((raw as any[])[0])
+      ? (raw as any[][]).flat()
+      : (raw as any[])
 
-    const response = await client.search(searchParams)
-
-    // Milvus returns results as SearchResultData[] when nq === 1
-    const results = (response.results ?? []) as SearchResultData[]
-
-    return results.map((item: SearchResultData) => ({
+    return items.map((item: any) => ({
       filePath: item.file_path ?? '',
       content: item.code_content ?? '',
       score: item.score,

@@ -580,6 +580,39 @@ describe('MilvusService', () => {
       expect(results[0].score).toBeCloseTo(0.9)
       expect(results[0].name).toBe('login')
     })
+
+    it('runs hybridSearch with dense + BM25 branches and RRF rerank', async () => {
+      mockHybridSearch.mockResolvedValue({
+        results: [
+          {
+            score: 0.5, id: '1', file_path: 'src/auth.ts',
+            code_content: 'export function login() {}', start_line: 42, end_line: 45,
+            language: 'typescript', chunk_type: 'function_declaration', name: 'login',
+          },
+        ],
+        recalls: [], session_ts: 0, collection_name: 'test_collection',
+      })
+
+      const service = new MilvusService({ ...defaultConfig, hybridMode: true, bm25RrfK: 30 })
+      const results = await service.search('login function', 5, '/workspace/proj')
+
+      expect(mockHybridSearch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collection_name: 'test_collection',
+          limit: 5,
+          output_fields: ['file_path', 'code_content', 'start_line', 'end_line', 'language', 'chunk_type', 'name'],
+          data: [
+            { anns_field: 'vector', data: [0.1, 0.2, 0.3], params: { metric_type: 'COSINE' } },
+            { anns_field: 'sparse_vector', data: 'login function', params: { metric_type: 'BM25' } },
+          ],
+          rerank: { strategy: 'rrf', params: { k: 30 } },
+          filter: 'file_path like "/workspace/proj%"',
+        }),
+      )
+      expect(results).toHaveLength(1)
+      expect(results[0].name).toBe('login')
+      expect(results[0].score).toBeCloseTo(0.5)
+    })
   })
 
   describe('insertChunks()', () => {
