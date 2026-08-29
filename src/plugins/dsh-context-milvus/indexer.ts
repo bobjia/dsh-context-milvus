@@ -287,7 +287,7 @@ export async function getIndexStatus(
 ): Promise<IndexStatus> {
   const stats = tracker.getStats()
   const lastIndexedTs = tracker.getLastIndexedTimestamp()
-  const lastIndexed = lastIndexedTs ? new Date(lastIndexedTs).toISOString() : undefined
+  const lastIndexed = lastIndexedTs ? new Date(lastIndexedTs).toISOString() : ''
 
   return {
     totalFiles: stats.totalFiles,
