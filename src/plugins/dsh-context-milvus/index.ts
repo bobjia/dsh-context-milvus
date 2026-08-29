@@ -124,6 +124,8 @@ export function apply(ctx: Context, config?: CordisConfig) {
     collection: resolved.milvusCollection,
     dim: resolved.milvusDim,
     embeddingClient,
+    hybridMode: resolved.hybridMode,
+    bm25RrfK: resolved.bm25RrfK,
   })
 
   const tracker = new HashTracker(resolved.merkleFilePath)
