@@ -514,7 +514,7 @@ class Greeter {
   }
 }
 `
-    const chunks = chunkCode('/tmp/test.ts', code, '.ts')
+    const chunks = await chunkCode('/tmp/test.ts', code, '.ts')
     expect(chunks.length).toBeGreaterThanOrEqual(2)
 
     const func = chunks.find((c) => c.name === 'hello')
@@ -538,7 +538,7 @@ class Greeter:
     def greet(self, name):
         return f"Hi {name}"
 `
-    const chunks = chunkCode('/tmp/test.py', code, '.py')
+    const chunks = await chunkCode('/tmp/test.py', code, '.py')
     expect(chunks.length).toBeGreaterThanOrEqual(2)
 
     const func = chunks.find((c) => c.name === 'hello')
@@ -562,7 +562,7 @@ struct User {
     name: String,
 }
 `
-    const chunks = chunkCode('/tmp/test.rs', code, '.rs')
+    const chunks = await chunkCode('/tmp/test.rs', code, '.rs')
     expect(chunks.length).toBeGreaterThanOrEqual(2)
 
     const func = chunks.find((c) => c.name === 'main')
@@ -600,7 +600,7 @@ enum Status {
     case Inactive;
 }
 `
-    const chunks = chunkCode('/tmp/test.php', code, '.php')
+    const chunks = await chunkCode('/tmp/test.php', code, '.php')
     expect(chunks.length).toBeGreaterThanOrEqual(5)
 
     const func = chunks.find((c) => c.name === 'greet')
@@ -627,14 +627,14 @@ enum Status {
   it('returns empty array for code with no chunkable structures', async () => {
     const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
 
-    const chunks = chunkCode('/tmp/test.ts', 'const x = 1;', '.ts')
+    const chunks = await chunkCode('/tmp/test.ts', 'const x = 1;', '.ts')
     expect(chunks).toEqual([])
   })
 
   it('throws for unsupported extension', async () => {
     const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
 
-    expect(() => chunkCode('/tmp/test.xyz', 'some content', '.xyz')).toThrow(
+    await expect(chunkCode('/tmp/test.xyz', 'some content', '.xyz')).rejects.toThrow(
       'Unsupported file extension',
     )
   })
