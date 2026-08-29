@@ -523,6 +523,25 @@ describe('MilvusService', () => {
       expect(mockDescribeCollection).not.toHaveBeenCalled()
       expect(mockRenameCollection).not.toHaveBeenCalled()
     })
+
+    it('falls back to dense-only schema when hybrid creation is unsupported', async () => {
+      mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: false })
+      mockCreateCollection
+        .mockRejectedValueOnce(new Error('function field not supported on this server'))
+        .mockResolvedValueOnce({ error_code: 'Success' })
+      mockCreateIndex.mockResolvedValue({ error_code: 'Success' })
+      mockLoadCollectionSync.mockResolvedValue({ error_code: 'Success' })
+
+      const service = new MilvusService({ ...defaultConfig, hybridMode: true })
+      await service.ensureCollection() // must not throw
+
+      expect(mockCreateCollection).toHaveBeenCalledTimes(2)
+      const firstArgs = (mockCreateCollection.mock.calls[0][0] as any)
+      const secondArgs = (mockCreateCollection.mock.calls[1][0] as any)
+      expect(firstArgs.functions).toBeDefined()
+      expect(secondArgs.functions).toBeUndefined()
+      expect(secondArgs.fields.find((f: any) => f.name === 'code_content').type_params).toBeUndefined()
+    })
   })
 
   describe('search()', () => {

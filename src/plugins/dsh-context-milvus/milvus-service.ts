@@ -71,7 +71,7 @@ export class MilvusService {
 
   private async initCollection(): Promise<void> {
     const client = this.getClient()
-    const { collection, dim } = this
+    const { collection } = this
 
     // Wait for connection to be ready
     await client.connectPromise
@@ -107,12 +107,35 @@ export class MilvusService {
       }
     }
 
-    // Hybrid-mode fields: sparse_vector
+    if (!this.hybridMode) {
+      await this.createCollectionWithSchema()
+      this.collectionReady = true
+      return
+    }
+
+    try {
+      await this.createCollectionWithSchema()
+    } catch (err) {
+      console.warn(
+        `[dsh-context-milvus] 服务器不支持 BM25 function 字段，已降级为纯向量检索: ` +
+          `${(err as Error).message}`,
+      )
+      this.effectiveHybridMode = false
+      this.hybridMode = false
+      await this.createCollectionWithSchema()
+    }
+
+    this.collectionReady = true
+  }
+
+  private async createCollectionWithSchema(): Promise<void> {
+    const client = this.getClient()
+    const { collection, dim } = this
+
     const hybridFields: any[] = this.hybridMode
       ? [{ name: 'sparse_vector', data_type: DataType.SparseFloatVector }]
       : []
 
-    // Create collection with schema
     await client.createCollection({
       collection_name: collection,
       fields: [
@@ -179,7 +202,6 @@ export class MilvusService {
         : {}),
     } as any)
 
-    // Create dense index on vector field
     await client.createIndex({
       collection_name: collection,
       field_name: 'vector',
@@ -187,7 +209,6 @@ export class MilvusService {
       index_name: 'idx_vector',
     } as any)
 
-    // Create sparse BM25 index when hybrid mode is on
     if (this.hybridMode) {
       await client.createIndex({
         collection_name: collection,
@@ -198,7 +219,6 @@ export class MilvusService {
       } as any)
     }
 
-    // Load collection for search
     await client.loadCollectionSync({
       collection_name: collection,
     })
