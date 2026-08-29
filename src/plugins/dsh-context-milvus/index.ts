@@ -11,12 +11,12 @@
  *   Cordis Config (通过 cordis.yml / DSH GUI 设置):
  *     milvusAddress, milvusToken, milvusCollection, milvusDim,
  *     embeddingEndpoint, embeddingApiKey, embeddingModel,
- *     indexRoot, indexExtensions, indexIgnoreDirs, hybridMode, merkleFilePath
+ *     indexRoot, indexExtensions, indexIgnoreDirs, hybridMode, bm25RrfK, merkleFilePath
  *
  *   环境变量 (fallback):
  *     MILVUS_ADDRESS, MILVUS_TOKEN, MILVUS_COLLECTION, MILVUS_EMBEDDING_DIM,
  *     EMBEDDING_ENDPOINT, EMBEDDING_API_KEY, EMBEDDING_MODEL,
- *     INDEX_ROOT, INDEX_EXTENSIONS, INDEX_IGNORE_DIRS, HYBRID_MODE, MERKLE_FILE_PATH
+ *     INDEX_ROOT, INDEX_EXTENSIONS, INDEX_IGNORE_DIRS, HYBRID_MODE, BM25_RRF_K, MERKLE_FILE_PATH
  */
 
 import z from '@deepseek-ai/schemastery'
