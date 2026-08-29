@@ -1,5 +1,7 @@
 # dsh-context-milvus
 
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/bobjia/dsh-context-milvus)
+
 DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持完整的索引 ↔ 搜索闭环。
 
 > dsh-context-milvus = **给 DSH Agent 装上一套代码库专用语义检索引擎，Milvus 负责高速向量语义检索，把"大海捞针式 grep"变成"精准召回相关代码片段"，降 token、减工具调用、提升大仓库下编码 Agent 质量**。

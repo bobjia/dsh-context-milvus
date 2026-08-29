@@ -120,20 +120,22 @@ export const Config = z.object({
 })
 
 export function apply(ctx: Context, config?: CordisConfig) {
-  // Register settings section so DSH GUI can display the configuration panel
-  let currentConfig: CordisConfig = config ?? {}
-  installSettingsSection(ctx, SETTINGS_NAMESPACE, Config, currentConfig, {
-    setSource: (getSource) => {
-      // getSource is a thunk that returns the current config value
-      currentConfig = typeof getSource === 'function' ? getSource() : getSource
+  // ── Settings registration (mirrors web-search-deepseek pattern) ──────
+  // `current` is a thunk so tools always read the latest config after a
+  // GUI edit without requiring a plugin reload.
+  let current: () => CordisConfig = () => config ?? {}
+
+  installSettingsSection(ctx, SETTINGS_NAMESPACE, Config, config ?? {}, {
+    setSource: (source) => {
+      current = source
     },
     onChange: () => {
-      // Config changed via GUI; could reload services here if needed
       console.log('[dsh-context-milvus] Configuration updated via settings')
     },
   })
 
-  const resolved = getConfig(currentConfig)
+  // Resolve initial config for startup services
+  const resolved = getConfig(current())
   const embeddingClient = new EmbeddingClient(resolved.embedding)
   const milvus = new MilvusService({
     address: resolved.milvusAddress,
@@ -159,8 +161,9 @@ export function apply(ctx: Context, config?: CordisConfig) {
     )
   })
 
-  // Register all tools
-  registerTools(ctx, resolved, milvus, tracker)
+  // Register all tools — pass the config thunk so each tool execution
+  // picks up the latest settings without restart
+  registerTools(ctx, () => getConfig(current()), milvus, tracker)
 
   console.log(
     `[dsh-context-milvus] 已加载 (${resolved.indexExtensions.length} 种文件类型, ` +

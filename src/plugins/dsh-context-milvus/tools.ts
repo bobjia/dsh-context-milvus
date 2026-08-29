@@ -82,9 +82,18 @@ async function createTrackerForPath(
   return tracker
 }
 
+/**
+ * Register all DSH tools.
+ *
+ * @param ctx - Cordis context
+ * @param resolveConfig - thunk returning the latest PluginConfig; called on
+ *   each tool execution so GUI config edits take effect without restart
+ * @param milvus - shared Milvus service instance
+ * @param tracker - shared default HashTracker instance
+ */
 export function registerTools(
   ctx: Context,
-  config: PluginConfig,
+  resolveConfig: () => PluginConfig,
   milvus: MilvusService,
   tracker: HashTracker,
 ): void {
@@ -198,6 +207,9 @@ export function registerTools(
         const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
         const overridePath = params.path ?? sessionCwd ?? undefined
 
+        // Snapshot latest config at execution time
+        const config = resolveConfig()
+
         // Create effective config with optional path override
         const effectiveConfig = overridePath
           ? {
@@ -260,6 +272,9 @@ export function registerTools(
         // Use explicit path, or the current session's workspace directory
         const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
         const overridePath = params.path ?? sessionCwd ?? undefined
+
+        // Snapshot latest config at execution time
+        const config = resolveConfig()
 
         // Use a workspace-specific tracker if a path is provided
         const effectiveTracker = await createTrackerForPath(config, overridePath, tracker)
