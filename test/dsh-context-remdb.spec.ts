@@ -1497,3 +1497,68 @@ function b(): void {}
     await rm(tempDir, { recursive: true, force: true })
   })
 })
+
+// ═════════════════════════════════════════════════════════════════════════
+// IgnoreMatcher
+// ═════════════════════════════════════════════════════════════════════════
+
+describe('IgnoreMatcher', () => {
+  it('ignores node_modules directory', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['node_modules/**', 'node_modules'])
+    expect(m.ignores('node_modules/some/file.js', false)).toBe(true)
+    expect(m.ignores('node_modules', true)).toBe(true)
+  })
+
+  it('ignores .git directory', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['.git/**', '.git'])
+    expect(m.ignores('.git/HEAD', false)).toBe(true)
+    expect(m.ignores('.git', true)).toBe(true)
+  })
+
+  it('does not ignore source files', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['node_modules/**', '.git/**'])
+    expect(m.ignores('src/index.ts', false)).toBe(false)
+    expect(m.ignores('src/utils/helper.ts', false)).toBe(false)
+  })
+
+  it('ignores hidden segments', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher([])
+    expect(m.ignores('.vscode/settings.json', false)).toBe(true)
+    expect(m.ignores('.github/workflows/ci.yml', false)).toBe(true)
+  })
+
+  it('supports wildcard patterns', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['*.log', 'dist/**', '*.min.js'])
+    expect(m.ignores('app.log', false)).toBe(true)
+    expect(m.ignores('dist/bundle.js', false)).toBe(true)
+    expect(m.ignores('dist/sub/bundle.js', false)).toBe(true)
+    expect(m.ignores('app.min.js', false)).toBe(true)
+    expect(m.ignores('src/index.ts', false)).toBe(false)
+  })
+
+  it('supports dynamic addPatterns', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['node_modules/**'])
+    expect(m.ignores('src/file.ts', false)).toBe(false)
+    m.addPatterns(['*.log'])
+    expect(m.ignores('app.log', false)).toBe(true)
+  })
+
+  it('handles empty patterns', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher([])
+    expect(m.ignores('src/file.ts', false)).toBe(false)
+  })
+
+  it('ignores comment lines and empty patterns', async () => {
+    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const m = new IgnoreMatcher(['# comment', '', 'node_modules/**'])
+    expect(m.ignores('node_modules/pkg/index.js', false)).toBe(true)
+    expect(m.ignores('src/main.ts', false)).toBe(false)
+  })
+})
