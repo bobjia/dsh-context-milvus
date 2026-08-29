@@ -36,6 +36,8 @@ export interface CordisConfig {
   hybridMode?: boolean
   /** Directory names to ignore during indexing (comma-separated) */
   indexIgnoreDirs?: string
+  /** Custom ignore patterns (gitignore-style, comma-separated) */
+  ignorePatterns?: string
 
   /** Path to Merkle state file */
   merkleFilePath?: string
@@ -52,6 +54,7 @@ export interface PluginConfig {
   indexExtensions: string[]
   hybridMode: boolean
   indexIgnoreDirs: string[]
+  ignorePatterns: string[]
   merkleFilePath: string
 }
 
@@ -74,6 +77,40 @@ export const DEFAULT_IGNORE_DIRS = [
   'dist', 'build', 'target', 'out',
   '__pycache__', 'vendor', 'bower_components',
   'coverage', '.nyc_output',
+]
+
+/** Default gitignore-style ignore patterns */
+export const DEFAULT_IGNORE_PATTERNS = [
+  // Build output and dependency directories
+  'node_modules/**',
+  'dist/**', 'build/**', 'out/**',
+  'target/**', 'coverage/**', '.nyc_output/**',
+
+  // IDE and editor files
+  '.vscode/**', '.idea/**',
+  '*.swp', '*.swo',
+
+  // Version control
+  '.git/**', '.svn/**', '.hg/**',
+
+  // Cache directories
+  '.cache/**', '__pycache__/**', '.pytest_cache/**',
+
+  // Logs and temporary files
+  'logs/**', 'tmp/**', 'temp/**',
+  '*.log',
+
+  // Environment config
+  '.env', '.env.*', '*.local',
+
+  // Minified and bundled files
+  '*.min.js', '*.min.css', '*.bundle.js', '*.map',
+
+  // Directory names (bare, for gitignore-style dir matching)
+  'node_modules', '.git', '.svn', '.hg',
+  'dist', 'build', 'out', 'target',
+  '.vscode', '.idea', '__pycache__', '.pytest_cache',
+  'coverage', '.nyc_output', 'logs', 'tmp', 'temp',
 ]
 
 /**
@@ -119,6 +156,15 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
 
   const indexRoot = overrides?.indexRoot ?? process.env.INDEX_ROOT ?? process.cwd()
 
+  // Convert indexIgnoreDirs to gitignore-style patterns (backward compat)
+  const dirPatterns = indexIgnoreDirs.map(dir => `**/${dir}/**`)
+
+  // Parse custom ignore patterns
+  const customPatternsStr = overrides?.ignorePatterns ?? process.env.IGNORE_PATTERNS
+  const customPatterns = customPatternsStr
+    ? customPatternsStr.split(',').map((s) => s.trim()).filter(Boolean)
+    : []
+
   return {
     milvusAddress: overrides?.milvusAddress ?? process.env.MILVUS_ADDRESS ?? 'localhost:19530',
     milvusToken: overrides?.milvusToken ?? (process.env.MILVUS_TOKEN || undefined),
@@ -135,6 +181,7 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
     indexRoot,
     indexExtensions,
     indexIgnoreDirs,
+    ignorePatterns: [...dirPatterns, ...customPatterns],
     hybridMode: overrides?.hybridMode !== undefined
       ? overrides.hybridMode
       : process.env.HYBRID_MODE !== 'false',
