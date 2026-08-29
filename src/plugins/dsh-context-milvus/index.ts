@@ -102,6 +102,12 @@ export const Config = z.object({
   merkleFilePath: z.string()
     .default('')
     .description('Merkle 哈希状态文件路径（用于增量索引，留空使用默认位置）'),
+
+  /** 自定义忽略规则 (gitignore 风格) */
+  ignorePatterns: z.string()
+    .default('')
+    .description('自定义 gitignore 风格忽略规则，每行一个模式')
+    .role('textarea'),
 })
 
 export function apply(ctx: Context, config?: CordisConfig) {
