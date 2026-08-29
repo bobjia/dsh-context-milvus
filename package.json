@@ -30,6 +30,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc",
+    "prepare": "tsc",
     "test": "node --experimental-vm-modules node_modules/.bin/jest",
     "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage"
   },

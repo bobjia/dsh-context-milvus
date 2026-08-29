@@ -165,6 +165,21 @@ dsh plugin --profile <profile-name> add dsh-context-milvus
 
 > 此命令会从 npm 源安装插件并自动注册到指定 profile，重启 DSH 后生效。
 
+### 从 Git 安装（未发布 npm 时）
+
+```bash
+dsh plugin --profile web add git+https://github.com/bobjia/dsh-context-milvus.git
+```
+
+> `dist/` 产物不提交到 git，插件通过 `prepare` 脚本在安装时自动运行 `tsc`
+> 生成构建产物；安装端需要有可用的 TypeScript（devDependencies）。
+>
+> 注意：pnpm 10 默认会阻止依赖执行构建脚本。若安装报
+> `entry file missing: ./dist/plugins/dsh-context-milvus/index.js`，
+> 需要允许该依赖运行构建脚本——在 DSH 插件项目的 `pnpm-workspace.yaml` 中
+> 添加 `onlyBuiltDependencies`，或在项目目录运行 `pnpm approve-builds`
+> 并勾选 `dsh-context-milvus`，然后重新安装。
+
 ### 配置插件
 
 安装后，编辑 profile 下的 `cordis.patch.yml` 配置插件参数：
