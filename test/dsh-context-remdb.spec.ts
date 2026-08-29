@@ -23,6 +23,9 @@ const mockLoadCollectionSync = jest.fn()
 const mockInsert = jest.fn()
 const mockDelete = jest.fn()
 const mockSearch = jest.fn()
+const mockDescribeCollection = jest.fn()
+const mockHybridSearch = jest.fn()
+const mockRenameCollection = jest.fn()
 
 jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
   MilvusClient: jest.fn(() => ({
@@ -34,6 +37,9 @@ jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
     insert: mockInsert,
     delete: mockDelete,
     search: mockSearch,
+    describeCollection: mockDescribeCollection,
+    hybridSearch: mockHybridSearch,
+    renameCollection: mockRenameCollection,
   })),
   DataType: {
     None: 0,
@@ -63,7 +69,10 @@ jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
     L2: 'L2',
     IP: 'IP',
     COSINE: 'COSINE',
+    BM25: 'BM25',
   },
+  FunctionType: { BM25: 'BM25' },
+  RANKER_TYPE: { RRF: 'rrf', WEIGHTED: 'weighted' },
   ErrorCode: {
     SUCCESS: 'Success',
     IndexNotExist: 'IndexNotExist',
@@ -390,6 +399,9 @@ describe('MilvusService', () => {
     mockInsert.mockReset()
     mockDelete.mockReset()
     mockSearch.mockReset()
+    mockDescribeCollection.mockReset()
+    mockHybridSearch.mockReset()
+    mockRenameCollection.mockReset()
   })
 
   describe('ensureCollection()', () => {
@@ -432,6 +444,40 @@ describe('MilvusService', () => {
       expect(mockLoadCollectionSync).toHaveBeenCalledWith({
         collection_name: 'test_collection',
       })
+    })
+
+    it('creates collection with BM25 function field when hybridMode is on', async () => {
+      mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: false })
+      mockCreateCollection.mockResolvedValue({ error_code: 'Success' })
+      mockCreateIndex.mockResolvedValue({ error_code: 'Success' })
+      mockLoadCollectionSync.mockResolvedValue({ error_code: 'Success' })
+
+      const service = new MilvusService({ ...defaultConfig, hybridMode: true })
+      await service.ensureCollection()
+
+      const callArgs = (mockCreateCollection.mock.calls[0] as any[])[0] as any
+      expect(callArgs.functions).toEqual([
+        {
+          name: 'bm25_fn',
+          type: 'BM25',
+          input_field_names: ['code_content'],
+          output_field_names: ['sparse_vector'],
+          params: {},
+        },
+      ])
+      const contentField = callArgs.fields.find((f: any) => f.name === 'code_content')
+      expect(contentField.type_params).toEqual({ enable_analyzer: 'true' })
+      const sparseField = callArgs.fields.find((f: any) => f.name === 'sparse_vector')
+      expect(sparseField.data_type).toBe(104) // SparseFloatVector
+
+      expect(mockCreateIndex).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collection_name: 'test_collection',
+          field_name: 'sparse_vector',
+          index_type: 'SPARSE_INVERTED_INDEX',
+          metric_type: 'BM25',
+        }),
+      )
     })
   })
 
@@ -896,6 +942,9 @@ describe('runIndex()', () => {
     mockInsert.mockReset()
     mockDelete.mockReset()
     mockSearch.mockReset()
+    mockDescribeCollection.mockReset()
+    mockHybridSearch.mockReset()
+    mockRenameCollection.mockReset()
   })
 
   // ── Full mode ─────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@
  * for the indexing pipeline using the @zilliz/milvus2-sdk-node.
  */
 
-import { MilvusClient, DataType, MetricType, ErrorCode } from '@zilliz/milvus2-sdk-node'
+import { MilvusClient, DataType, MetricType, FunctionType, ErrorCode } from '@zilliz/milvus2-sdk-node'
 import type { SearchResultData, SearchSimpleReq } from '@zilliz/milvus2-sdk-node'
 import type { SearchResult, CodeChunk } from './types.js'
 import { EmbeddingClient } from './embedding.js'
@@ -19,6 +19,9 @@ export class MilvusService {
   private readonly collection: string
   private readonly dim: number
   private readonly embeddingClient: EmbeddingClient
+  private hybridMode: boolean
+  private readonly bm25RrfK: number
+  private effectiveHybridMode = false
 
   constructor(config: {
     address: string
@@ -26,12 +29,17 @@ export class MilvusService {
     collection: string
     dim: number
     embeddingClient: EmbeddingClient
+    hybridMode?: boolean
+    bm25RrfK?: number
   }) {
     this.address = config.address
     this.token = config.token
     this.collection = config.collection
     this.dim = config.dim
     this.embeddingClient = config.embeddingClient
+    this.hybridMode = config.hybridMode ?? false
+    this.bm25RrfK = config.bm25RrfK ?? 60
+    this.effectiveHybridMode = this.hybridMode
   }
 
   // ── Client lazy init ──────────────────────────────────────────────────
@@ -72,6 +80,11 @@ export class MilvusService {
     const hasRes = await client.hasCollection({ collection_name: collection })
     if (hasRes.value) return
 
+    // Hybrid-mode fields: sparse_vector
+    const hybridFields: any[] = this.hybridMode
+      ? [{ name: 'sparse_vector', data_type: DataType.SparseFloatVector }]
+      : []
+
     // Create collection with schema
     await client.createCollection({
       collection_name: collection,
@@ -96,6 +109,7 @@ export class MilvusService {
           name: 'code_content',
           data_type: DataType.VarChar,
           max_length: 65535,
+          ...(this.hybridMode ? { type_params: { enable_analyzer: 'true' } } : {}),
         },
         {
           name: 'start_line',
@@ -120,17 +134,42 @@ export class MilvusService {
           data_type: DataType.VarChar,
           max_length: 256,
         },
+        ...hybridFields,
       ],
       enable_dynamic_field: true,
+      ...(this.hybridMode
+        ? {
+            functions: [
+              {
+                name: 'bm25_fn',
+                type: FunctionType.BM25,
+                input_field_names: ['code_content'],
+                output_field_names: ['sparse_vector'],
+                params: {},
+              },
+            ],
+          }
+        : {}),
     } as any)
 
-    // Create index on vector field
+    // Create dense index on vector field
     await client.createIndex({
       collection_name: collection,
       field_name: 'vector',
       metric_type: MetricType.COSINE,
       index_name: 'idx_vector',
     } as any)
+
+    // Create sparse BM25 index when hybrid mode is on
+    if (this.hybridMode) {
+      await client.createIndex({
+        collection_name: collection,
+        field_name: 'sparse_vector',
+        index_type: 'SPARSE_INVERTED_INDEX',
+        metric_type: MetricType.BM25,
+        index_name: 'idx_sparse_bm25',
+      } as any)
+    }
 
     // Load collection for search
     await client.loadCollectionSync({
