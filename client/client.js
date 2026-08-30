@@ -16,7 +16,6 @@ window.__ModuleLoader__.load({
     // --- 依赖 ---
     var react = require("react");
     var jsxRuntime = require("react/jsx-runtime");
-    var _slots = require("@deepseek-ai/dsh-client-ui-slots");
 
     // --- 常量 ---
     var NS = "dsh-context-milvus";
@@ -51,6 +50,8 @@ window.__ModuleLoader__.load({
       ignorePatternsHint: "每行一个 gitignore 风格模式",
       merkleFilePath: "Merkle 状态文件路径",
       merkleFilePathHint: "增量索引哈希状态文件路径，留空使用默认位置",
+      bm25RrfK: "BM25 RRF 参数 k",
+      bm25RrfKHint: "RRF 融合算法参数，默认 60",
       save: "保存",
       discard: "撤销",
       overridden: "已覆盖",
@@ -87,6 +88,8 @@ window.__ModuleLoader__.load({
       ignorePatternsHint: "One gitignore-style pattern per line",
       merkleFilePath: "Merkle State File Path",
       merkleFilePathHint: "Leave blank for default location",
+      bm25RrfK: "BM25 RRF k",
+      bm25RrfKHint: "RRF fusion parameter, default 60",
       save: "Save",
       discard: "Discard",
       overridden: "Overridden",
@@ -94,7 +97,8 @@ window.__ModuleLoader__.load({
       invalidNumber: "Enter a valid number",
     };
 
-    // --- 简单的 ValueField 组件 ---
+    // --- ValueField 组件 ---
+    // 接收 CardForm 格式的字段状态: { text, overridden, invalid }
     function ValueField(props) {
       var id = props.id;
       var label = props.label;
@@ -102,116 +106,100 @@ window.__ModuleLoader__.load({
       var numeric = props.numeric;
       var secret = props.secret;
       var disabled = props.disabled;
-      var value = props.value;
-      var draft = props.draft;
-      var configured = props.configured;
+      var text = props.text;
       var overridden = props.overridden;
-      var valid = props.valid;
+      var invalid = props.invalid;
       var overriddenLabel = props.overriddenLabel;
       var resetLabel = props.resetLabel;
       var invalidLabel = props.invalidLabel;
       var onEdit = props.onEdit;
       var onReset = props.onReset;
 
-      var displayValue = draft !== undefined && draft !== null ? draft : (value || "");
-      var isInvalid = valid === false;
+      var displayValue = text !== undefined && text !== null ? text : "";
+      var isInvalid = invalid === true;
 
       return jsxRuntime.jsxs("div", {
         style: {
-          display: "flex",
-          flexDirection: "column",
-          gap: "6px",
-          padding: "12px 0",
-          borderTop: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
+          marginBottom: "10px",
         },
         children: [
           jsxRuntime.jsxs("div", {
             style: {
               display: "flex",
               alignItems: "center",
-              gap: "8px",
+              justifyContent: "space-between",
+              marginBottom: "4px",
             },
             children: [
               jsxRuntime.jsx("label", {
                 htmlFor: id,
                 style: {
-                  flex: "1",
-                  color: "var(--dsw-alias-label-primary, #333)",
                   fontSize: "13px",
                   fontWeight: 500,
                   lineHeight: "1.5",
+                  color: "var(--dsw-alias-label-primary, #333)",
                 },
                 children: label,
               }),
               overridden
                 ? jsxRuntime.jsx("span", {
                     style: {
-                      background: "var(--dsw-alias-bg-module-platform, #f0f0f0)",
+                      fontSize: "12px",
                       color: "var(--dsw-alias-label-secondary, #666)",
-                      borderRadius: "999px",
-                      padding: "1px 8px",
-                      fontSize: "11px",
-                      fontWeight: 500,
-                      lineHeight: "17px",
                     },
-                    children: overriddenLabel || "Overridden",
-                  })
-                : null,
-              configured
-                ? jsxRuntime.jsx("span", {
-                    style: {
-                      color: "var(--dsw-alias-label-tertiary, #999)",
-                      borderRadius: "999px",
-                      padding: "1px 8px",
-                      fontSize: "11px",
-                      lineHeight: "17px",
-                    },
-                    children: "已配置",
+                    children: overriddenLabel,
                   })
                 : null,
             ],
           }),
-          jsxRuntime.jsx("input", {
-            id: id,
-            type: secret ? "password" : numeric ? "number" : "text",
-            value: displayValue,
-            disabled: disabled,
-            onChange: function (e) {
-              onEdit(e.target.value);
-            },
-            style: {
-              border: "1px solid " + (isInvalid
-                ? "var(--dsw-alias-label-error, #e53e3e)"
-                : "var(--dsw-alias-border-l2, #e5e5e5)"),
-              background: "var(--dsw-alias-bg-layer-3, #fafafa)",
-              height: "34px",
-              font: "inherit",
-              color: "var(--dsw-alias-label-primary, #333)",
-              borderRadius: "8px",
-              padding: "0 12px",
-              fontSize: "13px",
-              lineHeight: "1.5",
-              outline: "none",
-            },
+          jsxRuntime.jsx("div", {
+            style: { position: "relative" },
+            children: jsxRuntime.jsx("input", {
+              id: id,
+              type: secret ? "password" : "text",
+              inputMode: numeric ? "numeric" : "text",
+              value: displayValue,
+              disabled: disabled,
+              onChange: function (e) {
+                onEdit(e.target.value);
+              },
+              style: {
+                width: "100%",
+                boxSizing: "border-box",
+                font: "inherit",
+                fontSize: "13px",
+                lineHeight: "1.5",
+                padding: "6px 10px",
+                border: "1px solid " + (isInvalid
+                  ? "var(--dsw-alias-state-danger, #ff4d4f)"
+                  : "var(--dsw-alias-border-l2, #e5e5e5)"),
+                borderRadius: "8px",
+                background: disabled
+                  ? "var(--dsw-alias-bg-layer-3, #fafafa)"
+                  : "var(--dsw-alias-bg-layer-1, #fff)",
+                color: "var(--dsw-alias-label-primary, #333)",
+                outline: "none",
+              },
+            }),
           }),
           isInvalid
             ? jsxRuntime.jsx("p", {
                 style: {
-                  color: "var(--dsw-alias-label-error, #e53e3e)",
-                  margin: 0,
+                  margin: "2px 0 0 0",
                   fontSize: "12px",
                   lineHeight: "1.5",
+                  color: "var(--dsw-alias-state-danger, #ff4d4f)",
                 },
-                children: invalidLabel || "Invalid",
+                children: invalidLabel,
               })
             : null,
           hint
             ? jsxRuntime.jsx("p", {
                 style: {
-                  color: "var(--dsw-alias-label-tertiary, #999)",
-                  margin: 0,
+                  margin: "2px 0 0 0",
                   fontSize: "12px",
                   lineHeight: "1.5",
+                  color: "var(--dsw-alias-label-tertiary, #999)",
                 },
                 children: hint,
               })
@@ -241,78 +229,92 @@ window.__ModuleLoader__.load({
       });
     }
 
-    // --- 布尔字段组件 ---
+    // --- BooleanField 组件 ---
     function BooleanField(props) {
       var id = props.id;
       var label = props.label;
       var hint = props.hint;
       var disabled = props.disabled;
-      var value = props.value;
-      var draft = props.draft;
+      var text = props.text;
       var overridden = props.overridden;
       var overriddenLabel = props.overriddenLabel;
       var resetLabel = props.resetLabel;
       var onEdit = props.onEdit;
       var onReset = props.onReset;
 
-      var checked = draft !== undefined && draft !== null ? draft === "true" : (value === true);
+      var checked = text === "true" || text === true;
 
       return jsxRuntime.jsxs("div", {
         style: {
+          marginBottom: "10px",
           display: "flex",
-          flexDirection: "column",
-          gap: "6px",
-          padding: "12px 0",
-          borderTop: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
+          alignItems: "flex-start",
+          gap: "10px",
         },
         children: [
-          jsxRuntime.jsxs("div", {
+          jsxRuntime.jsx("label", {
             style: {
               display: "flex",
               alignItems: "center",
-              gap: "8px",
+              gap: "6px",
+              cursor: disabled ? "default" : "pointer",
+              flexShrink: 0,
             },
-            children: [
-              jsxRuntime.jsx("label", {
-                htmlFor: id,
-                style: {
-                  flex: "1",
-                  color: "var(--dsw-alias-label-primary, #333)",
-                  fontSize: "13px",
-                  fontWeight: 500,
-                  lineHeight: "1.5",
-                },
-                children: label,
-              }),
-              overridden
-                ? jsxRuntime.jsx("span", {
-                    style: {
-                      background: "var(--dsw-alias-bg-module-platform, #f0f0f0)",
-                      color: "var(--dsw-alias-label-secondary, #666)",
-                      borderRadius: "999px",
-                      padding: "1px 8px",
-                      fontSize: "11px",
-                      fontWeight: 500,
-                      lineHeight: "17px",
-                    },
-                    children: overriddenLabel || "Overridden",
-                  })
-                : null,
-            ],
+            children: jsxRuntime.jsx("input", {
+              id: id,
+              type: "checkbox",
+              checked: checked,
+              disabled: disabled,
+              onChange: function (e) {
+                onEdit(e.target.checked ? "true" : "false");
+              },
+              style: {
+                cursor: disabled ? "default" : "pointer",
+              },
+            }),
           }),
           jsxRuntime.jsxs("div", {
-            style: { display: "flex", alignItems: "center", gap: "8px" },
+            style: { flex: "1", minWidth: 0 },
             children: [
-              jsxRuntime.jsx("input", {
-                id: id,
-                type: "checkbox",
-                checked: checked,
-                disabled: disabled,
-                onChange: function (e) {
-                  onEdit(e.target.checked ? "true" : "false");
+              jsxRuntime.jsxs("div", {
+                style: {
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
                 },
-                style: { cursor: disabled ? "default" : "pointer" },
+                children: [
+                  jsxRuntime.jsx("label", {
+                    htmlFor: id,
+                    style: {
+                      fontSize: "13px",
+                      fontWeight: 500,
+                      lineHeight: "1.5",
+                      color: "var(--dsw-alias-label-primary, #333)",
+                    },
+                    children: label,
+                  }),
+                  overridden
+                    ? jsxRuntime.jsx("span", {
+                        style: {
+                          fontSize: "12px",
+                          color: "var(--dsw-alias-label-secondary, #666)",
+                        },
+                        children: overriddenLabel,
+                      })
+                    : null,
+                ],
               }),
+              hint
+                ? jsxRuntime.jsx("p", {
+                    style: {
+                      margin: "2px 0 0 0",
+                      fontSize: "12px",
+                      lineHeight: "1.5",
+                      color: "var(--dsw-alias-label-tertiary, #999)",
+                    },
+                    children: hint,
+                  })
+                : null,
               overridden
                 ? jsxRuntime.jsx("button", {
                     onClick: function (e) {
@@ -329,82 +331,62 @@ window.__ModuleLoader__.load({
                       padding: 0,
                       fontSize: "12px",
                       lineHeight: "1.5",
+                      textAlign: "left",
                     },
                     children: resetLabel || "Reset",
                   })
                 : null,
             ],
           }),
-          hint
-            ? jsxRuntime.jsx("p", {
-                style: {
-                  color: "var(--dsw-alias-label-tertiary, #999)",
-                  margin: 0,
-                  fontSize: "12px",
-                  lineHeight: "1.5",
-                },
-                children: hint,
-              })
-            : null,
         ],
       });
     }
 
-    // --- 多行文本字段组件 ---
+    // --- TextareaField 组件 ---
     function TextareaField(props) {
       var id = props.id;
       var label = props.label;
       var hint = props.hint;
       var disabled = props.disabled;
-      var value = props.value;
-      var draft = props.draft;
+      var text = props.text;
       var overridden = props.overridden;
       var overriddenLabel = props.overriddenLabel;
       var resetLabel = props.resetLabel;
       var onEdit = props.onEdit;
       var onReset = props.onReset;
 
-      var displayValue = draft !== undefined && draft !== null ? draft : (value || "");
+      var displayValue = text !== undefined && text !== null ? text : "";
 
       return jsxRuntime.jsxs("div", {
         style: {
-          display: "flex",
-          flexDirection: "column",
-          gap: "6px",
-          padding: "12px 0",
-          borderTop: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
+          marginBottom: "10px",
         },
         children: [
           jsxRuntime.jsxs("div", {
             style: {
               display: "flex",
               alignItems: "center",
-              gap: "8px",
+              justifyContent: "space-between",
+              marginBottom: "4px",
             },
             children: [
               jsxRuntime.jsx("label", {
                 htmlFor: id,
                 style: {
-                  flex: "1",
-                  color: "var(--dsw-alias-label-primary, #333)",
                   fontSize: "13px",
                   fontWeight: 500,
                   lineHeight: "1.5",
+                  color: "var(--dsw-alias-label-primary, #333)",
                 },
                 children: label,
               }),
               overridden
                 ? jsxRuntime.jsx("span", {
                     style: {
-                      background: "var(--dsw-alias-bg-module-platform, #f0f0f0)",
+                      fontSize: "12px",
                       color: "var(--dsw-alias-label-secondary, #666)",
-                      borderRadius: "999px",
-                      padding: "1px 8px",
-                      fontSize: "11px",
-                      fontWeight: 500,
-                      lineHeight: "17px",
                     },
-                    children: overriddenLabel || "Overridden",
+                    children: overriddenLabel,
                   })
                 : null,
             ],
@@ -418,26 +400,29 @@ window.__ModuleLoader__.load({
             },
             rows: 3,
             style: {
-              border: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
-              background: "var(--dsw-alias-bg-layer-3, #fafafa)",
+              width: "100%",
+              boxSizing: "border-box",
               font: "inherit",
-              color: "var(--dsw-alias-label-primary, #333)",
-              borderRadius: "8px",
-              padding: "8px 12px",
               fontSize: "13px",
               lineHeight: "1.5",
+              padding: "6px 10px",
+              border: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
+              borderRadius: "8px",
+              background: disabled
+                ? "var(--dsw-alias-bg-layer-3, #fafafa)"
+                : "var(--dsw-alias-bg-layer-1, #fff)",
+              color: "var(--dsw-alias-label-primary, #333)",
               outline: "none",
               resize: "vertical",
-              fontFamily: "monospace",
             },
           }),
           hint
             ? jsxRuntime.jsx("p", {
                 style: {
-                  color: "var(--dsw-alias-label-tertiary, #999)",
-                  margin: 0,
+                  margin: "2px 0 0 0",
                   fontSize: "12px",
                   lineHeight: "1.5",
+                  color: "var(--dsw-alias-label-tertiary, #999)",
                 },
                 children: hint,
               })
@@ -467,12 +452,35 @@ window.__ModuleLoader__.load({
       });
     }
 
+    // --- 简单的 store 工厂 ---
+    // 提供 { getSnapshot, subscribe, set }，满足 useSyncExternalStore 契约
+    function createSimpleStore(init) {
+      var state = init;
+      var listeners = new Set();
+      return {
+        getSnapshot: function () { return state; },
+        subscribe: function (fn) {
+          listeners.add(fn);
+          return function () { listeners.delete(fn); };
+        },
+        set: function (next) {
+          state = next;
+          listeners.forEach(function (fn) { fn(); });
+        },
+      };
+    }
+
     // --- 卡片组件 ---
+    // 使用 CardForm 模式：renderSlot 自动将 hooks.milvusConfigCard 转为
+    // useMilvusConfigCard hook，state 通过该 hook 获取
     function MilvusConfigCard(props) {
       var t = props.t;
-      var state = props.state;
-      var disabled = state.saving;
-      var pending = state.pending;
+      var state = props.useMilvusConfigCard(function (snapshot) { return snapshot; });
+      var disabled = !state.writable || state.saving;
+      var pending = !state.available;
+      var expanded = react.useState(false);
+      var isExpanded = expanded[0];
+      var setExpanded = expanded[1];
 
       var fields = [
         { id: "milvusAddress", label: t("milvusAddress"), hint: t("milvusAddressHint"), numeric: false, secret: false },
@@ -486,6 +494,7 @@ window.__ModuleLoader__.load({
         { id: "indexExtensions", label: t("indexExtensions"), hint: t("indexExtensionsHint"), numeric: false, secret: false },
         { id: "merkleFilePath", label: t("merkleFilePath"), hint: t("merkleFilePathHint"), numeric: false, secret: false },
         { id: "indexIgnoreDirs", label: t("indexIgnoreDirs"), hint: t("indexIgnoreDirsHint"), numeric: false, secret: false },
+        { id: "bm25RrfK", label: t("bm25RrfK"), hint: t("bm25RrfKHint"), numeric: true, secret: false },
       ];
 
       return jsxRuntime.jsxs("div", {
@@ -496,8 +505,13 @@ window.__ModuleLoader__.load({
           overflow: "hidden",
         },
         children: [
-          // 头部
+          // 头部（可点击展开/折叠）
           jsxRuntime.jsxs("div", {
+            onClick: function () { setExpanded(!isExpanded); },
+            onKeyDown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded(!isExpanded); } },
+            role: "button",
+            tabIndex: 0,
+            "aria-expanded": isExpanded,
             style: {
               display: "flex",
               alignItems: "center",
@@ -505,6 +519,7 @@ window.__ModuleLoader__.load({
               padding: "16px 20px",
               cursor: "pointer",
               gap: "12px",
+              userSelect: "none",
             },
             children: [
               jsxRuntime.jsxs("div", {
@@ -531,167 +546,345 @@ window.__ModuleLoader__.load({
                   }),
                 ],
               }),
-              pending
-                ? jsxRuntime.jsx("span", {
+              jsxRuntime.jsxs("div", {
+                style: {
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  flexShrink: 0,
+                },
+                children: [
+                  pending
+                    ? jsxRuntime.jsx("span", {
+                        style: {
+                          color: "var(--dsw-alias-label-tertiary, #999)",
+                          fontSize: "12px",
+                        },
+                        children: "加载中…",
+                      })
+                    : null,
+                  jsxRuntime.jsx("span", {
                     style: {
                       color: "var(--dsw-alias-label-tertiary, #999)",
-                      fontSize: "12px",
+                      flex: "none",
+                      transition: "transform 0.16s",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: "14px",
+                      height: "14px",
+                      transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
                     },
-                    children: "加载中…",
-                  })
-                : null,
-            ],
-          }),
-          // 表单体
-          jsxRuntime.jsx("div", {
-            style: {
-              padding: "0 20px 16px",
-            },
-            children: jsxRuntime.jsxs("div", {
-              children: fields.map(function (field) {
-                var fieldState = state[field.id] || {};
-                return jsxRuntime.jsx(ValueField, {
-                  id: "plugin-config-dsh-context-milvus-" + field.id,
-                  label: field.label,
-                  hint: field.hint,
-                  numeric: field.numeric,
-                  secret: field.secret,
-                  disabled: disabled,
-                  overriddenLabel: t("overridden"),
-                  resetLabel: t("reset"),
-                  invalidLabel: t("invalidNumber"),
-                  value: fieldState.value,
-                  draft: fieldState.draft,
-                  configured: fieldState.configured,
-                  overridden: fieldState.overridden,
-                  valid: fieldState.valid,
-                  onEdit: function (text) {
-                    props.edit(field.id, text);
-                  },
-                  onReset: function () {
-                    props.resetField(field.id);
-                  },
-                }, field.id);
-              }),
-            }),
-          }),
-          // 混合搜索字段
-          jsxRuntime.jsx("div", {
-            style: {
-              padding: "0 20px 16px",
-            },
-            children: jsxRuntime.jsx(BooleanField, {
-              id: "plugin-config-dsh-context-milvus-hybridMode",
-              label: t("hybridMode"),
-              hint: t("hybridModeHint"),
-              disabled: disabled,
-              overriddenLabel: t("overridden"),
-              resetLabel: t("reset"),
-              value: (state.hybridMode || {}).value,
-              draft: (state.hybridMode || {}).draft,
-              configured: (state.hybridMode || {}).configured,
-              overridden: (state.hybridMode || {}).overridden,
-              onEdit: function (text) {
-                props.edit("hybridMode", text);
-              },
-              onReset: function () {
-                props.resetField("hybridMode");
-              },
-            }),
-          }),
-          // 自定义忽略规则字段
-          jsxRuntime.jsx("div", {
-            style: {
-              padding: "0 20px 16px",
-            },
-            children: jsxRuntime.jsx(TextareaField, {
-              id: "plugin-config-dsh-context-milvus-ignorePatterns",
-              label: t("ignorePatterns"),
-              hint: t("ignorePatternsHint"),
-              disabled: disabled,
-              overriddenLabel: t("overridden"),
-              resetLabel: t("reset"),
-              value: (state.ignorePatterns || {}).value,
-              draft: (state.ignorePatterns || {}).draft,
-              configured: (state.ignorePatterns || {}).configured,
-              overridden: (state.ignorePatterns || {}).overridden,
-              onEdit: function (text) {
-                props.edit("ignorePatterns", text);
-              },
-              onReset: function () {
-                props.resetField("ignorePatterns");
-              },
-            }),
-          }),
-          // 底部操作栏
-          jsxRuntime.jsxs("div", {
-            style: {
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: "8px",
-              padding: "12px 20px",
-              borderTop: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
-            },
-            children: [
-              jsxRuntime.jsx("button", {
-                onClick: function (e) {
-                  e.preventDefault();
-                  props.discard();
-                },
-                disabled: disabled,
-                style: {
-                  font: "inherit",
-                  color: "var(--dsw-alias-label-secondary, #666)",
-                  cursor: disabled ? "default" : "pointer",
-                  background: "var(--dsw-alias-bg-layer-3, #fafafa)",
-                  border: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
-                  borderRadius: "8px",
-                  padding: "6px 16px",
-                  fontSize: "13px",
-                  lineHeight: "1.5",
-                },
-                children: t("discard"),
-              }),
-              jsxRuntime.jsx("button", {
-                onClick: function (e) {
-                  e.preventDefault();
-                  props.save();
-                },
-                disabled: disabled,
-                style: {
-                  font: "inherit",
-                  color: disabled
-                    ? "var(--dsw-alias-label-tertiary, #999)"
-                    : "var(--dsw-alias-label-primary-inverse, #fff)",
-                  cursor: disabled ? "default" : "pointer",
-                  background: disabled
-                    ? "var(--dsw-alias-bg-layer-3, #fafafa)"
-                    : "var(--dsw-alias-brand-primary, #1677ff)",
-                  border: "none",
-                  borderRadius: "8px",
-                  padding: "6px 16px",
-                  fontSize: "13px",
-                  lineHeight: "1.5",
-                  fontWeight: 500,
-                },
-                children: t("save"),
+                    children: jsxRuntime.jsx("svg", {
+                      width: "14",
+                      height: "14",
+                      viewBox: "0 0 14 14",
+                      fill: "none",
+                      children: jsxRuntime.jsx("path", {
+                        d: "M4.375 5.25L7 7.875L9.625 5.25",
+                        stroke: "currentColor",
+                        strokeWidth: "1.5",
+                        strokeLinecap: "round",
+                        strokeLinejoin: "round",
+                      }),
+                    }),
+                  }),
+                ],
               }),
             ],
           }),
+          // 展开的内容
+          isExpanded
+            ? jsxRuntime.jsxs(react.Fragment, {
+                children: [
+                  // 表单体
+                  jsxRuntime.jsx("div", {
+                    style: {
+                      padding: "0 20px 16px",
+                    },
+                    children: jsxRuntime.jsxs("div", {
+                      children: fields.map(function (field) {
+                        var fieldState = state[field.id] || {};
+                        return jsxRuntime.jsx(ValueField, {
+                          id: "plugin-config-dsh-context-milvus-" + field.id,
+                          label: field.label,
+                          hint: field.hint,
+                          numeric: field.numeric,
+                          secret: field.secret,
+                          disabled: disabled,
+                          overriddenLabel: t("overridden"),
+                          resetLabel: t("reset"),
+                          invalidLabel: t("invalidNumber"),
+                          text: fieldState.text,
+                          overridden: fieldState.overridden,
+                          invalid: fieldState.invalid,
+                          onEdit: function (text) {
+                            props.edit(field.id, text);
+                          },
+                          onReset: function () {
+                            props.resetField(field.id);
+                          },
+                        }, field.id);
+                      }),
+                    }),
+                  }),
+                  // 混合搜索字段
+                  jsxRuntime.jsx("div", {
+                    style: {
+                      padding: "0 20px 16px",
+                    },
+                    children: jsxRuntime.jsx(BooleanField, {
+                      id: "plugin-config-dsh-context-milvus-hybridMode",
+                      label: t("hybridMode"),
+                      hint: t("hybridModeHint"),
+                      disabled: disabled,
+                      overriddenLabel: t("overridden"),
+                      resetLabel: t("reset"),
+                      text: (state.hybridMode || {}).text,
+                      overridden: (state.hybridMode || {}).overridden,
+                      onEdit: function (text) {
+                        props.edit("hybridMode", text);
+                      },
+                      onReset: function () {
+                        props.resetField("hybridMode");
+                      },
+                    }),
+                  }),
+                  // 自定义忽略规则字段
+                  jsxRuntime.jsx("div", {
+                    style: {
+                      padding: "0 20px 16px",
+                    },
+                    children: jsxRuntime.jsx(TextareaField, {
+                      id: "plugin-config-dsh-context-milvus-ignorePatterns",
+                      label: t("ignorePatterns"),
+                      hint: t("ignorePatternsHint"),
+                      disabled: disabled,
+                      overriddenLabel: t("overridden"),
+                      resetLabel: t("reset"),
+                      text: (state.ignorePatterns || {}).text,
+                      overridden: (state.ignorePatterns || {}).overridden,
+                      onEdit: function (text) {
+                        props.edit("ignorePatterns", text);
+                      },
+                      onReset: function () {
+                        props.resetField("ignorePatterns");
+                      },
+                    }),
+                  }),
+                  // 底部操作栏
+                  jsxRuntime.jsxs("div", {
+                    style: {
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      gap: "8px",
+                      padding: "12px 20px",
+                      borderTop: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
+                    },
+                    children: [
+                      jsxRuntime.jsx("button", {
+                        onClick: function (e) {
+                          e.preventDefault();
+                          props.discard();
+                        },
+                        disabled: disabled || !state.dirty,
+                        style: {
+                          font: "inherit",
+                          color: "var(--dsw-alias-label-secondary, #666)",
+                          cursor: (disabled || !state.dirty) ? "default" : "pointer",
+                          background: "var(--dsw-alias-bg-layer-3, #fafafa)",
+                          border: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
+                          borderRadius: "8px",
+                          padding: "6px 16px",
+                          fontSize: "13px",
+                          lineHeight: "1.5",
+                        },
+                        children: t("discard"),
+                      }),
+                      jsxRuntime.jsx("button", {
+                        onClick: function (e) {
+                          e.preventDefault();
+                          props.save();
+                        },
+                        disabled: disabled,
+                        style: {
+                          font: "inherit",
+                          color: disabled
+                            ? "var(--dsw-alias-label-tertiary, #999)"
+                            : "var(--dsw-alias-label-primary-inverse, #fff)",
+                          cursor: disabled ? "default" : "pointer",
+                          background: disabled
+                            ? "var(--dsw-alias-bg-layer-3, #fafafa)"
+                            : "var(--dsw-alias-brand-primary, #1677ff)",
+                          border: "none",
+                          borderRadius: "8px",
+                          padding: "6px 16px",
+                          fontSize: "13px",
+                          lineHeight: "1.5",
+                          fontWeight: 500,
+                        },
+                        children: state.saving ? "保存中…" : t("save"),
+                      }),
+                    ],
+                  }),
+                ],
+              })
+            : null,
         ],
       });
     }
 
-    // --- 注册 settings.plugin.item 插槽 ---
-    // ctx 由客户端加载器通过 apply(ctx) 参数注入，不能在 factory 顶层作用域直接引用。
-    // inject 导出声明该 bundle 需要的客户端服务（cordis fiber inject），
-    // 缺了它 ctx.slots / ctx.locale 会抛 "cannot get property ... without inject"。
-    var inject = ["slots", "locale"];
+    // --- 导出声明（cordis fiber inject）---
+    var inject = ["slots", "locale", "settingsScope"];
 
+    // --- 应用入口 ---
     function apply(ctx) {
-      // 注册本地化字典，供插槽渲染时 props.t() 解析文案
-      ctx.effect(() => ctx.locale.register(NS, { zh, en }));
+      // 注册本地化字典
+      ctx.effect(function () { return ctx.locale.register(NS, { zh: zh, en: en }); });
 
+      // 绑定 settings namespace 作用域
+      var scope = ctx.settingsScope.bind({ namespace: NS });
+
+      // 表单状态管理
+      var staged = {};        // 暂存编辑值: { field: text }
+      var saving = false;
+      var failed = false;
+
+      // 字段类型映射，用于 save 时的类型转换
+      var fieldTypes = {
+        milvusAddress: "string",
+        milvusToken: "string",
+        milvusCollection: "string",
+        milvusDim: "number",
+        embeddingEndpoint: "string",
+        embeddingApiKey: "string",
+        embeddingModel: "string",
+        indexRoot: "string",
+        indexExtensions: "string",
+        merkleFilePath: "string",
+        indexIgnoreDirs: "string",
+        ignorePatterns: "string",
+        hybridMode: "boolean",
+        bm25RrfK: "number",
+      };
+
+      function toTypedValue(field, text) {
+        var type = fieldTypes[field] || "string";
+        if (type === "number") {
+          var n = Number(text);
+          return isNaN(n) ? text : n;
+        }
+        if (type === "boolean") return text === "true" || text === true;
+        return text;
+      }
+
+      // 构建完整表单状态
+      function buildState() {
+        var snapshot = scope.getSnapshot();
+        var available = snapshot.status === "ready";
+        var writable = snapshot.writable;
+        var value = snapshot.value || {};
+        var base = snapshot.base || {};
+
+        // 字段列表
+        var fieldIds = [
+          "milvusAddress", "milvusToken", "milvusCollection", "milvusDim",
+          "embeddingEndpoint", "embeddingApiKey", "embeddingModel",
+          "indexRoot", "indexExtensions", "merkleFilePath",
+          "indexIgnoreDirs", "ignorePatterns", "hybridMode", "bm25RrfK",
+        ];
+
+        var fields = {};
+        fieldIds.forEach(function (field) {
+          var stagedText = staged[field];
+          var currentValue = value[field];
+          var baseValue = base[field];
+          var isOverridden = value[field] !== undefined && value[field] !== baseValue;
+
+          if (stagedText !== undefined) {
+            fields[field] = {
+              text: stagedText,
+              overridden: true,
+              invalid: false,
+            };
+          } else if (currentValue !== undefined) {
+            fields[field] = {
+              text: String(currentValue),
+              overridden: isOverridden,
+              invalid: false,
+            };
+          } else {
+            fields[field] = {
+              text: "",
+              overridden: false,
+              invalid: false,
+            };
+          }
+        });
+
+        return {
+          available: available,
+          writable: writable,
+          dirty: Object.keys(staged).length > 0,
+          invalid: false,
+          saving: saving,
+          failed: failed,
+          ...fields,
+        };
+      }
+
+      // store 供 hooks 使用
+      var store = createSimpleStore(buildState());
+
+      // 订阅 scope 变更
+      scope.subscribe(function () {
+        if (!saving) store.set(buildState());
+      });
+
+      // 表单动作
+      var actions = {
+        edit: function (field, text) {
+          staged[field] = text;
+          failed = false;
+          store.set(buildState());
+        },
+        resetField: function (field) {
+          delete staged[field];
+          store.set(buildState());
+        },
+        save: function () {
+          var plan = Object.keys(staged);
+          if (plan.length === 0 || saving) return;
+          saving = true;
+          store.set(buildState());
+          var promises = plan.map(function (field) {
+            var text = staged[field];
+            if (text === "") {
+              return scope.unset(field);
+            } else {
+              return scope.set(field, toTypedValue(field, text));
+            }
+          });
+          Promise.all(promises).then(function () {
+            staged = {};
+            saving = false;
+            failed = false;
+            store.set(buildState());
+          }).catch(function () {
+            saving = false;
+            failed = true;
+            store.set(buildState());
+          });
+        },
+        discard: function () {
+          if (Object.keys(staged).length === 0 && !failed) return;
+          staged = {};
+          failed = false;
+          store.set(buildState());
+        },
+      };
+
+      // 注册 settings.plugin.item 插槽
       ctx.slots.inject("settings.plugin.item", function* () {
         yield ctx.slots.register(
           {
@@ -699,7 +892,13 @@ window.__ModuleLoader__.load({
             key: NS,
             locale: NS,
             inject: function () {
-              return {};
+              return {
+                hooks: { milvusConfigCard: store },
+                edit: actions.edit,
+                resetField: actions.resetField,
+                save: actions.save,
+                discard: actions.discard,
+              };
             },
           },
           MilvusConfigCard
