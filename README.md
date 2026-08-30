@@ -1,5 +1,6 @@
 # dsh-context-milvus
 
+[![npm version](https://img.shields.io/npm/v/dsh-context-milvus)](https://www.npmjs.com/package/dsh-context-milvus)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/bobjia/dsh-context-milvus)
 
 DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持完整的索引 ↔ 搜索闭环。
@@ -153,9 +154,19 @@ docker run -it --rm \
 
 ## 安装到 DSH
 
-### 方式一：从本地 tarball 安装（推荐，无需额外配置）
+### 方式一：从 npm 安装（推荐）
 
-插件尚未发布到 npm 时，先在本地构建并打包，然后直接安装 tarball，完全绕过 pnpm 的构建脚本拦截：
+插件已发布到 npm registry，直接通过 DSH CLI 安装：
+
+```bash
+dsh plugin --profile web add dsh-context-milvus
+```
+
+> npm 包内置编译后的 `dist/` 产物，安装时无需执行构建脚本，不会遇到 pnpm 的 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 拦截。
+
+### 方式二：从本地 tarball 安装（离线 / 本地开发场景）
+
+构建并打包成 tarball，然后直接安装：
 
 ```bash
 # 1. 构建
@@ -170,7 +181,7 @@ dsh plugin --profile web add ./dsh-context-milvus-0.1.3.tgz
 
 > `pnpm pack` 打包的 tarball 包含编译后的 `dist/` 产物，安装时无需执行构建脚本，所以 pnpm 不会报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`。
 
-### 方式二：从 Git 安装（需额外配置）
+### 方式三：从 Git 安装（需额外配置）
 
 ```bash
 dsh plugin --profile web add git+https://github.com/bobjia/dsh-context-milvus.git
@@ -192,15 +203,7 @@ dsh plugin --profile web add git+https://github.com/bobjia/dsh-context-milvus.gi
 > ```
 > 然后重新运行安装命令。或者运行 `pnpm approve-builds` 并勾选 `dsh-context-milvus`。
 >
-> 不想让用户做这项授权，就使用方式一（tarball）或发布到 npm。
-
-### 方式三：发布到 npm 后安装
-
-待插件发布到 npm registry 后，直接通过 DSH CLI 安装：
-
-```bash
-dsh plugin --profile web add dsh-context-milvus
-```
+> 不想让用户做这项授权，就使用方式一（npm）或方式二（tarball）。
 
 ### 配置插件
 

@@ -2,8 +2,15 @@
   "name": "dsh-context-milvus",
   "version": "0.1.3",
   "description": "DSH plugin for semantic code search via Milvus vector database",
-  "private": true,
   "type": "module",
+  "files": [
+    "dist",
+    "client",
+    "cordis-entry.yml",
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md"
+  ],
   "main": "dist/plugins/dsh-context-milvus/index.js",
   "types": "dist/plugins/dsh-context-milvus/index.d.ts",
   "exports": {
