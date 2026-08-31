@@ -703,6 +703,34 @@ describe('MilvusService ADR collection', () => {
     expect(fieldNames).toContain('trigger_type')
   })
 
+  it('falls back to dense-only ADR schema when hybrid creation is unsupported', async () => {
+    mockCreateCollection
+      .mockRejectedValueOnce(new Error('function field not supported on this server'))
+      .mockResolvedValueOnce({})
+    mockCreateIndex.mockResolvedValue({})
+    mockLoadCollectionSync.mockResolvedValue({})
+
+    const embedding = mockEmbeddingClient()
+    const service = new MilvusService({
+      address: 'localhost:19530',
+      collection: 'code_embeddings',
+      dim: 768,
+      embeddingClient: embedding,
+      hybridMode: true,
+    })
+    ;(service as any).adrCollection = 'adr_embeddings'
+
+    await service.ensureAdrCollection() // must not throw
+
+    expect(mockCreateCollection).toHaveBeenCalledTimes(2)
+    const firstArgs = mockCreateCollection.mock.calls[0][0]
+    const secondArgs = mockCreateCollection.mock.calls[1][0]
+    expect(firstArgs.functions).toBeDefined()
+    expect(secondArgs.functions).toBeUndefined()
+    const contentField = secondArgs.fields.find((f: any) => f.name === 'content')
+    expect(contentField.type_params).toBeUndefined()
+  })
+
   it('inserts ADR chunks with vectors', async () => {
     mockInsert.mockResolvedValue({ insert_cnt: 2 })
     const embedding = mockEmbeddingClient([[0.1, 0.2], [0.3, 0.4]])

@@ -401,6 +401,31 @@ export class MilvusService {
       return
     }
 
+    if (!this.hybridMode) {
+      await this.createAdrCollectionWithSchema()
+      this.adrCollectionReady = true
+      return
+    }
+
+    try {
+      await this.createAdrCollectionWithSchema()
+    } catch (err) {
+      console.warn(
+        `[dsh-context-milvus] 服务器不支持 BM25 function 字段，已降级为纯向量检索: ` +
+          `${(err as Error).message}`,
+      )
+      this.effectiveHybridMode = false
+      this.hybridMode = false
+      await this.createAdrCollectionWithSchema()
+    }
+
+    this.adrCollectionReady = true
+  }
+
+  private async createAdrCollectionWithSchema(): Promise<void> {
+    const client = this.getClient()
+    const adrCollection = this.adrCollection
+
     await client.createCollection({
       collection_name: adrCollection,
       fields: [
