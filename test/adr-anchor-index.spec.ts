@@ -54,6 +54,16 @@ describe('AdrAnchorIndex', () => {
     expect(index2.getStats().adrCount).toBe(1)
   })
 
+  it('normalizes paths for deterministic lookup', () => {
+    // ./ prefix and backslash paths should be normalized for lookup
+    index.setAdr('ADR-0001', ['./src/a.ts', 'src\\b.ts'])
+    expect(index.getAdrsForFile('src/a.ts')).toEqual(['ADR-0001'])
+    expect(index.getAdrsForFile('src/b.ts')).toEqual(['ADR-0001'])
+    // Round-trip through persistence
+    index.setAdr('ADR-0002', ['./src/c.ts'])
+    expect(index.getAdrsForFile('src/c.ts')).toEqual(['ADR-0002'])
+  })
+
   it('provides stats', () => {
     index.setAdr('ADR-0001', ['src/a.ts', 'src/b.ts'])
     index.setAdr('ADR-0002', ['src/c.ts'])

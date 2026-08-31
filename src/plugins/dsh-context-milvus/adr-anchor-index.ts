@@ -1,5 +1,5 @@
 // src/plugins/dsh-context-milvus/adr-anchor-index.ts
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, rename, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import type { AnchorIndexStats } from './types.js'
 
@@ -34,21 +34,20 @@ export class AdrAnchorIndex {
       fileToAdrs: Object.fromEntries(this.fileToAdrs),
       adrToFiles: Object.fromEntries(this.adrToFiles),
     }
-    await writeFile(this.filePath, JSON.stringify(data, null, 2), 'utf-8')
+    // Write to a temp file, then atomically rename into place so a crash
+    // mid-write never leaves the sidecar truncated or corrupt.
+    const tmp = this.filePath + '.tmp'
+    await writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8')
+    await rename(tmp, this.filePath)
     this.dirty = false
   }
 
   /** Get all ADR ids that anchor a given file */
   getAdrsForFile(filePath: string): string[] {
-    // Normalize: remove leading ./ and resolve relative paths
+    // Normalize the query and look up the normalized stored key exactly,
+    // avoiding unanchored endsWith matches (e.g. a.ts matching b/a.ts).
     const normalized = normalizePath(filePath)
-    // Try exact, then try each key with normalized comparison
-    for (const [key, adrs] of this.fileToAdrs) {
-      if (filePath.endsWith(key) || key.endsWith(filePath) || normalized === normalizePath(key)) {
-        return [...adrs]
-      }
-    }
-    const direct = this.fileToAdrs.get(filePath)
+    const direct = this.fileToAdrs.get(normalized)
     return direct ? [...direct] : []
   }
 
@@ -62,9 +61,10 @@ export class AdrAnchorIndex {
     // Remove old mappings for this ADR
     this.removeAdr(adrId)
 
-    // Set new mappings
-    this.adrToFiles.set(adrId, [...files])
-    for (const file of files) {
+    // Set new mappings with normalized paths so stored and query keys match
+    const normalizedFiles = files.map(normalizePath)
+    this.adrToFiles.set(adrId, [...normalizedFiles])
+    for (const file of normalizedFiles) {
       const existing = this.fileToAdrs.get(file) ?? []
       existing.push(adrId)
       this.fileToAdrs.set(file, existing)
