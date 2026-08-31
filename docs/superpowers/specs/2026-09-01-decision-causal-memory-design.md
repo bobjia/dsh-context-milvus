@@ -52,7 +52,7 @@ src/plugins/dsh-context-milvus/
 ├── index.ts                 # Entry (extended: init ADR + register tools + inject prompt + lifecycle hooks)
 ├── config.ts                # Extended: new ADR config fields
 ├── types.ts                 # Extended: ADR-specific types
-├── tools.ts                 # Existing (unchanged)
+├── tools.ts                 # Existing (minor: registerTools signature extended with ADR options)
 ├── adr-tools.ts             # New: 7 ADR tools
 ├── adr-service.ts           # New: ADR CRUD + auto-numbering + state management
 ├── adr-indexer.ts           # New: ADR indexing pipeline
@@ -98,7 +98,7 @@ ADR files are markdown documents, not code. Split by `##` heading level:
 
 | `section` value | Heading | Retrieval use |
 |----------------|---------|---------------|
-| `header` | Frontmatter (metadata) | Status filter, anchor lookup |
+| `header` | Frontmatter (metadata only, not vectorized) | Status filter, anchor lookup |
 | `goal` | `## 决策目标` | "Why" search |
 | `constraints` | `## 约束条件` | Constraint retrieval |
 | `alternatives` | `## 候选方案与权衡` | Rejected alternatives |
@@ -145,11 +145,11 @@ Seven new tools, all registered via `defineTool()` from `@deepseek-ai/dsh-tools`
 ```
 parameters:
   query:  string (required) — natural language query
-  path:   string (optional) — limit ADR directory scope
+  path:   string (optional) — limit ADR directory scope (passed as pathPrefix filter to Milvus)
   status: string (optional) — "active" | "superseded" | "deprecated" | "all" (default "all")
   topK:   number (optional) — default 5
 
-output: array of { adr_id, file_path, status, section, content, score, trigger_type, ... }
+output: array of { adrId, filePath, status, section, content, score, triggerType, ... }
 search: BM25 + vector hybrid + RRF
 ```
 
@@ -227,9 +227,9 @@ parameters:
   fix:       boolean (optional) — auto-fix (e.g. remove dead anchors)
 
 output:
-  - stale_anchors: files no longer exist / moved
-  - uncovered_changes: modified files covered by code_anchors but ADR not updated
-  - outdated_status: change-boundary conditions triggered but ADR not superseded/deprecated
+  - staleAnchors: files no longer exist / moved
+  - uncoveredChanges: modified files covered by code_anchors but ADR not updated
+  - outdatedStatus: change-boundary conditions triggered but ADR not superseded/deprecated
 ```
 
 ## Configuration
@@ -291,11 +291,12 @@ The AGENTS.md file should document these as external prerequisites.
 | `adr-anchor-index.ts` | ~80 | code_anchors reverse index (JSON sidecar) |
 | `constraint-injector.ts` | ~150 | System prompt injection + constraint re-injection + file-change hooks |
 
-### Modified files (4)
+### Modified files (5)
 
 | File | Changes |
 |------|---------|
 | `index.ts` | Init ADR services, register ADR tools, call constraint-injector setup |
 | `config.ts` | Add ADR config fields + env var mappings |
 | `types.ts` | Add ADR-specific types (AdrChunk, AdrSearchResult, AdrIndexStatus, etc.) |
+| `tools.ts` | Extend `registerTools` signature to accept optional ADR indexer options |
 | `milvus-service.ts` | Add `adrCollection` parameter, `ensureAdrCollection()`, `insertAdrChunks()`, `searchAdr()` |

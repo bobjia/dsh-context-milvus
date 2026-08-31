@@ -4,7 +4,7 @@
 
 **Goal:** Extend the `dsh-context-milvus` DSH plugin with ADR (Architecture Decision Record) indexing, search, CRUD, code_anchors cross-referencing, constraint re-injection, and system prompt injection — turning it from a "code search" plugin into a "decision causal memory" system.
 
-**Architecture:** Incremental extension — keep existing code search untouched, add 7 new modules (adr-frontmatter, adr-chunker, adr-anchor-index, adr-service, adr-indexer, adr-tools, constraint-injector) and extend 4 existing files (index.ts, config.ts, types.ts, milvus-service.ts). ADRs stored in a separate Milvus collection `adr_embeddings` with hybrid BM25+vector search. code_anchors reverse index maintained as JSON sidecar for O(1) deterministic lookup. System prompt injection via `ctx.systemPrompt.section()`, constraint re-injection via `agent/pre-step` hook.
+**Architecture:** Incremental extension — keep existing code search untouched, add 7 new modules (adr-frontmatter, adr-chunker, adr-anchor-index, adr-service, adr-indexer, adr-tools, constraint-injector) and extend 5 existing files (index.ts, config.ts, types.ts, tools.ts, milvus-service.ts). ADRs stored in a separate Milvus collection `adr_embeddings` with hybrid BM25+vector search. code_anchors reverse index maintained as JSON sidecar for O(1) deterministic lookup. System prompt injection via `ctx.systemPrompt.section()`, constraint re-injection via `agent/pre-step` hook.
 
 **Tech Stack:** TypeScript, DSH Cordis plugin, `@zilliz/milvus2-sdk-node`, `js-yaml` (MIT, for YAML frontmatter parsing), Jest (ESM mode with `unstable_mockModule`).
 
@@ -1086,6 +1086,8 @@ interface MilvusServiceConfig {
 Add to constructor:
 ```typescript
 this.adrCollection = config.adrCollection ?? 'adr_embeddings'
+this.adrCollectionReady = false
+this.adrInitPromise = null
 ```
 
 Add `ensureAdrCollection()` method (same pattern as `initCollection` but with ADR schema):
@@ -1105,7 +1107,7 @@ async ensureAdrCollection(): Promise<void> {
 
 private async initAdrCollection(): Promise<void> {
   const client = this.getClient()
-  const { collection: adrCollection } = this // Use adrCollection field
+  const adrCollection = this.adrCollection
 
   await client.connectPromise
 
@@ -2137,6 +2139,13 @@ describe('registerAdrTools', () => {
     expect(milvus.searchAdr).toHaveBeenCalledWith('test query', 3, undefined)
   })
 
+  it('search_adr passes path prefix filter', async () => {
+    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    const searchAdrDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'search_adr')?.[0]
+    await searchAdrDef.execute({ query: 'test', path: '/workspace/project', status: 'active' })
+    expect(milvus.searchAdr).toHaveBeenCalledWith('test', 5, { status: 'active', pathPrefix: '/workspace/project' })
+  })
+
   it('search_adr_by_file calls anchorIndex.getAdrsForFile', async () => {
     registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'search_adr_by_file')?.[0]
@@ -2180,12 +2189,16 @@ Expected: FAIL — module not found
 
 ```typescript
 // src/plugins/dsh-context-milvus/adr-tools.ts
+import * as path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { MilvusService } from './milvus-service.js'
 import type { AdrService } from './adr-service.js'
 import type { AdrAnchorIndex } from './adr-anchor-index.js'
 import type { PluginConfig } from './config.js'
+import type { HashTracker } from './merkle.js'
+import type { AdrIndexResult } from './adr-indexer.js'
+import { runAdrIndex } from './adr-indexer.js'
 
 /** Format ADR search results for model consumption */
 function formatAdrSearchResults(value: any[]): string {
@@ -2207,6 +2220,10 @@ export function registerAdrTools(
   milvus: MilvusService,
   adrService: AdrService,
   anchorIndex: AdrAnchorIndex,
+  adrIndexer?: {  // NEW: for auto-indexing after create/update
+    runAdrIndex: typeof runAdrIndex
+    tracker: HashTracker
+  },
 ): void {
   const config = resolveConfig()
   if (!config.adrEnabled) return
@@ -2217,6 +2234,7 @@ export function registerAdrTools(
     description: '在 ADR 决策记录中执行语义搜索。当需要了解某段代码的"为什么"时使用此工具。',
     parameters: {
       query: { type: 'string', required: true, description: '自然语言查询，如"为什么用了重试队列"' },
+      path: { type: 'string', description: '限定 ADR 搜索路径范围（传递给 Milvus 的 pathPrefix 过滤）' },
       status: { type: 'string', description: '过滤状态: active | superseded | deprecated | all' },
       topK: { type: 'number', description: '返回结果数量，默认 5' },
     },
@@ -2235,8 +2253,10 @@ export function registerAdrTools(
     },
     async execute(params: any) {
       await milvus.ensureAdrCollection()
-      const status = params.status === 'all' ? undefined : params.status
-      return milvus.searchAdr(params.query, params.topK ?? 5, status ? { status } : undefined)
+      const filters: any = {}
+      if (params.status && params.status !== 'all') filters.status = params.status
+      if (params.path) filters.pathPrefix = params.path
+      return milvus.searchAdr(params.query, params.topK ?? 5, Object.keys(filters).length > 0 ? filters : undefined)
     },
   }))
 
@@ -2314,6 +2334,12 @@ export function registerAdrTools(
         supersedes: params.supersedes,
         content: params.content,
       })
+      // Auto-index the newly created ADR
+      if (adrIndexer) {
+        const config = resolveConfig()
+        const adrConfig = { ...config, adrRoot: path.resolve(config.indexRoot, config.adrRoot) }
+        await adrIndexer.runAdrIndex(adrConfig, milvus, adrIndexer.tracker, anchorIndex, { mode: 'incremental' })
+      }
       return { adrId: result.id, filePath: result.filePath }
     },
   }))
@@ -2340,12 +2366,19 @@ export function registerAdrTools(
       ],
     },
     async execute(params: any) {
-      return adrService.updateAdr(params.adr_id, {
+      const result = await adrService.updateAdr(params.adr_id, {
         content: params.content,
         status: params.status,
         supersededBy: params.superseded_by,
         merge: params.merge,
       })
+      // Re-index the updated ADR
+      if (adrIndexer) {
+        const config = resolveConfig()
+        const adrConfig = { ...config, adrRoot: path.resolve(config.indexRoot, config.adrRoot) }
+        await adrIndexer.runAdrIndex(adrConfig, milvus, adrIndexer.tracker, anchorIndex, { mode: 'incremental' })
+      }
+      return { adrId: result.id, filePath: result.filePath }
     },
   }))
 
@@ -2811,7 +2844,9 @@ Add at the top of `index.ts`:
 import { AdrAnchorIndex } from './adr-anchor-index.js'
 import { AdrService } from './adr-service.js'
 import { registerAdrTools } from './adr-tools.js'
+import { runAdrIndex } from './adr-indexer.js'
 import { setupConstraintInjection } from './constraint-injector.js'
+import { HashTracker } from './merkle.js'
 ```
 
 - [ ] **Step 3: Extend `apply()` in `index.ts`**
@@ -2832,8 +2867,17 @@ if (adrResolved.adrEnabled) {
 
   const adrService = new AdrService(adrRoot)
 
-  // Register ADR tools
-  registerAdrTools(ctx, () => getConfig(current()), milvus, adrService, anchorIndex)
+  // Create ADR-specific HashTracker for incremental indexing
+  const adrTracker = new HashTracker(
+    deriveMerkleFilePath(adrRoot).replace('merkle', 'adr-merkle')
+  )
+  await adrTracker.load().catch(() => {})
+
+  // Register ADR tools (with auto-indexing support)
+  registerAdrTools(ctx, () => getConfig(current()), milvus, adrService, anchorIndex, {
+    runAdrIndex,
+    tracker: adrTracker,
+  })
 
   // Set up constraint injection (system prompt + lifecycle hooks)
   setupConstraintInjection(ctx, () => getConfig(current()), adrService, anchorIndex)
