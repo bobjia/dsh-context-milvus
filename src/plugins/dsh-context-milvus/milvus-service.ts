@@ -7,7 +7,7 @@
 
 import { MilvusClient, DataType, MetricType, FunctionType, ErrorCode, RANKER_TYPE } from '@zilliz/milvus2-sdk-node'
 import type { SearchResultData, SearchSimpleReq } from '@zilliz/milvus2-sdk-node'
-import type { SearchResult, CodeChunk } from './types.js'
+import type { SearchResult, CodeChunk, AdrChunk, AdrSearchResult } from './types.js'
 import { EmbeddingClient } from './embedding.js'
 
 export class MilvusService {
@@ -22,6 +22,9 @@ export class MilvusService {
   private hybridMode: boolean
   private readonly bm25RrfK: number
   private effectiveHybridMode = false
+  private readonly adrCollection: string
+  private adrCollectionReady = false
+  private adrInitPromise: Promise<void> | null = null
 
   constructor(config: {
     address: string
@@ -31,6 +34,7 @@ export class MilvusService {
     embeddingClient: EmbeddingClient
     hybridMode?: boolean
     bm25RrfK?: number
+    adrCollection?: string
   }) {
     this.address = config.address
     this.token = config.token
@@ -40,6 +44,7 @@ export class MilvusService {
     this.hybridMode = config.hybridMode ?? false
     this.bm25RrfK = config.bm25RrfK ?? 60
     this.effectiveHybridMode = this.hybridMode
+    this.adrCollection = config.adrCollection ?? 'adr_embeddings'
   }
 
   // ── Client lazy init ──────────────────────────────────────────────────
@@ -368,5 +373,180 @@ export class MilvusService {
       totalDeleted += await this.deleteByFilePath(filePath)
     }
     return totalDeleted
+  }
+
+  // ── ADR collection ────────────────────────────────────────────────────
+
+  async ensureAdrCollection(): Promise<void> {
+    if (this.adrCollectionReady) return
+    if (this.adrInitPromise) return this.adrInitPromise
+    this.adrInitPromise = this.initAdrCollection()
+    try {
+      await this.adrInitPromise
+      this.adrCollectionReady = true
+    } finally {
+      this.adrInitPromise = null
+    }
+  }
+
+  private async initAdrCollection(): Promise<void> {
+    const client = this.getClient()
+    const adrCollection = this.adrCollection
+
+    await client.connectPromise
+
+    const hasRes = await client.hasCollection({ collection_name: adrCollection })
+    if (hasRes.value) {
+      this.adrCollectionReady = true
+      return
+    }
+
+    await client.createCollection({
+      collection_name: adrCollection,
+      fields: [
+        { name: 'id', data_type: DataType.Int64, is_primary_key: true, autoID: true },
+        { name: 'vector', data_type: DataType.FloatVector, dim: this.dim },
+        ...(this.hybridMode ? [{ name: 'sparse_vector', data_type: DataType.SparseFloatVector }] : []),
+        { name: 'adr_id', data_type: DataType.VarChar, max_length: 256 },
+        { name: 'file_path', data_type: DataType.VarChar, max_length: 1024 },
+        { name: 'status', data_type: DataType.VarChar, max_length: 32 },
+        { name: 'section', data_type: DataType.VarChar, max_length: 64 },
+        { name: 'content', data_type: DataType.VarChar, max_length: 65535, ...(this.hybridMode ? { type_params: { enable_analyzer: 'true' } } : {}) },
+        { name: 'start_line', data_type: DataType.Int32 },
+        { name: 'end_line', data_type: DataType.Int32 },
+        { name: 'code_anchors', data_type: DataType.VarChar, max_length: 1024 },
+        { name: 'trigger_type', data_type: DataType.VarChar, max_length: 64 },
+      ],
+      enable_dynamic_field: true,
+      ...(this.hybridMode ? {
+        functions: [{
+          name: 'bm25_fn', type: FunctionType.BM25,
+          input_field_names: ['content'], output_field_names: ['sparse_vector'], params: {},
+        }],
+      } : {}),
+    } as any)
+
+    await client.createIndex({
+      collection_name: adrCollection, field_name: 'vector',
+      metric_type: MetricType.COSINE, index_name: 'idx_vector',
+    } as any)
+    if (this.hybridMode) {
+      await client.createIndex({
+        collection_name: adrCollection, field_name: 'sparse_vector',
+        index_type: 'SPARSE_INVERTED_INDEX', metric_type: MetricType.BM25, index_name: 'idx_sparse_bm25',
+      } as any)
+    }
+    await client.loadCollectionSync({ collection_name: adrCollection })
+  }
+
+  // ── ADR insert ────────────────────────────────────────────────────────
+
+  async insertAdrChunks(
+    chunks: Array<AdrChunk & { vector: number[] }>,
+  ): Promise<number> {
+    if (chunks.length === 0) return 0
+    const client = this.getClient()
+    let totalInserted = 0
+    const batchSize = 100
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const batch = chunks.slice(i, i + batchSize)
+      const response = await client.insert({
+        collection_name: this.adrCollection,
+        data: batch.map(chunk => ({
+          vector: chunk.vector,
+          adr_id: chunk.adrId,
+          file_path: chunk.filePath,
+          status: chunk.status,
+          section: chunk.section,
+          content: chunk.content,
+          start_line: chunk.startLine,
+          end_line: chunk.endLine,
+          code_anchors: JSON.stringify(chunk.codeAnchors),
+          trigger_type: chunk.triggerType,
+        })),
+      })
+      totalInserted += Number(response.insert_cnt ?? 0)
+    }
+    return totalInserted
+  }
+
+  // ── ADR search ────────────────────────────────────────────────────────
+
+  async searchAdr(
+    query: string,
+    topK: number,
+    filters?: { status?: string; pathPrefix?: string },
+  ): Promise<AdrSearchResult[]> {
+    const client = this.getClient()
+    const vectors = await this.embeddingClient.embed([query])
+    if (vectors.length === 0) return []
+    const vector = vectors[0]
+
+    const outputFields = [
+      'adr_id', 'file_path', 'status', 'section', 'content',
+      'start_line', 'end_line', 'code_anchors', 'trigger_type',
+    ]
+
+    // Build filter expression
+    let filterExpr = ''
+    if (filters?.status && filters.status !== 'all') {
+      filterExpr = `status == "${filters.status}"`
+    }
+    if (filters?.pathPrefix) {
+      const pathFilter = `file_path like "${filters.pathPrefix}%"`
+      filterExpr = filterExpr ? `${filterExpr} and ${pathFilter}` : pathFilter
+    }
+
+    let response: any
+    if (this.effectiveHybridMode) {
+      response = await client.hybridSearch({
+        collection_name: this.adrCollection,
+        data: [
+          { anns_field: 'vector', data: vector, params: { metric_type: 'COSINE' } },
+          { anns_field: 'sparse_vector', data: query, params: { metric_type: 'BM25' } },
+        ],
+        rerank: { strategy: RANKER_TYPE.RRF, params: { k: this.bm25RrfK } },
+        limit: topK,
+        output_fields: outputFields,
+        ...(filterExpr ? { filter: filterExpr } : {}),
+      } as any)
+    } else {
+      const searchParams: any = {
+        collection_name: this.adrCollection,
+        vector,
+        limit: topK,
+        output_fields: outputFields,
+      }
+      if (filterExpr) searchParams.filter = filterExpr
+      response = await client.search(searchParams)
+    }
+
+    const raw = (response.results ?? []) as unknown
+    const items = Array.isArray(raw) && raw.length > 0 && Array.isArray((raw as any[])[0])
+      ? (raw as any[][]).flat() : (raw as any[])
+
+    return items.map((item: any) => ({
+      adrId: item.adr_id ?? '',
+      filePath: item.file_path ?? '',
+      status: item.status ?? '',
+      section: item.section ?? '',
+      content: item.content ?? '',
+      score: item.score,
+      triggerType: item.trigger_type ?? '',
+      codeAnchors: (() => {
+        try { return JSON.parse(item.code_anchors ?? '[]') } catch { return [] }
+      })(),
+    }))
+  }
+
+  // ── ADR delete ────────────────────────────────────────────────────────
+
+  async deleteAdrByFilePath(filePath: string): Promise<number> {
+    const client = this.getClient()
+    const response = await client.delete({
+      collection_name: this.adrCollection,
+      filter: `file_path == "${filePath}"`,
+    })
+    return Number(response.delete_cnt ?? 0)
   }
 }

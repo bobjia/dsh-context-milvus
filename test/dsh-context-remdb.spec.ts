@@ -662,6 +662,124 @@ describe('MilvusService', () => {
 })
 
 // ═════════════════════════════════════════════════════════════════════════
+// MilvusService ADR collection
+// ═════════════════════════════════════════════════════════════════════════
+
+describe('MilvusService ADR collection', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockHasCollection.mockResolvedValue({ value: false })
+    mockCreateCollection.mockResolvedValue({})
+    mockCreateIndex.mockResolvedValue({})
+    mockLoadCollectionSync.mockResolvedValue({})
+  })
+
+  it('ensures ADR collection with correct schema', async () => {
+    const embedding = mockEmbeddingClient()
+    const service = new MilvusService({
+      address: 'localhost:19530',
+      collection: 'code_embeddings',
+      dim: 768,
+      embeddingClient: embedding,
+      hybridMode: false,
+    })
+    // Set adrCollection
+    ;(service as any).adrCollection = 'adr_embeddings'
+
+    await service.ensureAdrCollection()
+
+    expect(mockCreateCollection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collection_name: 'adr_embeddings',
+      }),
+    )
+    // Verify ADR-specific fields exist
+    const callArgs = mockCreateCollection.mock.calls[0][0]
+    const fieldNames = callArgs.fields.map((f: any) => f.name)
+    expect(fieldNames).toContain('adr_id')
+    expect(fieldNames).toContain('status')
+    expect(fieldNames).toContain('section')
+    expect(fieldNames).toContain('code_anchors')
+    expect(fieldNames).toContain('trigger_type')
+  })
+
+  it('inserts ADR chunks with vectors', async () => {
+    mockInsert.mockResolvedValue({ insert_cnt: 2 })
+    const embedding = mockEmbeddingClient([[0.1, 0.2], [0.3, 0.4]])
+    const service = new MilvusService({
+      address: 'localhost:19530',
+      collection: 'code_embeddings',
+      dim: 768,
+      embeddingClient: embedding,
+      hybridMode: false,
+    })
+    ;(service as any).adrCollection = 'adr_embeddings'
+
+    const chunks = [
+      { filePath: '/doc.md', adrId: 'ADR-0001', section: 'goal', content: 'text', startLine: 1, endLine: 2, status: 'active', codeAnchors: ['src/a.ts'], triggerType: 'refactor', vector: [0.1, 0.2] },
+      { filePath: '/doc.md', adrId: 'ADR-0001', section: 'constraints', content: 'text2', startLine: 3, endLine: 4, status: 'active', codeAnchors: ['src/a.ts'], triggerType: 'refactor', vector: [0.3, 0.4] },
+    ]
+    const count = await service.insertAdrChunks(chunks as any)
+    expect(count).toBe(2)
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ collection_name: 'adr_embeddings' }),
+    )
+  })
+
+  it('searches ADR collection', async () => {
+    const embedding = mockEmbeddingClient([[0.1, 0.2, 0.3]])
+    const service = new MilvusService({
+      address: 'localhost:19530',
+      collection: 'code_embeddings',
+      dim: 768,
+      embeddingClient: embedding,
+      hybridMode: false,
+    })
+    ;(service as any).adrCollection = 'adr_embeddings'
+
+    mockSearch.mockResolvedValue({
+      results: [{
+        adr_id: 'ADR-0001',
+        file_path: '/doc.md',
+        status: 'active',
+        section: 'goal',
+        code_content: 'text',
+        score: 0.95,
+        trigger_type: 'refactor',
+        code_anchors: '["src/a.ts"]',
+      }],
+    })
+
+    const results = await service.searchAdr('test query', 5)
+    expect(results).toHaveLength(1)
+    expect(results[0].adrId).toBe('ADR-0001')
+    expect(results[0].score).toBe(0.95)
+  })
+
+  it('deletes ADR chunks by file path', async () => {
+    mockDelete.mockResolvedValue({ delete_cnt: 3 })
+    const embedding = mockEmbeddingClient()
+    const service = new MilvusService({
+      address: 'localhost:19530',
+      collection: 'code_embeddings',
+      dim: 768,
+      embeddingClient: embedding,
+      hybridMode: false,
+    })
+    ;(service as any).adrCollection = 'adr_embeddings'
+
+    const count = await service.deleteAdrByFilePath('/doc.md')
+    expect(count).toBe(3)
+    expect(mockDelete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collection_name: 'adr_embeddings',
+        filter: 'file_path == "/doc.md"',
+      }),
+    )
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════
 // Chunker (tree-sitter integration test)
 // ═════════════════════════════════════════════════════════════════════════
 
