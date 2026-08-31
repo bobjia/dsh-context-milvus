@@ -43,6 +43,17 @@ export interface CordisConfig {
 
   /** Path to Merkle state file */
   merkleFilePath?: string
+
+  /** Enable ADR (decision memory) features */
+  adrEnabled?: boolean
+  /** ADR directory relative to indexRoot */
+  adrRoot?: string
+  /** Milvus collection name for ADR embeddings */
+  adrCollection?: string
+  /** Steps between constraint re-injection (0=disable) */
+  adrConstraintReinjectEvery?: number
+  /** Custom system prompt section for ADR rules (empty=use default) */
+  adrSystemPrompt?: string
 }
 
 /** Resolved runtime config (all fields have values) */
@@ -59,6 +70,11 @@ export interface PluginConfig {
   indexIgnoreDirs: string[]
   ignorePatterns: string[]
   merkleFilePath: string
+  adrEnabled: boolean
+  adrRoot: string
+  adrCollection: string
+  adrConstraintReinjectEvery: number
+  adrSystemPrompt: string
 }
 
 /** Default file extensions to index, keyed by language */
@@ -195,5 +211,16 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
     bm25RrfK,
 
     merkleFilePath: overrides?.merkleFilePath ?? process.env.MERKLE_FILE_PATH ?? deriveMerkleFilePath(indexRoot),
+
+    adrEnabled: overrides?.adrEnabled !== undefined
+      ? overrides.adrEnabled
+      : process.env.ADR_ENABLED !== 'false',
+    adrRoot: overrides?.adrRoot ?? process.env.ADR_ROOT ?? 'docs/decisions',
+    adrCollection: overrides?.adrCollection ?? process.env.ADR_COLLECTION ?? 'adr_embeddings',
+    adrConstraintReinjectEvery: (() => {
+      const raw = overrides?.adrConstraintReinjectEvery ?? parseInt(process.env.ADR_REINJECT_EVERY ?? '', 10)
+      return !isNaN(raw) && raw >= 0 ? raw : 5
+    })(),
+    adrSystemPrompt: overrides?.adrSystemPrompt ?? process.env.ADR_SYSTEM_PROMPT ?? '',
   }
 }

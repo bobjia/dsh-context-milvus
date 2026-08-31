@@ -61,3 +61,128 @@ export interface LanguageConfig {
   extensions: string[]
   chunkNodeTypes: string[]
 }
+
+/** ADR code anchor — links a decision to a code location */
+export interface AdrCodeAnchor {
+  file: string
+  symbols: string[]
+  lines: [number, number]
+  git_commit: string
+}
+
+/** ADR trigger — the requirement that drove this decision */
+export interface AdrTrigger {
+  task_id: string | null
+  requirement_summary: string
+  change_type: string
+}
+
+/** Parsed ADR frontmatter */
+export interface AdrFrontmatter {
+  id: string
+  type: string
+  status: 'active' | 'superseded' | 'deprecated'
+  created: string
+  updated: string
+  author: string
+  supersedes: string | null
+  superseded_by: string | null
+  code_anchors: AdrCodeAnchor[]
+  trigger: AdrTrigger
+  related_decisions: string[]
+  auto_generated: boolean
+  confidence_levels?: Record<string, string>
+}
+
+/** ADR section chunk (extends CodeChunk with ADR-specific fields) */
+export interface AdrChunk {
+  filePath: string
+  adrId: string
+  section: string
+  content: string
+  startLine: number
+  endLine: number
+  status: string
+  codeAnchors: string[]
+  triggerType: string
+}
+
+/** ADR search result */
+export interface AdrSearchResult {
+  adrId: string
+  filePath: string
+  status: string
+  section: string
+  content: string
+  score: number
+  triggerType: string
+  codeAnchors: string[]
+}
+
+/** ADR list item (for list_adrs tool) */
+export interface AdrListItem {
+  id: string
+  filePath: string
+  status: string
+  created: string
+  updated: string
+  anchorCount: number
+  summary: string
+  changeType: string
+}
+
+/** Constraint summary (for load_constraints and re-injection) */
+export interface ConstraintSummary {
+  adrId: string
+  adrTitle: string
+  constraints: string[]
+  hiddenConstraints: Array<{ name: string; content: string; consequence: string }>
+  rejectedPatterns: string[]
+  status: string
+}
+
+/** ADR index status */
+export interface AdrIndexStatus {
+  totalAdrs: number
+  totalChunks: number
+  lastIndexed: string
+  activeAdrs: number
+}
+
+/** ADR filter params */
+export interface AdrFilter {
+  status?: string
+  changeType?: string
+  limit?: number
+}
+
+/** Create ADR params */
+export interface CreateAdrParams {
+  title: string
+  requirement?: string
+  changeType?: string
+  supersedes?: string
+  content?: string
+}
+
+/** Update ADR params */
+export interface UpdateAdrParams {
+  content?: string
+  status?: string
+  supersededBy?: string
+  merge?: boolean
+}
+
+/** ADR document (fully parsed) */
+export interface AdrDocument {
+  frontmatter: AdrFrontmatter
+  sections: Record<string, string>
+  rawContent: string
+  filePath: string
+}
+
+/** ADR anchor index stats */
+export interface AnchorIndexStats {
+  adrCount: number
+  anchorCount: number
+}
