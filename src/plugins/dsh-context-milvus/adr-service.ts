@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, readdir, mkdir, rename } from 'node:fs/promises'
 import * as path from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
 import { parseFrontmatter } from './adr-frontmatter.js'
@@ -8,6 +8,7 @@ import type {
 } from './types.js'
 
 const ADR_FILENAME_RE = /^ADR-(\d{4})-(.+)\.md$/
+const ADR_STATUSES: ReadonlySet<string> = new Set(['active', 'superseded', 'deprecated'])
 const DEFAULT_TEMPLATE = `---
 id: ADR-{serial}-{title}
 type: decision-record
@@ -68,6 +69,11 @@ auto_generated: false
 - {条件触发时，重新评估此决策}
 `
 
+/** Build a compound section key preserving heading hierarchy */
+function sectionKey(section: string, sub: string): string {
+  return sub ? `${section} > ${sub}` : section
+}
+
 export class AdrService {
   constructor(private adrRoot: string) {
     if (!existsSync(adrRoot)) {
@@ -113,7 +119,10 @@ export class AdrService {
       .replace(/{description}/g, `New ADR: ${params.title}`)
       .replace(/{constraints}/g, '')
 
-    await writeFile(filePath, content, 'utf-8')
+    // Atomic write via temp file + rename to prevent partial writes on crash
+    const tmpPath = `${filePath}.tmp`
+    await writeFile(tmpPath, content, 'utf-8')
+    await rename(tmpPath, filePath)
     return { id: adrId, filePath }
   }
 
@@ -136,6 +145,9 @@ export class AdrService {
 
     // Update status in frontmatter if requested
     if (params.status) {
+      if (!ADR_STATUSES.has(params.status)) {
+        throw new Error(`Invalid ADR status: ${params.status}. Valid statuses: active, superseded, deprecated`)
+      }
       content = content.replace(
         /^status: .+/m,
         `status: ${params.status}`,
@@ -155,7 +167,10 @@ export class AdrService {
       `updated: ${now}`,
     )
 
-    await writeFile(filePath, content, 'utf-8')
+    // Atomic write via temp file + rename to prevent partial writes on crash
+    const tmpPath = `${filePath}.tmp`
+    await writeFile(tmpPath, content, 'utf-8')
+    await rename(tmpPath, filePath)
     return { id: adrId, filePath }
   }
 
@@ -204,25 +219,35 @@ export class AdrService {
     const fm = parseFrontmatter(content)
     if (!fm) return null
 
-    // Parse sections
+    // Parse sections — handle both ## headings and ### sub-headings.
+    // Sub-headings are keyed as "parent > sub" to preserve hierarchy.
     const sections: Record<string, string> = {}
     const body = content.replace(/^---[\s\S]*?---\n?/, '').trim()
     let currentSection = 'body'
+    let currentSub = ''
     let currentLines: string[] = []
     for (const line of body.split('\n')) {
-      const headingMatch = line.match(/^## (.+)/)
-      if (headingMatch) {
+      const h2Match = line.match(/^## (.+)/)
+      const h3Match = line.match(/^### (.+)/)
+      if (h2Match) {
         if (currentLines.length > 0) {
-          sections[currentSection] = currentLines.join('\n').trim()
+          sections[sectionKey(currentSection, currentSub)] = currentLines.join('\n').trim()
         }
-        currentSection = headingMatch[1].trim()
+        currentSection = h2Match[1].trim()
+        currentSub = ''
+        currentLines = []
+      } else if (h3Match) {
+        if (currentLines.length > 0) {
+          sections[sectionKey(currentSection, currentSub)] = currentLines.join('\n').trim()
+        }
+        currentSub = h3Match[1].trim()
         currentLines = []
       } else {
         currentLines.push(line)
       }
     }
     if (currentLines.length > 0) {
-      sections[currentSection] = currentLines.join('\n').trim()
+      sections[sectionKey(currentSection, currentSub)] = currentLines.join('\n').trim()
     }
 
     return { frontmatter: fm, sections, rawContent: content, filePath }
@@ -302,13 +327,13 @@ export class AdrService {
     }
   }
 
-  /** Find an ADR file by id (partial or full match) */
+  /** Find an ADR file by id (exact match first, then partial/serial fallback) */
   private async findAdrFile(adrId: string): Promise<string | null> {
     const files = await this.getAllAdrFiles()
-    // Exact match first
-    const exact = files.find(f => path.basename(f).startsWith(adrId))
+    // Exact match: strip .md extension and compare the full basename
+    const exact = files.find(f => path.basename(f, '.md') === adrId)
     if (exact) return exact
-    // Partial match (serial number)
+    // Partial match (serial number fallback)
     return files.find(f => path.basename(f).includes(adrId)) ?? null
   }
 }

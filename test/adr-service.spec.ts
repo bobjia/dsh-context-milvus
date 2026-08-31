@@ -73,4 +73,56 @@ describe('AdrService', () => {
     expect(doc).not.toBeNull()
     expect(doc!.frontmatter.id).toBe('ADR-0001-test')
   })
+
+  it('loadAdr uses exact id match, not prefix match', async () => {
+    await service.createAdr({ title: 'test' })
+    // Create a similarly-prefixed file that should NOT match by prefix
+    await writeFile(path.join(adrDir, 'ADR-0001-test-2.md'), '---\nid: ADR-0001-test-2\n---\nBody')
+    const doc = await service.loadAdr('ADR-0001-test')
+    expect(doc).not.toBeNull()
+    expect(doc!.filePath).toContain('ADR-0001-test.md')
+    expect(doc!.frontmatter.id).toBe('ADR-0001-test')
+  })
+
+  it('loadAdr parses ### sub-sections', async () => {
+    await service.createAdr({ title: 'test' })
+    const doc = await service.loadAdr('ADR-0001-test')
+    expect(doc).not.toBeNull()
+    // Template has ### 方案A / 方案B sub-headings under 候选方案与权衡
+    const keys = Object.keys(doc!.sections)
+    expect(keys.some(k => k.includes('方案A'))).toBe(true)
+    expect(keys.some(k => k.includes('方案B'))).toBe(true)
+  })
+
+  describe('updateAdr', () => {
+    it('updates ADR content with merge', async () => {
+      const created = await service.createAdr({ title: 'test' })
+      await service.updateAdr('ADR-0001-test', { content: '## New Section\n\nUpdated body\n', merge: true })
+      const content = await readFile(created.filePath, 'utf-8')
+      expect(content).toContain('Updated body')
+    })
+
+    it('updates ADR status in frontmatter', async () => {
+      await service.createAdr({ title: 'test' })
+      await service.updateAdr('ADR-0001-test', { status: 'superseded' })
+      const doc = await service.loadAdr('ADR-0001-test')
+      expect(doc!.frontmatter.status).toBe('superseded')
+    })
+
+    it('supersedes an ADR by setting supersededBy', async () => {
+      await service.createAdr({ title: 'old' })
+      await service.updateAdr('ADR-0001-old', { supersededBy: 'ADR-0002-new' })
+      const content = await readFile(path.join(adrDir, 'ADR-0001-old.md'), 'utf-8')
+      expect(content).toContain('superseded_by: ADR-0002-new')
+    })
+
+    it('rejects invalid status', async () => {
+      await service.createAdr({ title: 'test' })
+      await expect(service.updateAdr('ADR-0001-test', { status: 'bogus' })).rejects.toThrow(/Invalid ADR status/)
+    })
+
+    it('rejects update for non-existent ADR', async () => {
+      await expect(service.updateAdr('ADR-9999-nope', { status: 'superseded' })).rejects.toThrow(/ADR not found/)
+    })
+  })
 })
