@@ -19,14 +19,20 @@
  *     INDEX_ROOT, INDEX_EXTENSIONS, INDEX_IGNORE_DIRS, HYBRID_MODE, BM25_RRF_K, MERKLE_FILE_PATH
  */
 
+import * as path from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
-import { getConfig, type CordisConfig } from './config.js'
+import { getConfig, deriveMerkleFilePath, type CordisConfig } from './config.js'
 import { MilvusService } from './milvus-service.js'
 import { HashTracker } from './merkle.js'
 import { EmbeddingClient } from './embedding.js'
 import { registerTools } from './tools.js'
+import { AdrAnchorIndex } from './adr-anchor-index.js'
+import { AdrService } from './adr-service.js'
+import { registerAdrTools } from './adr-tools.js'
+import { runAdrIndex } from './adr-indexer.js'
+import { setupConstraintInjection } from './constraint-injector.js'
 
 export const name = 'dsh-context-milvus'
 export const inject = ['tools']
@@ -117,9 +123,36 @@ export const Config = z.object({
     .default('')
     .description('自定义 gitignore 风格忽略规则，每行一个模式')
     .role('textarea'),
+
+  /** 启用 ADR 决策记忆功能 */
+  adrEnabled: z.boolean()
+    .default(true)
+    .description('启用 ADR 决策记忆功能（索引/docs/decisions/中的决策记录）'),
+
+  /** ADR 目录路径 */
+  adrRoot: z.string()
+    .default('docs/decisions')
+    .description('ADR 决策记录目录（相对 indexRoot）'),
+
+  /** ADR Milvus 集合名称 */
+  adrCollection: z.string()
+    .default('adr_embeddings')
+    .description('Milvus 集合名称，用于存储 ADR 向量'),
+
+  /** 约束重注入步数间隔 */
+  adrConstraintReinjectEvery: z.number()
+    .default(5)
+    .description('约束重注入步数间隔（每 N 步重新注入 active ADR 约束，0=禁用）')
+    .min(0),
+
+  /** 自定义系统提示段落 */
+  adrSystemPrompt: z.string()
+    .default('')
+    .description('自定义 ADR 系统提示段落（留空使用内置模板）')
+    .role('textarea'),
 })
 
-export function apply(ctx: Context, config?: CordisConfig) {
+export async function apply(ctx: Context, config?: CordisConfig) {
   // ── Settings registration (mirrors web-search-deepseek pattern) ──────
   // `current` is a thunk so tools always read the latest config after a
   // GUI edit without requiring a plugin reload.
@@ -161,9 +194,42 @@ export function apply(ctx: Context, config?: CordisConfig) {
     )
   })
 
+  // ── ADR (Decision Memory) initialization ──────────────────────────────
+  const adrResolved = getConfig(current())
+  let adrOptions: { service: AdrService; anchorIndex: AdrAnchorIndex; adrTracker: HashTracker } | undefined
+
+  if (adrResolved.adrEnabled) {
+    const adrRoot = path.resolve(adrResolved.indexRoot, adrResolved.adrRoot)
+
+    const anchorIndex = new AdrAnchorIndex(
+      deriveMerkleFilePath(adrRoot).replace('merkle', 'anchors'),
+    )
+    await anchorIndex.load().catch(() => {})
+
+    const adrService = new AdrService(adrRoot)
+
+    const adrTracker = new HashTracker(
+      deriveMerkleFilePath(adrRoot).replace('merkle', 'adr-merkle'),
+    )
+    await adrTracker.load().catch(() => {})
+
+    // Register ADR tools (with auto-indexing support)
+    registerAdrTools(ctx, () => getConfig(current()), milvus, adrService, anchorIndex, {
+      runAdrIndex,
+      tracker: adrTracker,
+    })
+
+    // Set up constraint injection (system prompt + lifecycle hooks)
+    setupConstraintInjection(ctx, () => getConfig(current()), adrService, anchorIndex)
+
+    adrOptions = { service: adrService, anchorIndex, adrTracker }
+
+    console.log(`[dsh-context-milvus] ADR 决策记忆已加载 (${adrRoot})`)
+  }
+
   // Register all tools — pass the config thunk so each tool execution
   // picks up the latest settings without restart
-  registerTools(ctx, () => getConfig(current()), milvus, tracker)
+  registerTools(ctx, () => getConfig(current()), milvus, tracker, adrOptions)
 
   console.log(
     `[dsh-context-milvus] 已加载 (${resolved.indexExtensions.length} 种文件类型, ` +

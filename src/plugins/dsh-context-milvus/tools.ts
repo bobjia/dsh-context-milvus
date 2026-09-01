@@ -7,6 +7,7 @@
  * - index_status: Index status check
  */
 
+import * as path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { MilvusService } from './milvus-service.js'
@@ -15,6 +16,9 @@ import { deriveMerkleFilePath } from './config.js'
 import { HashTracker } from './merkle.js'
 import type { IndexResult } from './indexer.js'
 import { runIndex, getIndexStatus } from './indexer.js'
+import { runAdrIndex, getAdrIndexStatus as getAdrIndexStatusFn } from './adr-indexer.js'
+import type { AdrService } from './adr-service.js'
+import type { AdrAnchorIndex } from './adr-anchor-index.js'
 
 /** Format search results for model consumption */
 function formatSearchResults(value: any[]): string {
@@ -90,12 +94,18 @@ async function createTrackerForPath(
  *   each tool execution so GUI config edits take effect without restart
  * @param milvus - shared Milvus service instance
  * @param tracker - shared default HashTracker instance
+ * @param adrOptions - optional ADR services for indexing & status
  */
 export function registerTools(
   ctx: Context,
   resolveConfig: () => PluginConfig,
   milvus: MilvusService,
   tracker: HashTracker,
+  adrOptions?: {
+    service: AdrService
+    anchorIndex: AdrAnchorIndex
+    adrTracker: HashTracker
+  },
 ): void {
   // ── search_code ───────────────────────────────────────────────────────
 
@@ -223,7 +233,28 @@ export function registerTools(
         // Use a workspace-specific tracker if the path is different from default
         const effectiveTracker = await createTrackerForPath(config, overridePath, tracker)
 
-        return runIndex(effectiveConfig, milvus, effectiveTracker, { mode })
+        // Progress callback for indexing logs
+        const progress = (msg: string) => console.log(`[index_code] ${msg}`)
+
+        const codeResult = await runIndex(effectiveConfig, milvus, effectiveTracker, {
+          mode,
+          progress,
+        })
+
+        // After code indexing, also index ADRs if enabled
+        if (adrOptions && config.adrEnabled) {
+          const adrConfig = {
+            ...config,
+            adrRoot: path.resolve(config.indexRoot, config.adrRoot),
+          }
+          const adrResult = await runAdrIndex(
+            adrConfig, milvus, adrOptions.adrTracker, adrOptions.anchorIndex,
+            { mode, progress },
+          )
+          progress(`  ADR 索引: ${adrResult.filesIndexed} 个文件, ${adrResult.chunksIndexed} 个代码块`)
+        }
+
+        return codeResult
       },
     }),
   )
@@ -252,6 +283,9 @@ export function registerTools(
             totalChunks: { type: 'number' },
             lastIndexed: { type: 'string' },
             indexedExtensions: { type: 'array', items: { type: 'string' } },
+            adrTotalAdrs: { type: 'number' },
+            adrActiveAdrs: { type: 'number' },
+            adrLastIndexed: { type: 'string' },
           },
           additionalProperties: false,
         },
@@ -264,6 +298,13 @@ export function registerTools(
             `  最后索引: ${v.lastIndexed || '从未索引'}`,
             `  支持的文件类型: ${(v.indexedExtensions || []).join(', ')}`,
           ]
+          if (v.adrTotalAdrs !== undefined) {
+            lines.push(
+              `  ADR 决策记录: ${v.adrTotalAdrs} 个`,
+              `  Active ADR: ${v.adrActiveAdrs} 个`,
+              `  ADR 最后索引: ${v.adrLastIndexed || '从未索引'}`,
+            )
+          }
           return [{ type: 'text' as const, text: lines.join('\n') }]
         },
       },
@@ -288,7 +329,18 @@ export function registerTools(
             }
           : config
 
-        return getIndexStatus(effectiveConfig, effectiveTracker)
+        const status = await getIndexStatus(effectiveConfig, effectiveTracker)
+        const v = status as any
+
+        // Append ADR status if available
+        if (adrOptions && config.adrEnabled) {
+          const adrStatus = await getAdrIndexStatusFn(adrOptions.adrTracker, adrOptions.service)
+          v.adrTotalAdrs = adrStatus.totalAdrs
+          v.adrActiveAdrs = adrStatus.activeAdrs
+          v.adrLastIndexed = adrStatus.lastIndexed
+        }
+
+        return v
       },
     }),
   )
