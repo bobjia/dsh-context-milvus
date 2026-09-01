@@ -6,14 +6,15 @@
  * - index_code:  索引代码仓库
  * - index_status: 查看索引状态
  *
- * Configuration (优先顺序: Cordis Config > 环境变量 > 默认值):
+ * Configuration (优先顺序: Cordis Config > 默认值):
  *
- *   Cordis Config (通过 cordis.yml / DSH GUI 设置):
+ *   Cordis Config (通过 DSH GUI 配置面板 / cordis.yml 设置):
  *     milvusAddress, milvusToken, milvusCollection, milvusDim,
  *     embeddingEndpoint, embeddingApiKey, embeddingModel,
- *     indexRoot, indexExtensions, indexIgnoreDirs, hybridMode, bm25RrfK, merkleFilePath
+ *     indexRoot, indexExtensions, indexIgnoreDirs, hybridMode, bm25RrfK, merkleFilePath,
+ *     adrEnabled, adrRoot, adrCollection, adrConstraintReinjectEvery, adrSystemPrompt
  *
- *   环境变量 (fallback):
+ *   环境变量 (fallback, ADR 除外):
  *     MILVUS_ADDRESS, MILVUS_TOKEN, MILVUS_COLLECTION, MILVUS_EMBEDDING_DIM,
  *     EMBEDDING_ENDPOINT, EMBEDDING_API_KEY, EMBEDDING_MODEL,
  *     INDEX_ROOT, INDEX_EXTENSIONS, INDEX_IGNORE_DIRS, HYBRID_MODE, BM25_RRF_K, MERKLE_FILE_PATH
