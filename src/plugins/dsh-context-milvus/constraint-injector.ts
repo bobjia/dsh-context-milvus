@@ -87,7 +87,7 @@ export function setupConstraintInjection(
   const config = resolveConfig()
   if (!config.adrEnabled) return
 
-  const systemPrompt = (ctx as any).systemPrompt as SystemPromptService | undefined
+  const systemPrompt = ctx.get('systemPrompt') as SystemPromptService | undefined
 
   // ── 1. Register system prompt section ───────────────────────────────────
   if (systemPrompt?.section) {
