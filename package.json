@@ -42,6 +42,7 @@
     "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
     "@zilliz/milvus2-sdk-node": "^3.0.4",
     "ignore": "^7.0.6",
     "js-yaml": "^5.4.1",
@@ -57,7 +58,6 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-settings": "^0.1.1-rc.2",
     "@deepseek-ai/dsh-tools": "^0.1.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.1",
