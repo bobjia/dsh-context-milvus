@@ -16,6 +16,15 @@ npm test               # node --experimental-vm-modules node_modules/.bin/jest
 
 # Test with coverage
 npm run test:coverage
+
+# Test ADR modules
+npx jest test/adr-frontmatter.spec.ts
+npx jest test/adr-chunker.spec.ts
+npx jest test/adr-anchor-index.spec.ts
+npx jest test/adr-service.spec.ts
+npx jest test/adr-indexer.spec.ts
+npx jest test/adr-tools.spec.ts
+npx jest test/constraint-injector.spec.ts
 ```
 
 ## Architecture
@@ -45,6 +54,20 @@ index.ts (entry point)
   ├── ignore-matcher.ts — gitignore-style pattern matching for file exclusion
   └── indexer.ts    — indexing pipeline orchestration
         └── chunker.ts — tree-sitter AST chunking (TS/JS/Python/Java/Go/Rust/C++/C#/Scala) + regex fallback (PHP)
+
+### ADR 决策记忆系统（新增模块）
+
+```
+adr-frontmatter.ts      — YAML frontmatter 解析
+adr-chunker.ts          — Markdown 章节分块
+adr-anchor-index.ts     — code_anchors 反向索引
+adr-service.ts          — ADR CRUD + 状态管理
+adr-indexer.ts          — ADR 索引管道
+adr-tools.ts            — 7 个 ADR 工具
+constraint-injector.ts  — 系统提示注入 + 约束重注入
+```
+
+Milvus 集合: `adr_embeddings`（与 `code_embeddings` 分离，含 adr_id/status/section/code_anchors 字段）
 
 ### Key design decisions
 

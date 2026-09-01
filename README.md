@@ -36,6 +36,7 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 - **忽略模式系统** — 三层 gitignore 风格忽略规则（默认模式 + 代码库忽略文件 + 全局忽略文件）
 - **增量索引** — 基于 Merkle SHA-256 哈希追踪，仅处理变更文件
 - **工作区隔离** — 不同工作区使用独立的 Merkle 状态文件，互不干扰
+- **ADR 决策记忆系统** — 记录代码变更背后的设计原因（Architecture Decision Record），支持语义搜索、CRUD、约束注入和一致性检查
 
 ---
 
@@ -69,6 +70,13 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 | `search_code` | 语义搜索代码 | `query`（自然语言查询）、`topK`（结果数）、`path`（搜索范围限定） |
 | `index_code` | 索引代码仓库 | `mode`（full 全量 / incremental 增量）、`path`（指定路径） |
 | `index_status` | 查看索引状态 | `path`（指定路径查看独立状态） |
+| `search_adr` | 语义搜索 ADR 决策记录 | `query`（自然语言查询）、`status`、`topK` |
+| `search_adr_by_file` | 通过代码文件路径查找关联的 ADR | `file_path`（代码文件路径）、`status` |
+| `create_adr` | 创建新的 ADR 决策记录 | `title`（必填）、`requirement`、`change_type` |
+| `update_adr` | 更新已有 ADR 决策记录 | `adr_id`（必填）、`content`、`status` |
+| `list_adrs` | 列出 ADR 决策记录目录 | `status`、`change_type`、`limit` |
+| `load_constraints` | 加载 active ADR 的约束条件 | `adr_ids`、`format` |
+| `check_adr_consistency` | 检查 ADR 与代码的一致性 | `file_path`、`fix` |
 
 ### 工作流程
 
@@ -78,6 +86,16 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 4. Agent 基于精准上下文做调试、重构、开发，不再疯狂 grep 读一堆文件。
 5. 代码变更后，执行 `index_code mode=incremental` 增量更新，只重新索引变更的文件。
 6. 随时通过 `index_status` 查看索引状态（已索引文件数、代码块总数、最后索引时间）。
+
+### ADR 决策记忆工作流程
+
+ADR 决策记忆系统记录代码变更背后的"为什么"（设计决策、权衡、约束），让 Agent 不仅能读代码，还能理解其演进原因：
+
+1. **修改代码前**，用 `search_adr_by_file` 查询该文件是否有 ADR 决策记录覆盖，避免违反既有决策。
+2. **做出设计决策时**，用 `create_adr` 记录决策背景、备选方案与理由，并通过 `update_adr` 维护 code_anchors 关联的代码位置。
+3. **需要了解约束时**，用 `load_constraints` 加载 active ADR 的约束条件注入上下文。
+4. **任务完成前**，用 `check_adr_consistency` 校验 ADR 与代码实现的一致性，必要时 `fix` 自动修复。
+5. 用 `search_adr` 语义搜索历史决策，理解代码"为什么这么做"。
 
 ---
 
@@ -431,7 +449,7 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 | 增量索引 | 自行实现文件哈希对比和状态管理 | 内置 Merkle 文件状态追踪，SHA-256 哈希，增量更新 |
 | 工作区隔离 | 自行处理多工作区状态冲突 | 自动基于路径哈希隔离，互不干扰 |
 | 忽略文件 | 自行实现 .gitignore 解析 | 内置三层忽略规则系统（默认 + 代码库 + 全局） |
-| DSH 工具封装 | 自行封装 DSH 工具（defineTool） | 3 个原生 DSH 工具，一键注册，含输出格式化 |
+| DSH 工具封装 | 自行封装 DSH 工具（defineTool） | 10 个原生 DSH 工具（3 代码工具 + 7 ADR 工具），一键注册，含输出格式化 |
 | 配置界面 | 自行实现或手写 YAML | DSH Web GUI 可视化配置，13 个配置字段 |
 | 配置来源 | 单一来源 | 三源合并（Cordis Config > 环境变量 > 默认值） |
 | 索引状态 | 自行实现查看 | 内置 `index_status` 工具，实时查看索引状态 |
@@ -453,24 +471,25 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 ## 架构
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    DSH Agent / Web UI                         │
-│  search_code  │  index_code  │  index_status                 │
-└───────────────┴──────────────┴───────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                    DSH Agent / Web UI                                              │
+│  search_code  │  index_code  │  index_status │  search_adr  │  create_adr  │     │
+│  list_adrs    │  load_constraints │  check_adr_consistency                        │
+└───────────────────────────────────────────────────────────────────────────────────┘
                         │
-┌──────────────────────────────────────────────────────────────┐
-│                  dsh-context-milvus                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  │
-│  │ chunker  │→ │embedding │→ │  milvus  │  │  merkle    │  │
-│  │(AST+regex)│  │  client  │  │ service  │  │  tracker   │  │
-│  └──────────┘  └──────────┘  └──────────┘  └────────────┘  │
-│                        ▲                                     │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │  ignore-matcher (gitignore-style 三层忽略系统)          │  │
-│  │  ① DEFAULT_IGNORE_PATTERNS → ② 代码库忽略文件          │  │
-│  │  ③ ~/.context/.contextignore                           │  │
-│  └────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                  dsh-context-milvus                                                │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  ┌──────────────────┐  │
+│  │ chunker  │→ │embedding │→ │  milvus  │  │  merkle    │  │  ADR 模块集      │  │
+│  │(AST+regex)│  │  client  │  │ service  │  │  tracker   │  │ frontmatter/     │  │
+│  └──────────┘  └──────────┘  └──────────┘  └────────────┘  │ chunker/anchor/  │  │
+│                        ▲                                    │ service/indexer/ │  │
+│  ┌────────────────────────────────────────────────────────┐  │ tools/constraint │  │
+│  │  ignore-matcher (gitignore-style 三层忽略系统)          │  └──────────────────┘  │
+│  │  ① DEFAULT_IGNORE_PATTERNS → ② 代码库忽略文件          │                        │
+│  │  ③ ~/.context/.contextignore                           │                        │
+│  └────────────────────────────────────────────────────────┘                        │
+└───────────────────────────────────────────────────────────────────────────────────┘
                         │
               ┌─────────┴─────────┐
               │                   │
@@ -493,6 +512,13 @@ index.ts (entry point)
   ├── ignore-matcher.ts — gitignore 风格模式匹配（文件排除）
   └── indexer.ts    — 索引管线编排
         └── chunker.ts — tree-sitter AST 分块 + regex 回退
+  └── adr-frontmatter.ts — YAML frontmatter 解析
+  └── adr-chunker.ts     — Markdown 章节分块
+  └── adr-anchor-index.ts — code_anchors 反向索引
+  └── adr-service.ts     — ADR CRUD + 状态管理
+  └── adr-indexer.ts     — ADR 索引管道
+  └── adr-tools.ts       — 7 个 ADR 工具
+  └── constraint-injector.ts — 系统提示注入 + 约束重注入
 ```
 
 ---
@@ -508,6 +534,15 @@ npm run test:coverage
 
 # 单个测试文件
 npx jest test/dsh-context-remdb.spec.ts
+
+# ADR 模块测试
+npx jest test/adr-frontmatter.spec.ts
+npx jest test/adr-chunker.spec.ts
+npx jest test/adr-anchor-index.spec.ts
+npx jest test/adr-service.spec.ts
+npx jest test/adr-indexer.spec.ts
+npx jest test/adr-tools.spec.ts
+npx jest test/constraint-injector.spec.ts
 ```
 
 ---
