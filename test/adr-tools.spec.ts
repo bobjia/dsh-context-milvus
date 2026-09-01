@@ -83,6 +83,22 @@ describe('registerAdrTools', () => {
     expect(adrService.createAdr).toHaveBeenCalledWith({ title: 'test' })
   })
 
+  it('update_adr calls adrService.updateAdr with mapped args', async () => {
+    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'update_adr')?.[0]
+    await toolDef.execute({
+      adr_id: 'ADR-0001-test',
+      content: 'new body',
+      status: 'superseded',
+      superseded_by: 'ADR-0002-x',
+    })
+    expect(adrService.updateAdr).toHaveBeenCalledWith('ADR-0001-test', {
+      content: 'new body',
+      status: 'superseded',
+      supersededBy: 'ADR-0002-x',
+    })
+  })
+
   it('list_adrs calls adrService.listAdrs', async () => {
     registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'list_adrs')?.[0]
@@ -96,5 +112,37 @@ describe('registerAdrTools', () => {
     const result = await toolDef.execute({})
     expect(result).toHaveProperty('staleAnchors')
     expect(result).toHaveProperty('uncoveredChanges')
+  })
+
+  it('check_adr_consistency detects stale anchors for missing files', async () => {
+    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'check_adr_consistency')?.[0]
+    anchorIndex.getAll.mockReturnValue(new Map([
+      ['/nonexistent/path/file.ts', ['ADR-0001', 'ADR-0002']],
+    ]))
+    const result = await toolDef.execute({})
+    expect(result.staleAnchors).toHaveLength(1)
+    expect(result.staleAnchors[0]).toEqual({
+      adrId: 'ADR-0001, ADR-0002',
+      file: '/nonexistent/path/file.ts',
+      issue: '文件已不存在',
+    })
+    expect(result.uncoveredChanges).toHaveLength(0)
+  })
+
+  it('check_adr_consistency flags uncovered files', async () => {
+    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'check_adr_consistency')?.[0]
+    anchorIndex.getAll.mockReturnValue(new Map([
+      ['/workspace/src/covered.ts', ['ADR-0001']],
+    ]))
+    const result = await toolDef.execute({ file_path: '/workspace/src/new-file.ts' })
+    expect(result.staleAnchors).toHaveLength(0)
+    expect(result.uncoveredChanges).toHaveLength(1)
+    expect(result.uncoveredChanges[0]).toEqual({
+      adrId: 'N/A',
+      file: '/workspace/src/new-file.ts',
+      status: 'uncovered',
+    })
   })
 })

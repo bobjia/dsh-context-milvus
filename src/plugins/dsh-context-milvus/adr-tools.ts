@@ -12,6 +12,7 @@
  */
 
 import * as path from 'node:path'
+import { access } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { MilvusService } from './milvus-service.js'
@@ -247,7 +248,6 @@ export function registerAdrTools(
     description: '加载当前 active ADR 的约束条件，包括隐性约束和被否决的反模式。',
     parameters: {
       adr_ids: { type: 'string', description: '指定 ADR id（逗号分隔），不传则加载所有 active' },
-      format: { type: 'string', description: 'summary | full（默认 summary）' },
     },
     output: {
       schema: {
@@ -286,7 +286,6 @@ export function registerAdrTools(
     description: '检查 ADR 决策记录与代码的一致性。验证 code_anchors 是否仍然有效，检测未覆盖的变更。',
     parameters: {
       file_path: { type: 'string', description: '检查特定文件（不传则检查所有）' },
-      fix: { type: 'boolean', description: '尝试自动修复失效锚点' },
     },
     output: {
       schema: {
@@ -316,15 +315,20 @@ export function registerAdrTools(
       const uncoveredChanges: Array<{ adrId: string; file: string; status: string }> = []
 
       const allFiles = anchorIndex.getAll()
+      const anchoredPaths = new Set(allFiles.keys())
+
       for (const [filePath, adrIds] of allFiles) {
         if (params.file_path && filePath !== params.file_path) continue
-        // Check if file exists
         try {
-          const { access } = await import('node:fs/promises')
           await access(filePath)
         } catch {
           staleAnchors.push({ adrId: adrIds.join(', '), file: filePath, issue: '文件已不存在' })
         }
+      }
+
+      // If a specific file is requested but not tracked by any ADR, flag it as uncovered
+      if (params.file_path && !anchoredPaths.has(params.file_path)) {
+        uncoveredChanges.push({ adrId: 'N/A', file: params.file_path, status: 'uncovered' })
       }
 
       return { staleAnchors, uncoveredChanges }
