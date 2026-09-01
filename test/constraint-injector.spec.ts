@@ -125,10 +125,10 @@ describe('setupConstraintInjection', () => {
     // next middleware ran
     expect(next).toHaveBeenCalled()
 
-    // constraint cache was refreshed
+    // constraint cache was refreshed (short format)
     expect(adrService.getActiveConstraints).toHaveBeenCalled()
     expect(contextResult.text()).toContain('ADR-0001')
-    expect(contextResult.text()).toContain('Must be fast')
+    expect(contextResult.text()).toContain('1 约束')
 
     // warning injected via createUserMessage with the right arguments
     expect(mockCreateUserMessage).toHaveBeenCalledTimes(1)

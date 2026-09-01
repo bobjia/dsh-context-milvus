@@ -30,15 +30,15 @@ const DEFAULT_SYSTEM_PROMPT = `## 决策记忆系统规则
 
 ### 你必须遵守的规则：
 
-1. **开始任何任务前**：
-   - 检查 docs/decisions/ 中是否有 ADR 决策记录覆盖了你将要修改的文件
-   - 使用 search_adr_by_file 工具查找相关 ADR
+1. **修改有 ADR 覆盖的文件时**：
+   - 如修改的文件有 ADR 决策记录覆盖，建议先使用 search_adr_by_file 查询相关 ADR
+   - 根据 ADR 约束调整实现方案，避免违反已有决策
 
 2. **执行代码变更时**：
    - 如变更触发 ADR 产出条件（新模块/核心逻辑修改/新依赖/非常规bugfix/架构变更/删除逻辑）
    - 必须使用 create_adr 或 update_adr 工具生成或更新对应的 ADR
 
-3. **完成任务前**：
+3. **创建或更新 ADR 后**：
    - 使用 check_adr_consistency 确认 ADR 与代码一致
    - 确认隐性约束和被否决的反模式字段已填写完整
 
@@ -60,20 +60,21 @@ let constraintCache = ''
 const sessionState = new WeakMap<object, { stepCount: number; pendingWarnings: string[] }>()
 
 /**
- * Build constraint summary text from active ADR constraints.
+ * Build a short constraint summary from active ADR constraints.
+ * Returns a compact format listing ADR ID + constraint counts,
+ * not the full constraint text. Users can call load_constraints
+ * for full details.
  */
 function buildConstraintSummary(constraints: ConstraintSummary[]): string {
   if (constraints.length === 0) return ''
   const parts = constraints.map(c => {
     const items: string[] = []
-    if (c.constraints?.length > 0) items.push('约束: ' + c.constraints.join('; '))
-    if (c.hiddenConstraints?.length > 0) {
-      items.push('隐性约束: ' + c.hiddenConstraints.map(h => h.name + ' — ' + h.content).join('; '))
-    }
-    if (c.rejectedPatterns?.length > 0) items.push('禁止反模式: ' + c.rejectedPatterns.join('; '))
-    return `${c.adrId}: ${items.join(' | ')}`
+    if (c.constraints?.length > 0) items.push(`${c.constraints.length} 约束`)
+    if (c.hiddenConstraints?.length > 0) items.push(`${c.hiddenConstraints.length} 隐性约束`)
+    if (c.rejectedPatterns?.length > 0) items.push(`${c.rejectedPatterns.length} 反模式`)
+    return `${c.adrId} (${items.join(', ')})`
   })
-  return `当前 Active ADR 约束摘要:\n${parts.join('\n')}`
+  return `当前 Active ADR: ${parts.join('; ')}`
 }
 
 /**
