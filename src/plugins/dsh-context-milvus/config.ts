@@ -212,15 +212,10 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
 
     merkleFilePath: overrides?.merkleFilePath ?? process.env.MERKLE_FILE_PATH ?? deriveMerkleFilePath(indexRoot),
 
-    adrEnabled: overrides?.adrEnabled !== undefined
-      ? overrides.adrEnabled
-      : process.env.ADR_ENABLED !== 'false',
-    adrRoot: overrides?.adrRoot ?? process.env.ADR_ROOT ?? 'docs/decisions',
-    adrCollection: overrides?.adrCollection ?? process.env.ADR_COLLECTION ?? 'adr_embeddings',
-    adrConstraintReinjectEvery: (() => {
-      const raw = overrides?.adrConstraintReinjectEvery ?? parseInt(process.env.ADR_REINJECT_EVERY ?? '', 10)
-      return !isNaN(raw) && raw >= 0 ? raw : 5
-    })(),
-    adrSystemPrompt: overrides?.adrSystemPrompt ?? process.env.ADR_SYSTEM_PROMPT ?? '',
+    adrEnabled: overrides?.adrEnabled ?? false,
+    adrRoot: overrides?.adrRoot ?? 'docs/decisions',
+    adrCollection: overrides?.adrCollection ?? 'adr_embeddings',
+    adrConstraintReinjectEvery: overrides?.adrConstraintReinjectEvery ?? 0,
+    adrSystemPrompt: overrides?.adrSystemPrompt ?? '',
   }
 }

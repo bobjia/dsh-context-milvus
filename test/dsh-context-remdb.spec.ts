@@ -110,7 +110,7 @@ describe('getConfig()', () => {
     delete process.env.INDEX_EXTENSIONS
     delete process.env.HYBRID_MODE
     delete process.env.BM25_RRF_K
-  })
+    })
 
   afterAll(() => {
     process.env = OLD_ENV
@@ -195,6 +195,16 @@ describe('getConfig()', () => {
 
     expect(config.milvusAddress).toBe('env:19530') // from env
     expect(config.milvusCollection).toBe('custom_collection') // from config
+  })
+
+  it('sets adrEnabled default to false', () => {
+    const cfg = getConfig()
+    expect(cfg.adrEnabled).toBe(false)
+  })
+
+  it('sets adrConstraintReinjectEvery default to 0', () => {
+    const cfg = getConfig()
+    expect(cfg.adrConstraintReinjectEvery).toBe(0)
   })
 })
 

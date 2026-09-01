@@ -126,7 +126,7 @@ export const Config = z.object({
 
   /** 启用 ADR 决策记忆功能 */
   adrEnabled: z.boolean()
-    .default(true)
+    .default(false)
     .description('启用 ADR 决策记忆功能（索引/docs/decisions/中的决策记录）'),
 
   /** ADR 目录路径 */
@@ -141,7 +141,7 @@ export const Config = z.object({
 
   /** 约束重注入步数间隔 */
   adrConstraintReinjectEvery: z.number()
-    .default(5)
+    .default(0)
     .description('约束重注入步数间隔（每 N 步重新注入 active ADR 约束，0=禁用）')
     .min(0),
 
