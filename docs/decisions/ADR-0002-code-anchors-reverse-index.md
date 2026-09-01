@@ -21,13 +21,17 @@ code_anchors:
   - file: src/plugins/dsh-context-milvus/adr-service.ts
     symbols:
       - getActiveConstraints
-    lines: [200, 290]
+      - root
+    lines: [77, 345]
     git_commit: ''
   - file: src/plugins/dsh-context-milvus/adr-tools.ts
     symbols:
       - search_adr_by_file
       - check_adr_consistency
-    lines: [150, 400]
+      - serviceForExec
+      - resolveEffectiveIndexRoot
+      - resolveEffectiveAdrRoot
+    lines: [40, 470]
     git_commit: ''
 trigger:
   task_id: null
@@ -95,3 +99,4 @@ auto_generated: false
 
 - 当 ADR 数量超过 10 万条时，JSON 侧边文件可能成为性能瓶颈，届时考虑迁移到 SQLite
 - 如果需要关联查询（如"找出所有被 adr-0001 覆盖的文件"），当前设计不支持，需要扩展
+- 2026-09-01: 修复依赖 adrService 的工具使用 DSH 进程 cwd 而非 session 工作区路径的问题。`serviceForExec` 和 `resolveEffectiveIndexRoot` 辅助函数在工具执行时从 `exec.agent.session.header.cwd` 解析 session 工作区，创建指向正确路径的临时 AdrService 实例

@@ -13,12 +13,14 @@ code_anchors:
       - setupConstraintInjection
       - refreshConstraintCache
       - createUserMessage
-    lines: [1, 188]
+    lines: [1, 205]
     git_commit: ''
   - file: src/plugins/dsh-context-milvus/adr-tools.ts
     symbols:
       - load_constraints
-    lines: [245, 281]
+      - serviceForExec
+      - resolveEffectiveAdrRoot
+    lines: [245, 300]
     git_commit: ''
   - file: src/plugins/dsh-context-milvus/config.ts
     symbols:
@@ -96,3 +98,4 @@ auto_generated: false
 
 - 当 DSH 框架的 systemPrompt API 变更时，需要更新注入方式
 - 当需要支持更复杂的约束条件（如按文件动态过滤）时，扩展 pre-step 刷新逻辑
+- 2026-09-01: 修复 pre-step hook 中 `adrService.getActiveConstraints()` 使用 DSH 进程 cwd 而非 session 工作区路径的问题。从 `agent.session.header.cwd` 解析 session 工作区，创建指向正确路径的临时 AdrService 实例
