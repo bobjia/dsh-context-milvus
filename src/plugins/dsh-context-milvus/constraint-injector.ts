@@ -9,8 +9,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import * as path from 'node:path'
 import type { PluginConfig } from './config.js'
-import type { AdrService } from './adr-service.js'
+import { AdrService } from './adr-service.js'
 import type { AdrAnchorIndex } from './adr-anchor-index.js'
 import type { ConstraintSummary } from './types.js'
 
@@ -128,7 +129,20 @@ export function setupConstraintInjection(
     // Async refresh constraint cache and check re-injection
     if (reinjectEvery > 0 && state.stepCount % reinjectEvery === 0) {
       try {
-        const constraints = await adrService.getActiveConstraints()
+        // Resolve the ADR root against the session workspace when available.
+        // ADR files live in the session workspace, not the plugin's startup cwd.
+        // When no session cwd is available (e.g. in tests), use the startup service.
+        const sessionCwd = agent?.session?.header?.cwd as string | undefined
+        let svc = adrService
+        if (sessionCwd) {
+          const config = resolveConfig()
+          const effectiveRoot = path.resolve(sessionCwd, config.adrRoot || 'docs/decisions')
+          if (effectiveRoot !== adrService.root) {
+            svc = new AdrService(effectiveRoot)
+          }
+        }
+
+        const constraints = await svc.getActiveConstraints()
         constraintCache = buildConstraintSummary(constraints)
         if (constraints.length > 0) {
           warnings.push(`⚠️ 约束复查提醒（第 ${state.stepCount} 步）:\n${constraintCache}`)

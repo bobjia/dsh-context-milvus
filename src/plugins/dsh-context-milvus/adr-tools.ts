@@ -17,7 +17,7 @@ import { dump as yamlDump, load as yamlLoad } from 'js-yaml'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { MilvusService } from './milvus-service.js'
-import type { AdrService } from './adr-service.js'
+import { AdrService } from './adr-service.js'
 import type { AdrAnchorIndex } from './adr-anchor-index.js'
 import type { PluginConfig } from './config.js'
 import type { HashTracker } from './merkle.js'
@@ -35,6 +35,53 @@ function formatAdrSearchResults(value: any[]): string {
       item.content,
     ].join('\n')
   }).join('\n---\n')
+}
+
+/**
+ * Resolve the effective ADR root directory from the execution context.
+ *
+ * The plugin is bound to a root derived at startup, but the actual ADR files
+ * live in the agent session's workspace. Tool executions receive an `exec`
+ * object carrying `exec.agent.session.header.cwd` (the session workspace),
+ * so we prefer that over the startup `config.indexRoot`.
+ */
+function resolveEffectiveAdrRoot(resolveConfig: () => PluginConfig, exec?: any): string {
+  const config = resolveConfig()
+  const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
+  const indexRoot = sessionCwd || config.indexRoot || process.cwd()
+  return path.resolve(indexRoot, config.adrRoot || 'docs/decisions')
+}
+
+/**
+ * Resolve the effective index root (workspace root) from the execution context.
+ * Anchor-index paths are stored relative to the workspace, so stale-file
+ * checks must resolve them against the session workspace, not process.cwd().
+ */
+function resolveEffectiveIndexRoot(resolveConfig: () => PluginConfig, exec?: any): string {
+  const config = resolveConfig()
+  const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
+  return sessionCwd || config.indexRoot || process.cwd()
+}
+
+/**
+ * Return an AdrService bound to the effective ADR root for this call.
+ * Reuses the startup instance when the resolved root matches (the common
+ * single-workspace case); otherwise creates a fresh instance for the
+ * session workspace.
+ *
+ * When no session context is available (e.g. in tests), the startup
+ * service is returned directly.
+ */
+function serviceForExec(
+  resolveConfig: () => PluginConfig,
+  startup: AdrService,
+  exec?: any,
+): AdrService {
+  const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
+  if (!sessionCwd) return startup
+  const config = resolveConfig()
+  const root = path.resolve(sessionCwd, config.adrRoot || 'docs/decisions')
+  return root === startup.root ? startup : new AdrService(root)
 }
 
 export function registerAdrTools(
@@ -109,12 +156,13 @@ export function registerAdrTools(
         return [{ type: 'text' as const, text: `关联的 ADR 决策记录:\n${text}` }]
       },
     },
-    async execute(params: any) {
+    async execute(params: any, exec?: any) {
       const adrIds = anchorIndex.getAdrsForFile(params.file_path)
       if (adrIds.length === 0) return []
+      const svc = serviceForExec(resolveConfig, adrService, exec)
       const results = []
       for (const adrId of adrIds) {
-        const doc = await adrService.loadAdr(adrId)
+        const doc = await svc.loadAdr(adrId)
         if (doc && (!params.status || params.status === 'all' || doc.frontmatter.status === params.status)) {
           const firstSection = Object.values(doc.sections)[0] || ''
           results.push({
@@ -150,8 +198,9 @@ export function registerAdrTools(
         { type: 'text' as const, text: `✅ ADR 已创建: ${value.adrId}\n路径: ${value.filePath}` },
       ],
     },
-    async execute(params: any) {
-      const result = await adrService.createAdr({
+    async execute(params: any, exec?: any) {
+      const svc = serviceForExec(resolveConfig, adrService, exec)
+      const result = await svc.createAdr({
         title: params.title,
         requirement: params.requirement,
         changeType: params.change_type,
@@ -161,7 +210,7 @@ export function registerAdrTools(
       // Auto-index the newly created ADR
       if (adrIndexer) {
         const config = resolveConfig()
-        const adrConfig = { ...config, adrRoot: path.resolve(config.indexRoot, config.adrRoot) }
+        const adrConfig = { ...config, adrRoot: resolveEffectiveAdrRoot(resolveConfig, exec) }
         await adrIndexer.runAdrIndex(adrConfig, milvus, adrIndexer.tracker, anchorIndex, { mode: 'incremental' })
       }
       return { adrId: result.id, filePath: result.filePath }
@@ -189,8 +238,9 @@ export function registerAdrTools(
         { type: 'text' as const, text: `✅ ADR 已更新: ${value.adrId}` },
       ],
     },
-    async execute(params: any) {
-      const result = await adrService.updateAdr(params.adr_id, {
+    async execute(params: any, exec?: any) {
+      const svc = serviceForExec(resolveConfig, adrService, exec)
+      const result = await svc.updateAdr(params.adr_id, {
         content: params.content,
         status: params.status,
         supersededBy: params.superseded_by,
@@ -199,7 +249,7 @@ export function registerAdrTools(
       // Re-index the updated ADR
       if (adrIndexer) {
         const config = resolveConfig()
-        const adrConfig = { ...config, adrRoot: path.resolve(config.indexRoot, config.adrRoot) }
+        const adrConfig = { ...config, adrRoot: resolveEffectiveAdrRoot(resolveConfig, exec) }
         await adrIndexer.runAdrIndex(adrConfig, milvus, adrIndexer.tracker, anchorIndex, { mode: 'incremental' })
       }
       return { adrId: result.id, filePath: result.filePath }
@@ -235,8 +285,9 @@ export function registerAdrTools(
         return [{ type: 'text' as const, text: `${counts}\n${text}` }]
       },
     },
-    async execute(params: any) {
-      return adrService.listAdrs({
+    async execute(params: any, exec?: any) {
+      const svc = serviceForExec(resolveConfig, adrService, exec)
+      return svc.listAdrs({
         status: params.status ?? 'active',
         changeType: params.change_type,
         limit: params.limit ?? 100,
@@ -288,8 +339,9 @@ export function registerAdrTools(
         return [{ type: 'text' as const, text: parts.join('\n\n') }]
       },
     },
-    async execute(params: any) {
-      const all = await adrService.getActiveConstraints()
+    async execute(params: any, exec?: any) {
+      const svc = serviceForExec(resolveConfig, adrService, exec)
+      const all = await svc.getActiveConstraints()
       let filtered = all
       if (params.adr_ids) {
         const ids = params.adr_ids.split(',').map((s: string) => s.trim())
@@ -347,18 +399,22 @@ export function registerAdrTools(
         return [{ type: 'text' as const, text: parts.join('\n') }]
       },
     },
-    async execute(params: any) {
+    async execute(params: any, exec?: any) {
+      const svc = serviceForExec(resolveConfig, adrService, exec)
       const staleAnchors: Array<{ adrId: string; file: string; issue: string }> = []
       const uncoveredChanges: Array<{ adrId: string; file: string; status: string }> = []
       const fixedAnchors: Array<{ adrId: string; file: string }> = []
 
       const allFiles = anchorIndex.getAll()
       const anchoredPaths = new Set(allFiles.keys())
+      const effectiveIndexRoot = resolveEffectiveIndexRoot(resolveConfig, exec)
 
       for (const [filePath, adrIds] of allFiles) {
         if (params.file_path && filePath !== params.file_path) continue
         try {
-          await access(filePath)
+          // Anchor index stores relative paths; resolve against the session workspace
+          const absolutePath = path.resolve(effectiveIndexRoot, filePath)
+          await access(absolutePath)
         } catch {
           staleAnchors.push({ adrId: adrIds.join(', '), file: filePath, issue: '文件已不存在' })
         }
@@ -376,7 +432,7 @@ export function registerAdrTools(
           for (const adrId of adrIdList) {
             try {
               // Load the ADR document to get the file path
-              const doc = await adrService.loadAdr(adrId)
+              const doc = await svc.loadAdr(adrId)
               if (!doc) continue
 
               // Read the raw file content

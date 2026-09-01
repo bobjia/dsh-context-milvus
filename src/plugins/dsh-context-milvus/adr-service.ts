@@ -81,6 +81,11 @@ export class AdrService {
     }
   }
 
+  /** The ADR root directory this service is bound to. */
+  get root(): string {
+    return this.adrRoot
+  }
+
   /** Find the maximum ADR serial number in the directory */
   async findMaxSerial(): Promise<number> {
     let maxSerial = 0

@@ -28,6 +28,10 @@ describe('setupConstraintInjection', () => {
         section: jest.fn((s: any) => { sectionResult = s }),
         context: jest.fn((c: any) => { contextResult = c }),
       },
+      get: jest.fn((key: string) => {
+        if (key === 'systemPrompt') return ctx.systemPrompt
+        return undefined
+      }),
       on: jest.fn(),
     }
     adrService = {
