@@ -166,5 +166,9 @@ Test
     expect(status).toHaveProperty('totalChunks')
     expect(status).toHaveProperty('lastIndexed')
     expect(status).toHaveProperty('activeAdrs')
+    // Fresh tracker + empty ADR dir → all-zero status
+    expect(status.totalAdrs).toBe(0)
+    expect(status.activeAdrs).toBe(0)
+    expect(status.lastIndexed).toBe('')
   })
 })

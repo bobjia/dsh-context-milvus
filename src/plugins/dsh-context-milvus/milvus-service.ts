@@ -556,7 +556,7 @@ export class MilvusService {
       status: item.status ?? '',
       section: item.section ?? '',
       content: item.content ?? '',
-      score: item.score,
+      score: item.score ?? 0,
       triggerType: item.trigger_type ?? '',
       codeAnchors: (() => {
         try { return JSON.parse(item.code_anchors ?? '[]') } catch { return [] }

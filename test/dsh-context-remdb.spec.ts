@@ -771,7 +771,7 @@ describe('MilvusService ADR collection', () => {
         file_path: '/doc.md',
         status: 'active',
         section: 'goal',
-        code_content: 'text',
+        content: 'text',
         score: 0.95,
         trigger_type: 'refactor',
         code_anchors: '["src/a.ts"]',
@@ -781,6 +781,7 @@ describe('MilvusService ADR collection', () => {
     const results = await service.searchAdr('test query', 5)
     expect(results).toHaveLength(1)
     expect(results[0].adrId).toBe('ADR-0001')
+    expect(results[0].content).toBe('text')
     expect(results[0].score).toBe(0.95)
   })
 

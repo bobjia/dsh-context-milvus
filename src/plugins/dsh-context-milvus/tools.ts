@@ -14,7 +14,6 @@ import type { MilvusService } from './milvus-service.js'
 import type { PluginConfig } from './config.js'
 import { deriveMerkleFilePath } from './config.js'
 import { HashTracker } from './merkle.js'
-import type { IndexResult } from './indexer.js'
 import { runIndex, getIndexStatus } from './indexer.js'
 import { runAdrIndex, getAdrIndexStatus as getAdrIndexStatusFn } from './adr-indexer.js'
 import type { AdrService } from './adr-service.js'
@@ -42,13 +41,16 @@ function formatSearchResults(value: any[]): string {
 }
 
 /** Format index result for model consumption */
-function formatIndexResult(result: IndexResult): string {
+function formatIndexResult(result: any): string {
   const lines = [
     `索引完成 (${(result.durationMs / 1000).toFixed(1)}s)`,
     `  - 新增/修改: ${result.filesIndexed} 个文件, ${result.chunksIndexed} 个代码块`,
     `  - 已删除: ${result.filesRemoved} 个文件, ${result.chunksRemoved} 个代码块`,
     `  - 未变更跳过: ${result.filesSkipped} 个文件`,
   ]
+  if (result.adrFilesIndexed !== undefined) {
+    lines.push(`  - ADR 新增/修改: ${result.adrFilesIndexed} 个文件, ${result.adrChunksIndexed} 个代码块`)
+  }
   return lines.join('\n')
 }
 
@@ -203,11 +205,13 @@ export function registerTools(
             chunksRemoved: { type: 'number' },
             filesSkipped: { type: 'number' },
             durationMs: { type: 'number' },
+            adrFilesIndexed: { type: 'number' },
+            adrChunksIndexed: { type: 'number' },
           },
           additionalProperties: false,
         },
         render: (_args: any, value: any) => {
-          return [{ type: 'text' as const, text: formatIndexResult(value as IndexResult) }]
+          return [{ type: 'text' as const, text: formatIndexResult(value) }]
         },
       },
 
@@ -242,19 +246,27 @@ export function registerTools(
         })
 
         // After code indexing, also index ADRs if enabled
-        if (adrOptions && config.adrEnabled) {
+        let adrFilesIndexed: number | undefined
+        let adrChunksIndexed: number | undefined
+        if (adrOptions && effectiveConfig.adrEnabled) {
           const adrConfig = {
-            ...config,
-            adrRoot: path.resolve(config.indexRoot, config.adrRoot),
+            ...effectiveConfig,
+            adrRoot: path.resolve(effectiveConfig.indexRoot, effectiveConfig.adrRoot),
           }
           const adrResult = await runAdrIndex(
             adrConfig, milvus, adrOptions.adrTracker, adrOptions.anchorIndex,
             { mode, progress },
           )
+          adrFilesIndexed = adrResult.filesIndexed
+          adrChunksIndexed = adrResult.chunksIndexed
           progress(`  ADR 索引: ${adrResult.filesIndexed} 个文件, ${adrResult.chunksIndexed} 个代码块`)
         }
 
-        return codeResult
+        return {
+          ...codeResult,
+          adrFilesIndexed,
+          adrChunksIndexed,
+        }
       },
     }),
   )

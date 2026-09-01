@@ -12,7 +12,8 @@
  */
 
 import * as path from 'node:path'
-import { access } from 'node:fs/promises'
+import { access, readFile, writeFile, rename } from 'node:fs/promises'
+import { dump as yamlDump, load as yamlLoad } from 'js-yaml'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { MilvusService } from './milvus-service.js'
@@ -68,6 +69,7 @@ export function registerAdrTools(
             status: { type: 'string' }, section: { type: 'string' },
             content: { type: 'string' }, score: { type: 'number' },
             triggerType: { type: 'string' },
+            codeAnchors: { type: 'array', items: { type: 'string' } },
           }, additionalProperties: false,
         },
       },
@@ -247,6 +249,7 @@ export function registerAdrTools(
     name: 'load_constraints',
     description: '加载当前 active ADR 的约束条件，包括隐性约束和被否决的反模式。',
     parameters: {
+      format: { type: 'string', description: 'summary | full（默认 summary）。full 模式包含隐性约束的完整详情' },
       adr_ids: { type: 'string', description: '指定 ADR id（逗号分隔），不传则加载所有 active' },
     },
     output: {
@@ -255,6 +258,13 @@ export function registerAdrTools(
           type: 'object', properties: {
             adrId: { type: 'string' }, adrTitle: { type: 'string' },
             constraints: { type: 'array', items: { type: 'string' } },
+            hiddenConstraints: {
+              type: 'array', items: {
+                type: 'object', properties: {
+                  name: { type: 'string' }, content: { type: 'string' }, consequence: { type: 'string' },
+                }, additionalProperties: false,
+              },
+            },
             rejectedPatterns: { type: 'array', items: { type: 'string' } },
           }, additionalProperties: false,
         },
@@ -264,6 +274,14 @@ export function registerAdrTools(
         const parts = value.map((v: any) => {
           const lines = [`## ${v.adrId}: ${v.adrTitle}`]
           if (v.constraints.length > 0) lines.push('约束:', ...v.constraints.map((c: string) => `  - ${c}`))
+          if (v.hiddenConstraints?.length > 0) {
+            lines.push('隐性约束:')
+            v.hiddenConstraints.forEach((h: any) => {
+              lines.push(`  - ${h.name}`)
+              if (h.content) lines.push(`    内容: ${h.content}`)
+              if (h.consequence) lines.push(`    后果: ${h.consequence}`)
+            })
+          }
           if (v.rejectedPatterns.length > 0) lines.push('被否决的反模式:', ...v.rejectedPatterns.map((p: string) => `  ❌ ${p}`))
           return lines.join('\n')
         })
@@ -272,11 +290,24 @@ export function registerAdrTools(
     },
     async execute(params: any) {
       const all = await adrService.getActiveConstraints()
+      let filtered = all
       if (params.adr_ids) {
         const ids = params.adr_ids.split(',').map((s: string) => s.trim())
-        return all.filter(c => ids.includes(c.adrId))
+        filtered = all.filter(c => ids.includes(c.adrId))
       }
-      return all
+      const format = params.format ?? 'summary'
+      return filtered.map((c: any) => {
+        const item: any = {
+          adrId: c.adrId,
+          adrTitle: c.adrTitle,
+          constraints: c.constraints,
+          rejectedPatterns: c.rejectedPatterns,
+        }
+        if (format === 'full') {
+          item.hiddenConstraints = c.hiddenConstraints
+        }
+        return item
+      })
     },
   }))
 
@@ -286,12 +317,14 @@ export function registerAdrTools(
     description: '检查 ADR 决策记录与代码的一致性。验证 code_anchors 是否仍然有效，检测未覆盖的变更。',
     parameters: {
       file_path: { type: 'string', description: '检查特定文件（不传则检查所有）' },
+      fix: { type: 'boolean', description: '尝试自动修复失效锚点（从 ADR frontmatter 中移除已不存在的文件锚点）' },
     },
     output: {
       schema: {
         type: 'object', properties: {
           staleAnchors: { type: 'array', items: { type: 'object', properties: { adrId: { type: 'string' }, file: { type: 'string' }, issue: { type: 'string' } }, additionalProperties: false } },
           uncoveredChanges: { type: 'array', items: { type: 'object', properties: { adrId: { type: 'string' }, file: { type: 'string' }, status: { type: 'string' } }, additionalProperties: false } },
+          fixedAnchors: { type: 'array', items: { type: 'object', properties: { adrId: { type: 'string' }, file: { type: 'string' } }, additionalProperties: false } },
         }, additionalProperties: false,
       },
       render: (_args: any, value: any) => {
@@ -299,6 +332,10 @@ export function registerAdrTools(
         if (value.staleAnchors?.length > 0) {
           parts.push(`\n### 失效锚点 (${value.staleAnchors.length})`)
           value.staleAnchors.forEach((a: any) => parts.push(`  - ${a.adrId}: ${a.file} — ${a.issue}`))
+        }
+        if (value.fixedAnchors?.length > 0) {
+          parts.push(`\n### 已修复锚点 (${value.fixedAnchors.length})`)
+          value.fixedAnchors.forEach((a: any) => parts.push(`  - ${a.adrId}: ${a.file} — 已从 ADR frontmatter 中移除`))
         }
         if (value.uncoveredChanges?.length > 0) {
           parts.push(`\n### 未覆盖变更 (${value.uncoveredChanges.length})`)
@@ -313,6 +350,7 @@ export function registerAdrTools(
     async execute(params: any) {
       const staleAnchors: Array<{ adrId: string; file: string; issue: string }> = []
       const uncoveredChanges: Array<{ adrId: string; file: string; status: string }> = []
+      const fixedAnchors: Array<{ adrId: string; file: string }> = []
 
       const allFiles = anchorIndex.getAll()
       const anchoredPaths = new Set(allFiles.keys())
@@ -331,7 +369,52 @@ export function registerAdrTools(
         uncoveredChanges.push({ adrId: 'N/A', file: params.file_path, status: 'uncovered' })
       }
 
-      return { staleAnchors, uncoveredChanges }
+      // Auto-fix: remove stale anchors from ADR frontmatter
+      if (params.fix && staleAnchors.length > 0) {
+        for (const anchor of staleAnchors) {
+          const adrIdList = anchor.adrId.split(', ').filter(Boolean)
+          for (const adrId of adrIdList) {
+            try {
+              // Load the ADR document to get the file path
+              const doc = await adrService.loadAdr(adrId)
+              if (!doc) continue
+
+              // Read the raw file content
+              let content = await readFile(doc.filePath, 'utf-8')
+
+              // Parse the frontmatter YAML
+              const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/)
+              if (!fmMatch) continue
+
+              const rawFm = fmMatch[1]
+              const parsedFm = yamlLoad(rawFm) as Record<string, any>
+              if (!Array.isArray(parsedFm.code_anchors)) continue
+
+              // Filter out the stale anchor (match by file path)
+              const before = parsedFm.code_anchors.length
+              parsedFm.code_anchors = parsedFm.code_anchors.filter(
+                (a: any) => a?.file !== anchor.file,
+              )
+              if (parsedFm.code_anchors.length === before) continue
+
+              // Re-serialize the frontmatter
+              const newFm = yamlDump(parsedFm, { lineWidth: 120, noRefs: true, sortKeys: false })
+              const newContent = content.replace(fmMatch[0], `---\n${newFm}---\n`)
+
+              // Atomic write
+              const tmpPath = `${doc.filePath}.tmp`
+              await writeFile(tmpPath, newContent, 'utf-8')
+              await rename(tmpPath, doc.filePath)
+
+              fixedAnchors.push({ adrId, file: anchor.file })
+            } catch {
+              // Silently skip errors during fix
+            }
+          }
+        }
+      }
+
+      return { staleAnchors, uncoveredChanges, fixedAnchors }
     },
   }))
 }

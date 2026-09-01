@@ -161,7 +161,7 @@ export function setupConstraintInjection(
   })
 
   // ── 4. Register tools/result hook for file-change tracking ──────────────
-  const FILE_TOOL_NAMES = new Set(['read', 'write', 'edit'])
+  const FILE_TOOL_NAMES = new Set(['write', 'edit'])
   ;(ctx as any).on('tools/result', (exec: any, result: any) => {
     if (!exec.agent || !result || result.isError) return
     if (!FILE_TOOL_NAMES.has(exec.name)) return
