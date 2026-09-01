@@ -93,7 +93,7 @@ describe('setupConstraintInjection', () => {
     return hook
   }
 
-  it('refreshes constraint cache and injects warnings on pre-step', async () => {
+  it('refreshes constraint cache on pre-step without injecting warnings', async () => {
     // Re-inject every step so the first call triggers a refresh
     resolveConfig.mockReturnValue({
       adrEnabled: true,
@@ -130,17 +130,11 @@ describe('setupConstraintInjection', () => {
     expect(contextResult.text()).toContain('ADR-0001')
     expect(contextResult.text()).toContain('1 约束')
 
-    // warning injected via createUserMessage with the right arguments
-    expect(mockCreateUserMessage).toHaveBeenCalledTimes(1)
-    const callArg = mockCreateUserMessage.mock.calls[0][0]
-    expect(callArg.content[0].text).toContain('约束复查提醒')
-    expect(callArg.content[0].text).toContain('ADR-0001')
-    expect(callArg.source).toEqual({ kind: 'plugin', plugin: 'dsh-context-milvus' })
+    // No createUserMessage from timer — only from pending file warnings
+    expect(mockCreateUserMessage).not.toHaveBeenCalled()
 
-    // injected message appears in the returned decision's message list
-    expect(result.messages).toHaveLength(2)
-    expect(result.messages[1].role).toBe('user')
-    expect(result.messages[1].content[0].text).toContain('约束复查提醒')
+    // Decision is returned unchanged (no messages injected)
+    expect(result.messages).toHaveLength(1)
   })
 
   it('skips re-injection when the step interval is not reached', async () => {
@@ -159,6 +153,27 @@ describe('setupConstraintInjection', () => {
     const result = await preStepHook({ agent, messages: [], step: {} }, next)
 
     // stepCount = 1, 1 % 5 !== 0 → no cache refresh, no warning
+    expect(adrService.getActiveConstraints).not.toHaveBeenCalled()
+    expect(mockCreateUserMessage).not.toHaveBeenCalled()
+    expect(result).toBe(decision)
+  })
+
+  it('does not refresh constraint cache when reinjectEvery is 0 (default)', async () => {
+    resolveConfig.mockReturnValue({
+      adrEnabled: true,
+      adrConstraintReinjectEvery: 0,  // default — disabled
+      adrSystemPrompt: '',
+    })
+    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    const preStepHook = getPreStepHook()
+
+    const decision = { kind: 'normal', messages: [] }
+    const next = jest.fn().mockResolvedValue(decision)
+    const agent = { session: { id: 'session-2' } }
+
+    const result = await preStepHook({ agent, messages: [], step: {} }, next)
+
+    // reinjectEvery=0 → the if (reinjectEvery > 0) guard prevents any refresh
     expect(adrService.getActiveConstraints).not.toHaveBeenCalled()
     expect(mockCreateUserMessage).not.toHaveBeenCalled()
     expect(result).toBe(decision)

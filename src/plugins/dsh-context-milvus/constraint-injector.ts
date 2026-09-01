@@ -127,7 +127,8 @@ export function setupConstraintInjection(
     const warnings: string[] = [...state.pendingWarnings]
     state.pendingWarnings = []
 
-    // Async refresh constraint cache and check re-injection
+    // Async refresh constraint cache (no message injection — the system
+    // prompt context() provider reads the cache synchronously).
     if (reinjectEvery > 0 && state.stepCount % reinjectEvery === 0) {
       try {
         // Resolve the ADR root against the session workspace when available.
@@ -145,9 +146,6 @@ export function setupConstraintInjection(
 
         const constraints = await svc.getActiveConstraints()
         constraintCache = buildConstraintSummary(constraints)
-        if (constraints.length > 0) {
-          warnings.push(`⚠️ 约束复查提醒（第 ${state.stepCount} 步）:\n${constraintCache}`)
-        }
       } catch {
         // Silently handle errors
       }
