@@ -67,6 +67,8 @@ adr-tools.ts            — 7 个 ADR 工具
 constraint-injector.ts  — 系统提示注入 + 约束重注入
 ```
 
+ADR 默认关闭（`adrEnabled: false`），通过 DSH 配置面板启用。配置项包括 `adrRoot`、`adrConstraintReinjectEvery` 等。
+
 Milvus 集合: `adr_embeddings`（与 `code_embeddings` 分离，含 adr_id/status/section/code_anchors 字段）
 
 ### Key design decisions

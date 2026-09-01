@@ -48,8 +48,10 @@
 
 ADR（Architecture Decision Record）决策记忆系统记录代码变更背后的设计原因，让模型不仅能读代码，还能理解"为什么"。
 
-1. **修改代码前**，先调用 `search_adr_by_file` 确认该文件是否有 ADR 决策记录覆盖
+> **注意：** ADR 功能默认关闭。如需启用，在 DSH 配置面板（Settings → Plugins → dsh-context-milvus）中设置 `adrEnabled: true`。启用后，还需在 `indexRoot` 配置的根目录下有 `docs/decisions/` 目录（或自定义 `adrRoot` 路径）。
+
+1. **修改有 ADR 覆盖的代码前**，建议先调用 `search_adr_by_file` 确认该文件是否有 ADR 决策记录覆盖
 2. **做出设计决策**（新功能/重构/架构变更/新依赖）时，使用 `create_adr` 记录决策原因
 3. **修改了被 ADR 覆盖的代码**后，使用 `update_adr` 更新对应 ADR 的 code_anchors
-4. **任务完成前**，调用 `check_adr_consistency` 确认一致性
+4. **创建或更新 ADR 后**，建议调用 `check_adr_consistency` 确认一致性
 5. **需要了解约束**时，使用 `load_constraints` 查看 active ADR 的约束条件

@@ -91,10 +91,12 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 
 ADR 决策记忆系统记录代码变更背后的"为什么"（设计决策、权衡、约束），让 Agent 不仅能读代码，还能理解其演进原因：
 
-1. **修改代码前**，用 `search_adr_by_file` 查询该文件是否有 ADR 决策记录覆盖，避免违反既有决策。
+> **注意：** ADR 功能默认关闭。如需启用，在 DSH 配置面板（Settings → Plugins → dsh-context-milvus）中设置 `adrEnabled: true`。
+
+1. **修改有 ADR 覆盖的代码前**，建议用 `search_adr_by_file` 查询该文件是否有 ADR 决策记录覆盖，避免违反既有决策。
 2. **做出设计决策时**，用 `create_adr` 记录决策背景、备选方案与理由，并通过 `update_adr` 维护 code_anchors 关联的代码位置。
 3. **需要了解约束时**，用 `load_constraints` 加载 active ADR 的约束条件注入上下文。
-4. **任务完成前**，用 `check_adr_consistency` 校验 ADR 与代码实现的一致性，必要时 `fix` 自动修复。
+4. **创建或更新 ADR 后**，建议用 `check_adr_consistency` 校验 ADR 与代码实现的一致性，必要时 `fix` 自动修复。
 5. 用 `search_adr` 语义搜索历史决策，理解代码"为什么这么做"。
 
 ---
