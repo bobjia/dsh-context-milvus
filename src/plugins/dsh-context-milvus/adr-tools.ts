@@ -271,6 +271,7 @@ export function registerAdrTools(
           type: 'object', properties: {
             id: { type: 'string' }, filePath: { type: 'string' },
             status: { type: 'string' }, created: { type: 'string' },
+            updated: { type: 'string' },
             anchorCount: { type: 'number' }, summary: { type: 'string' },
             changeType: { type: 'string' },
           }, additionalProperties: false,
