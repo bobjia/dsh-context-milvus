@@ -17,8 +17,8 @@
 | `list_adrs` | 列出 ADR 决策记录目录 | `status`、`change_type`、`limit` |
 | `load_constraints` | 加载 active ADR 的约束条件 | `adr_ids`、`format` |
 | `check_adr_consistency` | 检查 ADR 与代码的一致性 | `file_path`、`fix` |
-| `find_callers` | 查找代码中引用某个符号的所有位置，用于修改影响分析 | `symbol`(必填)、`direction`、`maxResults` |
-| `trace_call_chain` | 从入口符号出发 BFS 追踪调用链，支持影响分析和依赖分析 | `entry`(必填)、`direction`、`maxDepth`、`maxResults` |
+| `find_callers` | 查找代码中引用某个符号的所有位置，支持跨文件 import 精确解析 | `symbol`(必填)、`direction`、`maxResults`、`sourceFile`、`resolve` |
+| `trace_call_chain` | 从入口符号出发 BFS 追踪调用链，支持 import 解析消歧 | `entry`(必填)、`direction`、`maxDepth`、`maxResults`、`resolve` |
 
 ## 使用规则
 
@@ -53,6 +53,15 @@
 8. **理解功能调用链用 trace_call_chain**
 
    当需要理解一个功能的完整调用链路时，从入口函数开始用 `trace_call_chain direction=backward` 追踪调用者，或用 `direction=forward` 追踪其调用的下游函数。
+
+9. **跨文件精确匹配用 sourceFile 参数**
+
+   当 `find_callers` 返回了多个同名不同文件的符号时，用 `sourceFile` 参数限定只查从特定文件导入的调用者：
+   `find_callers(symbol="parseConfig", sourceFile="src/config.ts")`。
+
+10. **import 解析默认启用，可关闭**
+
+    `resolve: false` 可回退到 V1 名称匹配模式。当 import map 未构建时，系统自动降级。
 
 ## 何时用 `full` vs `incremental`
 
