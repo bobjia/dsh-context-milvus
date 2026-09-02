@@ -25,6 +25,8 @@ export interface RelationChunk {
 /** Result of find_callers */
 export interface CallersResult {
   chunks: RelationChunk[]
+  /** Optional warning message displayed to the user (e.g., when import map is not available) */
+  warning?: string
 }
 
 /** A node in the BFS call chain */

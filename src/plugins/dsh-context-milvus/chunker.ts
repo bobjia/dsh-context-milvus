@@ -54,16 +54,8 @@ const LANGUAGES: LanguageDef[] = [
         if (!importPath.startsWith('.')) return null
         const dir = path.dirname(sourceFile)
         const resolved = path.resolve(dir, importPath)
-        // Try extensions in order
-        for (const ext of ['.ts', '.tsx', '.js', '.mjs', '.cjs']) {
-          const fullPath = resolved + ext
-          // Check existence via fs or just return the best guess
-          // For V2, we return the best guess path without existence check
-          // (index_code will naturally skip non-existent files later)
-          return fullPath
-        }
-        // Try /index.ts
-        return resolved + '/index.ts'
+        // V2: return best-guess path with .ts extension (no existence check)
+        return resolved + '.ts'
       },
     },
     loadTs: () => require('tree-sitter-typescript').typescript,
@@ -88,10 +80,8 @@ const LANGUAGES: LanguageDef[] = [
         if (!importPath.startsWith('.')) return null
         const dir = path.dirname(sourceFile)
         const resolved = path.resolve(dir, importPath)
-        for (const ext of ['.js', '.mjs', '.cjs']) {
-          return resolved + ext
-        }
-        return resolved + '/index.js'
+        // V2: return best-guess path with .js extension (no existence check)
+        return resolved + '.js'
       },
     },
     loadTs: () => require('tree-sitter-typescript').tsx,

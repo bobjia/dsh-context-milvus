@@ -304,34 +304,48 @@ function extractImportFromNode(
   switch (node.type) {
     case 'import_statement': {
       // TypeScript/JS: import { X } from './foo'  or  import X from './foo'
+      // Python: import foo  (no 'source' field)
       const sourceNode = node.childForFieldName('source')
-      if (!sourceNode) return null
-      const importPath = sourceNode.text.replace(/['"]/g, '')
-      const targetFile = resolveFn?.(importPath, sourceFile) ?? null
-      if (!targetFile) return null
+      if (sourceNode) {
+        // TypeScript/JS structure: import { X } from './foo'
+        const importPath = sourceNode.text.replace(/['"]/g, '')
+        const targetFile = resolveFn?.(importPath, sourceFile) ?? null
+        if (!targetFile) return null
 
-      // Extract named imports
-      const specifiers = node.descendantsOfType('import_specifier')
-      for (const spec of specifiers) {
-        const name = spec.childForFieldName('name')?.text
-        if (name) {
-          results.push({
-            symbol: name,
-            entry: { target: targetFile, exportedAs: name },
-          })
+        // Extract named imports
+        const specifiers = node.descendantsOfType('import_specifier')
+        for (const spec of specifiers) {
+          const name = spec.childForFieldName('name')?.text
+          if (name) {
+            results.push({
+              symbol: name,
+              entry: { target: targetFile, exportedAs: name },
+            })
+          }
         }
-      }
 
-      // Default import: import X from './foo'
-      const defaultSpec = node.descendantsOfType('import_clause')
-      for (const clause of defaultSpec) {
-        const defaultName = clause.childForFieldName('name')?.text
-        if (defaultName && results.every(r => r.symbol !== defaultName)) {
-          results.push({
-            symbol: defaultName,
-            entry: { target: targetFile, exportedAs: 'default' },
-          })
+        // Default import: import X from './foo'
+        const defaultSpec = node.descendantsOfType('import_clause')
+        for (const clause of defaultSpec) {
+          const defaultName = clause.childForFieldName('name')?.text
+          if (defaultName && results.every(r => r.symbol !== defaultName)) {
+            results.push({
+              symbol: defaultName,
+              entry: { target: targetFile, exportedAs: 'default' },
+            })
+          }
         }
+      } else {
+        // Python structure: import foo  (no 'source' field)
+        const moduleNode = node.childForFieldName('name')
+        if (!moduleNode) return null
+        const importPath = moduleNode.text
+        const targetFile = resolveFn?.(importPath, sourceFile) ?? null
+        if (!targetFile) return null
+        results.push({
+          symbol: importPath.split('.').pop()!,
+          entry: { target: targetFile, exportedAs: importPath },
+        })
       }
       break
     }
@@ -358,20 +372,6 @@ function extractImportFromNode(
           entry: { target: targetFile, exportedAs: n.text },
         })
       }
-      break
-    }
-
-    case 'import_statement': {
-      // Python: import foo
-      const moduleNode = node.childForFieldName('name')
-      if (!moduleNode) return null
-      const importPath = moduleNode.text
-      const targetFile = resolveFn?.(importPath, sourceFile) ?? null
-      if (!targetFile) return null
-      results.push({
-        symbol: importPath.split('.').pop()!,
-        entry: { target: targetFile, exportedAs: importPath },
-      })
       break
     }
 

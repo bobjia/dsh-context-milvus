@@ -424,6 +424,15 @@ export function registerTools(
                   endLine: { type: 'number' },
                   chunkType: { type: 'string' },
                   name: { type: 'string' },
+                  resolution: {
+                    type: 'object',
+                    properties: {
+                      status: { type: 'string', enum: ['resolved', 'local', 'unresolved'] },
+                      targetFile: { type: 'string' },
+                      exportedAs: { type: 'string' },
+                    },
+                    additionalProperties: false,
+                  },
                 },
                 additionalProperties: false,
               },
@@ -432,9 +441,12 @@ export function registerTools(
           additionalProperties: false,
         },
         render: (_args: any, value: any) => {
-          const result = value as { chunks: any[] }
+          const result = value as { chunks: any[]; warning?: string }
           if (result.chunks.length === 0) {
-            return [{ type: 'text' as const, text: '未找到引用该符号的代码。' }]
+            const text = result.warning
+              ? `未找到引用该符号的代码。${result.warning}`
+              : '未找到引用该符号的代码。'
+            return [{ type: 'text' as const, text }]
           }
           const lines = result.chunks.map((c: any, i: number) => {
             return [
@@ -443,7 +455,10 @@ export function registerTools(
               c.content.length > 200 ? c.content.slice(0, 200) + '...' : c.content,
             ].join('\n')
           })
-          return [{ type: 'text' as const, text: `找到 ${result.chunks.length} 个引用位置：\n\n${lines.join('\n---\n')}` }]
+          const header = result.warning
+            ? `找到 ${result.chunks.length} 个引用位置：${result.warning}\n\n`
+            : `找到 ${result.chunks.length} 个引用位置：\n\n`
+          return [{ type: 'text' as const, text: header + lines.join('\n---\n') }]
         },
       },
 
@@ -451,11 +466,17 @@ export function registerTools(
         await milvus.ensureCollection()
         const direction = params.direction === 'forward' ? 'forward' as const : 'backward' as const
         const maxResults = params.maxResults ?? 20
-        const sourceFile = params.sourceFile as string | undefined
+        const sourceFile = params.sourceFile ? path.resolve(params.sourceFile as string) : undefined
         const resolve = params.resolve !== false
 
         // Load import resolver if resolve is enabled
         const resolver = resolve && importResolver?.isLoaded() ? importResolver : undefined
+
+        // Warn when sourceFile is provided but resolver is not available
+        let sourceFileWarning = ''
+        if (params.sourceFile && !resolver) {
+          sourceFileWarning = '（注意：import map 未加载，sourceFile 参数已降级为按文件路径过滤）'
+        }
 
         const findBySymbol: FindBySymbol = async (symbol, dir, limit) => {
           if (dir === 'backward') {
@@ -484,7 +505,7 @@ export function registerTools(
           }
         }
 
-        return findCallers(findBySymbol, params.symbol, direction, {
+        const result = await findCallers(findBySymbol, params.symbol, direction, {
           maxResults,
           sourceFile,
           resolver: resolver ? {
@@ -492,6 +513,19 @@ export function registerTools(
             getExports: (fp) => resolver.getExports(fp),
           } : undefined,
         })
+
+        // Fallback: when sourceFile is provided but resolver is not available,
+        // filter by chunk filePath as a simple path match
+        if (sourceFile && !resolver && result.chunks) {
+          result.chunks = result.chunks.filter(
+            (c: any) => c.filePath === sourceFile || c.filePath.startsWith(sourceFile + '/')
+          )
+        }
+
+        if (sourceFileWarning) {
+          result.warning = sourceFileWarning
+        }
+        return result
       },
     }),
   )
