@@ -14,6 +14,16 @@ export interface CodeChunk {
   references?: string[]  // symbols referenced by this chunk (for code relationship analysis)
 }
 
+/** Resolution status for a cross-file reference */
+export type ResolutionStatus = 'resolved' | 'local' | 'unresolved'
+
+/** Cross-file resolution info for a code reference */
+export interface ResolutionInfo {
+  status: ResolutionStatus
+  targetFile?: string   // The file where the symbol is defined (resolved only)
+  exportedAs?: string   // The exported symbol name in the target file (resolved only)
+}
+
 /** 搜索结果（供 Agent 消费） */
 export interface SearchResult {
   filePath: string
@@ -25,6 +35,7 @@ export interface SearchResult {
   name: string
   chunkType: string
   references?: string[]  // symbols referenced by this chunk (for code relationship analysis)
+  resolution?: ResolutionInfo  // NEW: cross-file resolution info
 }
 
 /** 索引状态 */
@@ -64,6 +75,9 @@ export interface LanguageConfig {
   extensions: string[]
   chunkNodeTypes: string[]
   referenceNodeTypes?: string[]  // AST node types to collect as references
+  importNodeTypes?: string[]    // NEW: AST node types for import statements
+  exportNodeTypes?: string[]    // NEW: AST node types for export statements
+  resolveImportPath?: (importPath: string, sourceFile: string) => string | null  // NEW
 }
 
 /** ADR code anchor — links a decision to a code location */
