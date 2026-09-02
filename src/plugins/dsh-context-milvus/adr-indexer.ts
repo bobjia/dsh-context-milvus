@@ -127,10 +127,12 @@ export async function runAdrIndex(
       chunksRemoved += await milvus.deleteAdrByFilePath(filePath)
     }
     tracker.removeRecords(delta.toRemove)
-    // Remove from anchor index
+    // Remove from anchor index.
+    // Use the tracked adrId (stored during index) so spec/plan files with
+    // frontmatter-derived ids (e.g. SPEC-…) are correctly removed; fall
+    // back to the basename for legacy ADR files or pre-migration records.
     for (const filePath of delta.toRemove) {
-      const basename = path.basename(filePath)
-      const adrId = basename.replace(/\.md$/, '')
+      const adrId = tracker.getAdrId(filePath) ?? path.basename(filePath).replace(/\.md$/, '')
       anchorIndex.removeAdr(adrId)
     }
   }
@@ -174,7 +176,7 @@ export async function runAdrIndex(
         const anchorFiles = chunks.length > 0 ? chunks[0].codeAnchors : []
         anchorIndex.setAdr(adrId, anchorFiles)
 
-        tracker.updateRecord(filePath, hash, inserted)
+        tracker.updateRecord(filePath, hash, inserted, adrId)
         filesIndexed++
         chunksIndexed += inserted
       } catch (err) {

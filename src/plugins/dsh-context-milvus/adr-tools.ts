@@ -541,7 +541,7 @@ export function registerAdrTools(
 
       // 1. Find candidate files (no frontmatter) in specRoot + planRoot
       const candidates: string[] = []
-      if (specRoot) candidates.push(...await findCandidateFiles(specRoot, /^\d{4}-\d{2}-\d{2}-.+design\.md$/))
+      if (specRoot) candidates.push(...await findCandidateFiles(specRoot, /^\d{4}-\d{2}-\d{2}-.+-design\.md$/))
       if (planRoot) candidates.push(...await findCandidateFiles(planRoot, /^\d{4}-\d{2}-\d{2}-(?:(?!.*design\.md$).)+\.md$/))
 
       // 2. For each: generate frontmatter (dry_run = preview only)

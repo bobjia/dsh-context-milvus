@@ -515,4 +515,66 @@ Plan content.
     expect(result.filesIndexed).toBe(0)
     expect(result.filesSkipped).toBe(3)
   })
+
+  it('does not treat -redesign.md as a spec file (regex blind spot regression)', async () => {
+    // 2026-09-01-redesign.md ends with "design.md" but has no "-" before
+    // "design" — it must NOT match SPEC_FILE_RE.
+    await writeFile(path.join(specDir, '2026-09-01-redesign.md'),
+      `---
+id: 2026-09-01-redesign
+type: spec
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Redesign"
+  change_type: refactor
+related_decisions: []
+auto_generated: false
+---
+
+## Context
+
+Redesign doc.
+`)
+
+    // 2026-09-01-my-design.md DOES have "-" before "design" — it must match.
+    await writeFile(path.join(specDir, '2026-09-01-my-design.md'),
+      `---
+id: 2026-09-01-my-design
+type: spec
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test spec"
+  change_type: new_feature
+related_decisions: []
+auto_generated: false
+---
+
+## Context
+
+This is a spec document.
+`)
+
+    const result = await runAdrIndex(config, milvus, tracker, anchorIndex)
+    // Only my-design.md is indexed; redesign.md is excluded by the fixed regex
+    expect(result.filesIndexed).toBe(1)
+
+    const insertedChunks = milvus.insertAdrChunks.mock.calls[0][0]
+    expect(insertedChunks[0].docType).toBe('spec')
+    // The indexed file is the my-design one, not redesign
+    expect(insertedChunks[0].filePath).toContain('2026-09-01-my-design.md')
+  })
 })

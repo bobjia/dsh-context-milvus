@@ -39,6 +39,7 @@ export interface HashRecord {
   hash: string
   lastIndexed: number    // Unix timestamp ms
   chunkCount: number
+  adrId?: string         // frontmatter-derived id (spec/plan files); set during index
 }
 
 /** Merkle 状态快照 */

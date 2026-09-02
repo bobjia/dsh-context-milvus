@@ -110,14 +110,17 @@ export class HashTracker {
    * @param filePath - Indexed file path
    * @param hash - File content hash
    * @param chunkCount - Number of chunks indexed
+   * @param adrId - Frontmatter-derived ADR/spec/plan id (used to remove
+   *                the anchor-index entry when the file is later deleted)
    */
-  updateRecord(filePath: string, hash: string, chunkCount: number): void {
+  updateRecord(filePath: string, hash: string, chunkCount: number, adrId?: string): void {
     const existing = this.state.records.findIndex((r) => r.filePath === filePath)
     const record: HashRecord = {
       filePath,
       hash,
       lastIndexed: Date.now(),
       chunkCount,
+      ...(adrId !== undefined ? { adrId } : {}),
     }
     if (existing >= 0) {
       this.state.records[existing] = record
@@ -125,6 +128,11 @@ export class HashTracker {
       this.state.records.push(record)
     }
     this.dirty = true
+  }
+
+  /** Get the stored adrId for a file path, or undefined if not tracked */
+  getAdrId(filePath: string): string | undefined {
+    return this.state.records.find((r) => r.filePath === filePath)?.adrId
   }
 
   /** Remove records for deleted files */
