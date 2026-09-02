@@ -9,6 +9,7 @@
  * most common patterns in each language.
  */
 
+import * as path from 'node:path'
 import { createRequire } from 'node:module'
 import type { LanguageConfig, CodeChunk } from './types.js'
 
@@ -46,6 +47,24 @@ const LANGUAGES: LanguageDef[] = [
         'member_expression',
         'identifier',
       ],
+      importNodeTypes: ['import_statement'],
+      exportNodeTypes: ['export_statement'],
+      resolveImportPath: (importPath: string, sourceFile: string) => {
+        // Only handle relative paths: './foo' or '../foo'
+        if (!importPath.startsWith('.')) return null
+        const dir = path.dirname(sourceFile)
+        const resolved = path.resolve(dir, importPath)
+        // Try extensions in order
+        for (const ext of ['.ts', '.tsx', '.js', '.mjs', '.cjs']) {
+          const fullPath = resolved + ext
+          // Check existence via fs or just return the best guess
+          // For V2, we return the best guess path without existence check
+          // (index_code will naturally skip non-existent files later)
+          return fullPath
+        }
+        // Try /index.ts
+        return resolved + '/index.ts'
+      },
     },
     loadTs: () => require('tree-sitter-typescript').typescript,
   },
@@ -63,6 +82,17 @@ const LANGUAGES: LanguageDef[] = [
         'setter',
       ],
       referenceNodeTypes: ['call_expression', 'import_statement', 'import_specifier', 'member_expression', 'identifier'],
+      importNodeTypes: ['import_statement'],
+      exportNodeTypes: ['export_statement'],
+      resolveImportPath: (importPath: string, sourceFile: string) => {
+        if (!importPath.startsWith('.')) return null
+        const dir = path.dirname(sourceFile)
+        const resolved = path.resolve(dir, importPath)
+        for (const ext of ['.js', '.mjs', '.cjs']) {
+          return resolved + ext
+        }
+        return resolved + '/index.js'
+      },
     },
     loadTs: () => require('tree-sitter-typescript').tsx,
   },
@@ -77,6 +107,21 @@ const LANGUAGES: LanguageDef[] = [
         'decorated_definition',
       ],
       referenceNodeTypes: ['call', 'import_statement', 'import_from_statement', 'attribute', 'identifier'],
+      importNodeTypes: ['import_from_statement', 'import_statement'],
+      resolveImportPath: (importPath: string, sourceFile: string) => {
+        // from .foo import bar → ./foo.py
+        // from foo import bar → ./foo.py (absolute, same package)
+        const dir = path.dirname(sourceFile)
+        // Relative: starts with '.'
+        if (importPath.startsWith('.')) {
+          const resolved = path.resolve(dir, importPath)
+          return resolved + '.py'
+        }
+        // Absolute: try same directory
+        const candidate = path.resolve(dir, importPath + '.py')
+        // Just return the best guess; existence check is at index time
+        return candidate
+      },
     },
     loadTs: () => require('tree-sitter-python'),
   },
@@ -96,6 +141,22 @@ const LANGUAGES: LanguageDef[] = [
         'macro_definition',
       ],
       referenceNodeTypes: ['call_expression', 'use_declaration', 'scoped_use_list', 'field_expression', 'identifier'],
+      importNodeTypes: ['use_declaration'],
+      resolveImportPath: (importPath: string, sourceFile: string) => {
+        // use crate::module::func → ./module.rs
+        // use super::module::func → ../module.rs
+        if (!importPath) return null
+        const dir = path.dirname(sourceFile)
+        // Remove crate:: or self:: prefix
+        let resolved = importPath
+          .replace(/^crate::/, '')
+          .replace(/^self::/, '')
+          .replace(/^super::/, '../')
+        // Take just the module path (first component)
+        const parts = resolved.split('::')
+        const modulePath = parts.slice(0, -1).join('/') // exclude the function name
+        return path.resolve(dir, modulePath + '.rs')
+      },
     },
     loadTs: () => require('tree-sitter-rust'),
   },
@@ -110,6 +171,20 @@ const LANGUAGES: LanguageDef[] = [
         'type_spec',
       ],
       referenceNodeTypes: ['call_expression', 'import_declaration', 'selector_expression', 'identifier'],
+      importNodeTypes: ['import_declaration'],
+      resolveImportPath: (importPath: string, sourceFile: string) => {
+        // Go imports are package paths: "github.com/foo/bar"
+        // Map to directory: sourceFile's dir + last segment of import path
+        // e.g., import "github.com/foo/bar" → ./vendor/bar/ (package-level)
+        if (!importPath) return null
+        const dir = path.dirname(sourceFile)
+        const pkgName = path.basename(importPath)
+        // Try to find the package directory relative to source
+        // For V2, just return the directory path
+        const pkgDir = path.resolve(dir, pkgName)
+        // If it exists as a directory, great; otherwise return null
+        return pkgDir  // Caller will check existence
+      },
     },
     loadTs: () => require('tree-sitter-go'),
   },
@@ -126,6 +201,14 @@ const LANGUAGES: LanguageDef[] = [
         'record_declaration',
       ],
       referenceNodeTypes: ['method_invocation', 'import_declaration', 'field_access', 'identifier'],
+      importNodeTypes: ['import_declaration'],
+      resolveImportPath: (importPath: string, sourceFile: string) => {
+        // import com.example.Foo → ./com/example/Foo.java
+        if (!importPath) return null
+        const srcDir = path.dirname(path.dirname(sourceFile)) // go up to src root
+        const filePath = importPath.replace(/\./g, '/') + '.java'
+        return path.resolve(srcDir, filePath)
+      },
     },
     loadTs: () => require('tree-sitter-java'),
   },
@@ -155,6 +238,13 @@ const LANGUAGES: LanguageDef[] = [
         'enum_specifier',
       ],
       referenceNodeTypes: ['call_expression', 'using_directive', 'field_expression', 'identifier'],
+      importNodeTypes: ['preproc_include'],
+      resolveImportPath: (importPath: string, sourceFile: string) => {
+        // #include "header.hpp" → ./header.hpp
+        if (!importPath) return null
+        const dir = path.dirname(sourceFile)
+        return path.resolve(dir, importPath)
+      },
     },
     loadTs: () => require('tree-sitter-cpp'),
   },
@@ -171,6 +261,14 @@ const LANGUAGES: LanguageDef[] = [
         'constructor_declaration',
       ],
       referenceNodeTypes: ['call_expression', 'using_directive', 'field_expression', 'identifier'],
+      importNodeTypes: ['using_directive'],
+      resolveImportPath: (importPath: string, sourceFile: string) => {
+        // using Project.Namespace → ./Project/Namespace/ (directory-level)
+        if (!importPath) return null
+        const dir = path.dirname(path.dirname(sourceFile))
+        const pathSegments = importPath.replace(/\./g, '/')
+        return path.resolve(dir, pathSegments)
+      },
     },
     loadTs: async () => {
       const mod = await import('tree-sitter-c-sharp')
@@ -190,6 +288,14 @@ const LANGUAGES: LanguageDef[] = [
         'constructor_definition',
       ],
       referenceNodeTypes: ['apply_expression', 'import', 'select_expression', 'identifier'],
+      importNodeTypes: ['import'],
+      resolveImportPath: (importPath: string, sourceFile: string) => {
+        // import com.example.Foo → ./com/example/Foo.scala
+        if (!importPath) return null
+        const srcDir = path.dirname(path.dirname(sourceFile))
+        const filePath = importPath.replace(/\./g, '/') + '.scala'
+        return path.resolve(srcDir, filePath)
+      },
     },
     loadTs: () => require('tree-sitter-scala'),
   },
@@ -216,7 +322,7 @@ async function createTsParser(def: LanguageDef): Promise<any> {
   return parser
 }
 
-async function getParser(ext: string): Promise<any> {
+export async function getParser(ext: string): Promise<any> {
   let cached = parserCache.get(ext)
   if (!cached) {
     const def = EXT_MAP.get(ext)
@@ -228,7 +334,7 @@ async function getParser(ext: string): Promise<any> {
 }
 
 /** Check if tree-sitter is available for a given extension */
-function hasTsParser(ext: string): boolean {
+export function hasTsParser(ext: string): boolean {
   const def = EXT_MAP.get(ext)
   return !!def?.loadTs
 }
