@@ -101,6 +101,26 @@ ADR 决策记忆系统记录代码变更背后的"为什么"（设计决策、�
 
 ---
 
+## 规格文档融合（Spec Document Fusion）
+
+当 brainstorming 技能产出规格文档后，可以通过以下步骤将其与代码库建立链接：
+
+1. **编写规格文档**：brainstorming 输出保存到 `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
+2. **生成锚点**：调用 `index_specs` 工具，自动检测文档中的代码引用并生成 frontmatter + code_anchors
+3. **索引入库**：`index_code` 会自动扫描 `docs/superpowers/specs/` 和 `docs/superpowers/plans/` 目录
+4. **搜索发现**：`search_adr` 工具会统一返回 ADR 和规格文档的搜索结果（带 `docType` 标注）
+
+### 配置项
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `specRoot` | `docs/superpowers/specs` | 规格文档目录（相对 indexRoot） |
+| `planRoot` | `docs/superpowers/plans` | 实现计划目录（相对 indexRoot） |
+
+规格文档融合跟随 `adrEnabled` 开关，无需额外配置。
+
+---
+
 ## 前置条件
 
 ### 1. 安装 Ollama（Embedding 服务）

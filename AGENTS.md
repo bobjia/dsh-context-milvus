@@ -9,6 +9,7 @@
 | `search_code` | 自然语言语义搜索代码，返回相关代码片段 | `query`(必填)、`topK`(默认5)、`path` |
 | `index_code` | 索引/更新代码库 | `mode`(`full`/`incremental`)、`path` |
 | `index_status` | 查看索引状态（文件数/代码块/最后索引时间） | `path` |
+| `index_specs` | 扫描规格文档目录，为无 frontmatter 的文档生成锚点并索引 | `path`、`dry_run` |
 | `search_adr` | 语义搜索 ADR 决策记录，了解代码的"为什么" | `query`(必填)、`status`、`topK` |
 | `search_adr_by_file` | 通过代码文件路径查找关联的 ADR 决策记录 | `file_path`(必填)、`status` |
 | `create_adr` | 创建新的 ADR 决策记录 | `title`(必填)、`requirement`、`change_type` |
@@ -38,6 +39,10 @@
 5. **`topK` 不要贪多**
 
    默认 5 个结果足够定位，仅当语义覆盖不足时才增大，避免把太多无关片段灌进上下文。
+
+6. **Brainstorming 产出后调用 index_specs**
+
+   当 brainstorming 技能完成规格文档写作后，调用 `index_specs` 为其生成 code_anchors 并索引入库，让规格与代码建立双向链接。
 
 ## 何时用 `full` vs `incremental`
 
