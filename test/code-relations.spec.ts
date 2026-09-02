@@ -96,7 +96,7 @@ describe('code-relations', () => {
     const result = await traceChain(mockFindBySymbol as any, 'main', { maxDepth: 3 })
     expect(result.chain.length).toBeGreaterThanOrEqual(2)
     expect(result.chain[0].symbol).toBe('main')
-    expect(result.chain[0].callers).toContain('runApp')
+    expect(result.chain[0].callers).toContain('src/index.ts:runApp')  // composite key: filePath:name
   })
 
   test('traceChain respects maxDepth', async () => {
@@ -179,7 +179,7 @@ describe('code-relations', () => {
 
     const result = await traceChain(mockFindBySymbol as any, 'entry', { maxDepth: 3 })
     expect(result.chain).toHaveLength(2)  // entry → leaf
-    expect(result.chain[0].callers).toContain('leaf')  // entry is referenced by leaf
+    expect(result.chain[0].callers).toContain('e.ts:leaf')  // composite key: filePath:name
     expect(result.chain[1].callers).toHaveLength(0)  // leaf has no further callers
   })
 })
