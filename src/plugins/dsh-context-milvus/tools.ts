@@ -399,6 +399,14 @@ export function registerTools(
           type: 'number',
           description: '最大返回结果数，默认 20',
         },
+        sourceFile: {
+          type: 'string',
+          description: '限定定义文件路径（显式消歧，只返回从该文件导入该符号的调用者）',
+        },
+        resolve: {
+          type: 'boolean',
+          description: '是否启用 import 解析（默认 true，设为 false 回退到 V1 名称匹配）',
+        },
       },
 
       output: {
@@ -443,6 +451,11 @@ export function registerTools(
         await milvus.ensureCollection()
         const direction = params.direction === 'forward' ? 'forward' as const : 'backward' as const
         const maxResults = params.maxResults ?? 20
+        const sourceFile = params.sourceFile as string | undefined
+        const resolve = params.resolve !== false
+
+        // Load import resolver if resolve is enabled
+        const resolver = resolve && importResolver?.isLoaded() ? importResolver : undefined
 
         const findBySymbol: FindBySymbol = async (symbol, dir, limit) => {
           if (dir === 'backward') {
@@ -471,7 +484,14 @@ export function registerTools(
           }
         }
 
-        return findCallers(findBySymbol, params.symbol, direction, { maxResults })
+        return findCallers(findBySymbol, params.symbol, direction, {
+          maxResults,
+          sourceFile,
+          resolver: resolver ? {
+            resolve: (fp, sym) => resolver.resolve(fp, sym),
+            getExports: (fp) => resolver.getExports(fp),
+          } : undefined,
+        })
       },
     }),
   )
@@ -502,6 +522,10 @@ export function registerTools(
         maxResults: {
           type: 'number',
           description: '每层最大结果数，默认 10',
+        },
+        resolve: {
+          type: 'boolean',
+          description: '是否启用 import 解析（默认 true，设为 false 回退到 V1 名称匹配）',
         },
       },
 
@@ -554,6 +578,9 @@ export function registerTools(
         const direction = params.direction === 'forward' ? 'forward' as const : 'backward' as const
         const maxDepth = params.maxDepth ?? 3
         const maxResults = params.maxResults ?? 10
+        const resolve = params.resolve !== false
+
+        const resolver = resolve && importResolver?.isLoaded() ? importResolver : undefined
 
         const findBySymbol: FindBySymbol = async (symbol, dir, limit) => {
           if (dir === 'backward') {
@@ -580,7 +607,13 @@ export function registerTools(
           }
         }
 
-        return traceChain(findBySymbol, params.entry, { direction, maxDepth, maxResults })
+        return traceChain(findBySymbol, params.entry, {
+          direction, maxDepth, maxResults,
+          resolver: resolver ? {
+            resolve: (fp, sym) => resolver.resolve(fp, sym),
+            getExports: (fp) => resolver.getExports(fp),
+          } : undefined,
+        })
       },
     }),
   )
