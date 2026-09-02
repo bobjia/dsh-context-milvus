@@ -331,6 +331,7 @@ export class MilvusService {
           language: chunk.language,
           chunk_type: chunk.chunkType,
           name: chunk.name,
+          references: chunk.references ?? [],
         })),
       })
       totalInserted += Number(response.insert_cnt ?? 0)
@@ -373,6 +374,71 @@ export class MilvusService {
       totalDeleted += await this.deleteByFilePath(filePath)
     }
     return totalDeleted
+  }
+
+  // ── Code relationship queries ─────────────────────────────────────────
+
+  /**
+   * Find code chunks that reference a given symbol.
+   * Uses Milvus query() with json_contains expression filter.
+   */
+  async queryByReference(symbol: string, limit: number = 20, pathPrefix?: string): Promise<SearchResult[]> {
+    const client = this.getClient()
+    const { collection } = this
+
+    const filter = `json_contains(references, "${symbol}")`
+    const expr = pathPrefix ? `file_path like "${pathPrefix}%" and ${filter}` : filter
+
+    const response = await client.query({
+      collection_name: collection,
+      expr,
+      output_fields: ['file_path', 'code_content', 'start_line', 'end_line', 'language', 'chunk_type', 'name', 'references'],
+      limit,
+    } as any)
+
+    const items = (response.data ?? []) as any[]
+    return items.map((item: any) => ({
+      filePath: item.file_path ?? '',
+      content: item.code_content ?? '',
+      score: 1,  // not a similarity search — all results are exact matches
+      language: item.language ?? '',
+      startLine: Number(item.start_line ?? 0),
+      endLine: Number(item.end_line ?? 0),
+      name: item.name ?? '',
+      chunkType: item.chunk_type ?? '',
+    }))
+  }
+
+  /**
+   * Find code chunks with an exact name match.
+   * Used for forward-direction analysis (find callees of a function).
+   */
+  async queryByName(name: string, limit: number = 20, pathPrefix?: string): Promise<SearchResult[]> {
+    const client = this.getClient()
+    const { collection } = this
+
+    const filter = `name == "${name}"`
+    const expr = pathPrefix ? `file_path like "${pathPrefix}%" and ${filter}` : filter
+
+    const response = await client.query({
+      collection_name: collection,
+      expr,
+      output_fields: ['file_path', 'code_content', 'start_line', 'end_line', 'language', 'chunk_type', 'name', 'references'],
+      limit,
+    } as any)
+
+    const items = (response.data ?? []) as any[]
+    return items.map((item: any) => ({
+      filePath: item.file_path ?? '',
+      content: item.code_content ?? '',
+      score: 1,
+      language: item.language ?? '',
+      startLine: Number(item.start_line ?? 0),
+      endLine: Number(item.end_line ?? 0),
+      name: item.name ?? '',
+      chunkType: item.chunk_type ?? '',
+      references: item.references ?? [],
+    }))
   }
 
   // ── ADR collection ────────────────────────────────────────────────────
