@@ -1,9 +1,10 @@
 /**
  * ADR tool definitions for dsh-context-milvus.
  *
- * Registers seven tools:
+ * Registers eight tools:
  * - search_adr: Semantic search within ADR decision records
  * - search_adr_by_file: Deterministic ADR lookup via code_anchors
+ * - index_specs: Scan spec/plan docs, generate frontmatter, and index
  * - create_adr: Create a new ADR decision record
  * - update_adr: Update an existing ADR decision record
  * - list_adrs: List ADR decision records with optional filters
@@ -22,13 +23,15 @@ import type { AdrAnchorIndex } from './adr-anchor-index.js'
 import type { PluginConfig } from './config.js'
 import type { HashTracker } from './merkle.js'
 import { runAdrIndex } from './adr-indexer.js'
+import { findCandidateFiles, previewFrontmatter, generateSpecFrontmatter } from './adr-anchor-generator.js'
 
 /** Format ADR search results for model consumption */
 function formatAdrSearchResults(value: any[]): string {
   if (value.length === 0) return '未找到匹配的 ADR 决策记录。'
   return value.map((item: any, i: number) => {
+    const typeLabel = item.docType === 'spec' ? ', spec' : item.docType === 'plan' ? ', plan' : ''
     return [
-      `[结果 ${i + 1}] ADR: ${item.adrId} (${item.status}), 章节: ${item.section}`,
+      `[结果 ${i + 1}] ADR: ${item.adrId} (${item.status}${typeLabel}), 章节: ${item.section}`,
       `文件: ${item.filePath}`,
       `相关度: ${item.score.toFixed(4)}`,
       `内容:`,
@@ -115,6 +118,7 @@ export function registerAdrTools(
             adrId: { type: 'string' }, filePath: { type: 'string' },
             status: { type: 'string' }, section: { type: 'string' },
             content: { type: 'string' }, score: { type: 'number' },
+            docType: { type: 'string' },
             triggerType: { type: 'string' },
             codeAnchors: { type: 'array', items: { type: 'string' } },
           }, additionalProperties: false,
@@ -472,6 +476,112 @@ export function registerAdrTools(
       }
 
       return { staleAnchors, uncoveredChanges, fixedAnchors }
+    },
+  }))
+
+  // ── index_specs ────────────────────────────────────────────────────────
+  ctx.tools.register(defineTool({
+    name: 'index_specs',
+    description: '扫描规格文档目录，为无 frontmatter 的文档生成锚点并索引。',
+    parameters: {
+      path: { type: 'string', description: '指定扫描路径（默认扫描所有 specs 和 plans）' },
+      dry_run: { type: 'boolean', description: '仅预览将生成的锚点，不写入文件' },
+    },
+    output: {
+      schema: {
+        type: 'object', properties: {
+          filesProcessed: { type: 'number' },
+          anchorsGenerated: { type: 'number' },
+          filesIndexed: { type: 'number' },
+          chunksIndexed: { type: 'number' },
+          dryRun: { type: 'boolean' },
+          preview: { type: 'array', items: { type: 'object', properties: {
+            filePath: { type: 'string' },
+            adrId: { type: 'string' },
+            detectedRefs: { type: 'array', items: { type: 'object', properties: {
+              file: { type: 'string' }, symbols: { type: 'array', items: { type: 'string' } },
+            }, additionalProperties: false } },
+          }, additionalProperties: false } },
+        }, additionalProperties: false,
+      },
+      render: (_args: any, value: any) => {
+        const lines: string[] = []
+        lines.push(`文件处理: ${value.filesProcessed}`)
+        lines.push(`锚点生成: ${value.anchorsGenerated}`)
+        if (value.dryRun) {
+          lines.push('模式: 预览（未写入文件）')
+        } else {
+          lines.push(`文件索引: ${value.filesIndexed}`)
+          lines.push(`分块索引: ${value.chunksIndexed}`)
+        }
+        if (value.preview?.length > 0) {
+          lines.push('')
+          for (const p of value.preview) {
+            lines.push(`  ${p.adrId}: ${p.filePath}`)
+            if (p.detectedRefs?.length > 0) {
+              for (const ref of p.detectedRefs) {
+                lines.push(`    引用: ${ref.file}${ref.symbols?.length > 0 ? ` (${ref.symbols.join(', ')})` : ''}`)
+              }
+            }
+          }
+        }
+        return [{ type: 'text' as const, text: lines.join('\n') }]
+      },
+    },
+    async execute(params: any, exec?: any) {
+      const config = resolveConfig()
+      const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
+      const indexRoot = sessionCwd || config.indexRoot || process.cwd()
+      const specRoot = params.path
+        ? params.path
+        : path.resolve(indexRoot, config.specRoot || 'docs/superpowers/specs')
+      const planRoot = params.path
+        ? ''
+        : path.resolve(indexRoot, config.planRoot || 'docs/superpowers/plans')
+
+      // 1. Find candidate files (no frontmatter) in specRoot + planRoot
+      const candidates: string[] = []
+      if (specRoot) candidates.push(...await findCandidateFiles(specRoot, /^\d{4}-\d{2}-\d{2}-.+design\.md$/))
+      if (planRoot) candidates.push(...await findCandidateFiles(planRoot, /^\d{4}-\d{2}-\d{2}-(?:(?!.*design\.md$).)+\.md$/))
+
+      // 2. For each: generate frontmatter (dry_run = preview only)
+      const preview: any[] = []
+      let anchorsGenerated = 0
+      for (const filePath of candidates) {
+        const result = params.dry_run
+          ? await previewFrontmatter(filePath, indexRoot)
+          : await generateSpecFrontmatter(filePath, indexRoot)
+        if (result) {
+          preview.push({ filePath, adrId: result.adrId, detectedRefs: result.detectedRefs })
+          anchorsGenerated += result.detectedRefs.length
+        }
+      }
+
+      // 3. If not dry_run: run runAdrIndex to index the new files
+      let filesIndexed = 0
+      let chunksIndexed = 0
+      if (!params.dry_run && candidates.length > 0 && adrIndexer) {
+        const adrConfig = {
+          ...config,
+          adrRoot: path.resolve(indexRoot, config.adrRoot || 'docs/decisions'),
+          specRoot,
+          planRoot,
+        }
+        const result = await adrIndexer.runAdrIndex(
+          adrConfig, milvus, adrIndexer.tracker, anchorIndex, { mode: 'incremental' },
+        )
+        filesIndexed = result.filesIndexed
+        chunksIndexed = result.chunksIndexed
+      }
+
+      return {
+        filesProcessed: candidates.length,
+        anchorsGenerated,
+        filesIndexed,
+        chunksIndexed,
+        dryRun: !!params.dry_run,
+        preview,
+      }
     },
   }))
 }
