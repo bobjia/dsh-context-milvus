@@ -182,4 +182,129 @@ describe('code-relations', () => {
     expect(result.chain[0].callers).toContain('e.ts:leaf')  // composite key: filePath:name
     expect(result.chain[1].callers).toHaveLength(0)  // leaf has no further callers
   })
+
+  // ── V2 Import Resolution ────────────────────────────────────────────
+
+  const mockResolver = {
+    resolve: (filePath: string, symbol: string) => {
+      if (filePath === 'src/app.ts' && symbol === 'parseConfig') {
+        return { target: 'src/config.ts', exportedAs: 'parseConfig' }
+      }
+      if (filePath === 'src/main.ts' && symbol === 'parseConfig') {
+        return { target: 'src/config.ts', exportedAs: 'parseConfig' }
+      }
+      if (filePath === 'src/legacy.ts' && symbol === 'parseConfig') {
+        return { target: 'src/vendor/legacy.ts', exportedAs: 'parseConfig' }
+      }
+      return null
+    },
+    getExports: (filePath: string) => {
+      if (filePath === 'src/config.ts') return ['parseConfig', 'setupLogger']
+      if (filePath === 'src/vendor/legacy.ts') return ['parseConfig', 'oldHelper']
+      if (filePath === 'src/app.ts') return ['runApp']
+      return []
+    },
+  }
+
+  test('findCallers with resolver groups by definition file', async () => {
+    const { findCallers } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+
+    const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
+      return [
+        { filePath: 'src/app.ts', content: '...', startLine: 1, endLine: 10, chunkType: 'function_declaration', name: 'runApp' },
+        { filePath: 'src/main.ts', content: '...', startLine: 5, endLine: 15, chunkType: 'function_declaration', name: 'main' },
+        { filePath: 'src/legacy.ts', content: '...', startLine: 20, endLine: 30, chunkType: 'function_declaration', name: 'legacyFunc' },
+      ]
+    }
+
+    const result = await findCallers(mockFindBySymbol as any, 'parseConfig', 'backward', {
+      maxResults: 20,
+      resolver: mockResolver as any,
+    })
+
+    // Should have 3 results, all resolved
+    expect(result.chunks).toHaveLength(3)
+    expect(result.chunks.every(c => c.resolution?.status === 'resolved')).toBe(true)
+
+    // src/app.ts and src/main.ts should resolve to src/config.ts
+    const configCallers = result.chunks.filter(
+      c => c.resolution?.targetFile === 'src/config.ts'
+    )
+    expect(configCallers).toHaveLength(2)
+
+    // src/legacy.ts should resolve to src/vendor/legacy.ts
+    const legacyCallers = result.chunks.filter(
+      c => c.resolution?.targetFile === 'src/vendor/legacy.ts'
+    )
+    expect(legacyCallers).toHaveLength(1)
+  })
+
+  test('findCallers with sourceFile filters by definition file', async () => {
+    const { findCallers } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+
+    const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
+      return [
+        { filePath: 'src/app.ts', content: '...', startLine: 1, endLine: 10, chunkType: 'function_declaration', name: 'runApp' },
+        { filePath: 'src/legacy.ts', content: '...', startLine: 20, endLine: 30, chunkType: 'function_declaration', name: 'legacyFunc' },
+      ]
+    }
+
+    const result = await findCallers(mockFindBySymbol as any, 'parseConfig', 'backward', {
+      maxResults: 20,
+      sourceFile: 'src/config.ts',
+      resolver: mockResolver as any,
+    })
+
+    // Only src/app.ts imports parseConfig from src/config.ts
+    expect(result.chunks).toHaveLength(1)
+    expect(result.chunks[0].filePath).toBe('src/app.ts')
+    expect(result.chunks[0].resolution?.status).toBe('resolved')
+    expect(result.chunks[0].resolution?.targetFile).toBe('src/config.ts')
+  })
+
+  test('findCallers without resolver falls back to V1 behavior', async () => {
+    const { findCallers } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+
+    const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
+      return [
+        { filePath: 'src/app.ts', content: '...', startLine: 1, endLine: 10, chunkType: 'function_declaration', name: 'runApp' },
+      ]
+    }
+
+    const result = await findCallers(mockFindBySymbol as any, 'parseConfig', 'backward', {
+      maxResults: 20,
+      // No resolver = V1 behavior
+    })
+
+    expect(result.chunks).toHaveLength(1)
+    expect(result.chunks[0].resolution).toBeUndefined()
+  })
+
+  test('traceChain with resolver uses composite keys', async () => {
+    const { traceChain } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+
+    const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
+      if (symbol === 'parseConfig') {
+        return [
+          { filePath: 'src/app.ts', content: '', startLine: 1, endLine: 5, chunkType: 'function', name: 'runApp', resolution: { status: 'resolved' as const, targetFile: 'src/config.ts', exportedAs: 'parseConfig' } },
+        ]
+      }
+      if (symbol === 'runApp') {
+        return [
+          { filePath: 'src/main.ts', content: '', startLine: 10, endLine: 20, chunkType: 'function', name: 'main', resolution: { status: 'resolved' as const, targetFile: 'src/app.ts', exportedAs: 'runApp' } },
+        ]
+      }
+      return []
+    }
+
+    const result = await traceChain(mockFindBySymbol as any, 'parseConfig', {
+      maxDepth: 3,
+      resolver: mockResolver as any,
+    })
+
+    expect(result.chain.length).toBeGreaterThanOrEqual(2)
+    expect(result.chain[0].symbol).toBe('parseConfig')
+    // Callers should include filePath:name composite keys
+    expect(result.chain[0].callers.some((c: string) => c.includes('src/app.ts'))).toBe(true)
+  })
 })
