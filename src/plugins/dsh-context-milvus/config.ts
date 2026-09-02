@@ -8,6 +8,7 @@
 
 import { createHash } from 'node:crypto'
 import * as path from 'node:path'
+import * as os from 'node:os'
 import type { EmbeddingConfig } from './types.js'
 
 /** Flat config interface that users provide via cordis.yml or env vars */
@@ -160,6 +161,16 @@ export function deriveMerkleFilePath(indexRoot: string): string {
   return process.env.HOME
     ? `${process.env.HOME}/.milvus-index/merkle-${safeName}-${hash}.json`
     : `.milvus-merkle-${safeName}-${hash}.json`
+}
+
+/**
+ * Derive the import map file path for a given root path.
+ * Uses the same approach as deriveMerkleFilePath but with a different prefix.
+ */
+export function deriveImportMapFilePath(rootPath: string): string {
+  const hash = createHash('sha256').update(rootPath).digest('hex').slice(0, 16)
+  const baseDir = path.join(os.homedir(), '.milvus-index')
+  return path.join(baseDir, `import-map-${hash}.json`)
 }
 
 /**
