@@ -3,6 +3,7 @@ import type { AdrChunk } from './types.js'
 
 /** Section heading → section label mapping */
 const SECTION_MAP: Record<string, string> = {
+  // Chinese ADR sections
   '决策目标': 'goal',
   '约束条件': 'constraints',
   '候选方案与权衡': 'alternatives',
@@ -10,6 +11,19 @@ const SECTION_MAP: Record<string, string> = {
   '被否决的模式/反模式': 'rejected',
   '相关测试': 'tests',
   '变更边界': 'boundary',
+  // English sections (spec/plan common)
+  'Context': 'context',
+  'Scope': 'scope',
+  'Environment findings': 'environment',
+  'Architecture decisions': 'decisions',
+  'Architecture': 'architecture',
+  'Data flow': 'data_flow',
+  'Error handling': 'error_handling',
+  'Testing': 'testing',
+  'Implementation': 'implementation',
+  'Migration': 'migration',
+  'Deployment': 'deployment',
+  'Open questions': 'open_questions',
 }
 
 const SECTION_HEADING_RE = /^## (.+)$/m
@@ -23,6 +37,11 @@ const SECTION_HEADING_RE = /^## (.+)$/m
 export async function chunkAdrFile(filePath: string, content: string): Promise<AdrChunk[]> {
   const frontmatter = parseFrontmatter(content)
   if (!frontmatter) return []
+
+  // Derive docType from frontmatter type field
+  const docType = frontmatter.type === 'spec' ? 'spec'
+    : frontmatter.type === 'plan' ? 'plan'
+    : 'adr'
 
   // Remove frontmatter line for section splitting
   const body = content.replace(/^---[\s\S]*?---\n?/, '').trim()
@@ -49,7 +68,7 @@ export async function chunkAdrFile(filePath: string, content: string): Promise<A
         chunks.push({
           filePath,
           adrId: frontmatter.id,
-          docType: 'adr',
+          docType,
           section: sectionLabel,
           content: currentLines.join('\n').trim(),
           startLine: currentStartLine + lineOffset,
@@ -73,7 +92,7 @@ export async function chunkAdrFile(filePath: string, content: string): Promise<A
     chunks.push({
       filePath,
       adrId: frontmatter.id,
-      docType: 'adr',
+      docType,
       section: sectionLabel,
       content: currentLines.join('\n').trim(),
       startLine: currentStartLine + lineOffset,

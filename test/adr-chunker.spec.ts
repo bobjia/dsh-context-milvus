@@ -112,4 +112,135 @@ This is the goal of the decision.
     const chunks = await chunkAdrFile('/test.md', '# No frontmatter')
     expect(chunks).toEqual([])
   })
+
+  // --- Spec/plan section tests ---
+
+  const specContent = `---
+id: SPEC-2026-09-02-test
+type: spec
+status: active
+created: 2026-09-02
+updated: 2026-09-02
+author: test
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "test"
+  change_type: architecture
+related_decisions: []
+auto_generated: true
+---
+
+# Test Spec
+
+## Context
+
+This is the context section.
+
+## Architecture decisions
+
+This is the decisions section.
+`
+
+  const planContent = `---
+id: PLAN-2026-09-02-test
+type: plan
+status: active
+created: 2026-09-02
+updated: 2026-09-02
+author: test
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "test"
+  change_type: architecture
+related_decisions: []
+auto_generated: true
+---
+
+# Test Plan
+
+## Scope
+
+This is the scope section.
+
+## Implementation
+
+This is the implementation section.
+`
+
+  it('maps English section names correctly for spec content', async () => {
+    const chunks = await chunkAdrFile('/docs/specs/SPEC-2026-09-02-test.md', specContent)
+    const sections = chunks.map(c => c.section)
+    expect(sections).toContain('context')
+    expect(sections).toContain('decisions')
+  })
+
+  it('sets docType to "spec" for spec frontmatter', async () => {
+    const chunks = await chunkAdrFile('/docs/specs/SPEC-2026-09-02-test.md', specContent)
+    expect(chunks.length).toBeGreaterThan(0)
+    for (const chunk of chunks) {
+      expect(chunk.docType).toBe('spec')
+    }
+  })
+
+  it('sets docType to "plan" for plan frontmatter', async () => {
+    const chunks = await chunkAdrFile('/docs/plans/PLAN-2026-09-02-test.md', planContent)
+    expect(chunks.length).toBeGreaterThan(0)
+    for (const chunk of chunks) {
+      expect(chunk.docType).toBe('plan')
+    }
+  })
+
+  it('maps English section names correctly for plan content', async () => {
+    const chunks = await chunkAdrFile('/docs/plans/PLAN-2026-09-02-test.md', planContent)
+    const sections = chunks.map(c => c.section)
+    expect(sections).toContain('scope')
+    expect(sections).toContain('implementation')
+  })
+
+  it('defaults docType to "adr" for decision-record frontmatter', async () => {
+    const chunks = await chunkAdrFile('/docs/decisions/ADR-0001-test.md', sampleAdr)
+    expect(chunks.length).toBeGreaterThan(0)
+    for (const chunk of chunks) {
+      expect(chunk.docType).toBe('adr')
+    }
+  })
+
+  it('defaults docType to "adr" for unrecognized frontmatter type', async () => {
+    const unknownContent = sampleAdr.replace('type: decision-record', 'type: notes')
+    const chunks = await chunkAdrFile('/docs/notes/notes.md', unknownContent)
+    expect(chunks.length).toBeGreaterThan(0)
+    for (const chunk of chunks) {
+      expect(chunk.docType).toBe('adr')
+    }
+  })
+
+  it('passes unmatched headings through as-is', async () => {
+    const content = `---
+id: ADR-0002-test
+type: decision-record
+status: active
+created: 2026-09-02
+updated: 2026-09-02
+author: test
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "test"
+  change_type: refactor
+related_decisions: []
+auto_generated: false
+---
+
+# Test
+
+## Custom Section
+
+This is a custom section not in the map.
+`
+    const chunks = await chunkAdrFile('/docs/test.md', content)
+    expect(chunks.length).toBe(1)
+    expect(chunks[0].section).toBe('Custom Section')
+  })
 })
