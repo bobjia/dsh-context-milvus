@@ -1,6 +1,6 @@
 // test/adr-indexer.spec.ts
 import { jest } from '@jest/globals'
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises'
 import * as path from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -38,6 +38,8 @@ const { runAdrIndex, getAdrIndexStatus } = await import('../src/plugins/dsh-cont
 describe('runAdrIndex', () => {
   let tempDir: string
   let adrDir: string
+  let specDir: string
+  let planDir: string
   let config: any
   let milvus: any
   let tracker: HashTracker
@@ -52,11 +54,17 @@ describe('runAdrIndex', () => {
 
     tempDir = await mkdtemp(path.join(tmpdir(), 'adr-idx-'))
     adrDir = path.join(tempDir, 'docs', 'decisions')
+    specDir = path.join(tempDir, 'docs', 'superpowers', 'specs')
+    planDir = path.join(tempDir, 'docs', 'superpowers', 'plans')
     await mkdir(adrDir, { recursive: true })
+    await mkdir(specDir, { recursive: true })
+    await mkdir(planDir, { recursive: true })
 
     config = {
       indexRoot: tempDir,
       adrRoot: adrDir,
+      specRoot: specDir,
+      planRoot: planDir,
       adrEnabled: true,
       embedding: { endpoint: 'http://test/embed', model: 'test', dim: 3, apiKey: undefined },
       ignorePatterns: [],
@@ -170,5 +178,297 @@ Test
     expect(status.totalAdrs).toBe(0)
     expect(status.activeAdrs).toBe(0)
     expect(status.lastIndexed).toBe('')
+  })
+
+  it('scans specRoot for YYYY-MM-DD-*-design.md files', async () => {
+    await writeFile(path.join(specDir, '2026-09-01-my-design.md'),
+      `---
+id: 2026-09-01-my-design
+type: spec
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test spec"
+  change_type: new_feature
+related_decisions: []
+auto_generated: false
+---
+
+## Context
+
+This is a spec document.
+`)
+
+    const result = await runAdrIndex(config, milvus, tracker, anchorIndex)
+    expect(result.filesIndexed).toBe(1)
+    expect(result.chunksIndexed).toBeGreaterThanOrEqual(1)
+
+    // Verify docType in chunks passed to Milvus
+    const insertedChunks = milvus.insertAdrChunks.mock.calls[0][0]
+    expect(insertedChunks[0].docType).toBe('spec')
+  })
+
+  it('scans planRoot for YYYY-MM-DD-*.md files (excluding -design)', async () => {
+    // Create a plan file (should be indexed)
+    await writeFile(path.join(planDir, '2026-09-01-my-plan.md'),
+      `---
+id: 2026-09-01-my-plan
+type: plan
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test plan"
+  change_type: new_feature
+related_decisions: []
+auto_generated: false
+---
+
+## Implementation
+
+Implement the plan.
+`)
+
+    // Create a design.md file in planDir (should NOT be indexed by plan regex)
+    await writeFile(path.join(planDir, '2026-09-01-my-design.md'),
+      `---
+id: 2026-09-01-my-design
+type: spec
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test design"
+  change_type: new_feature
+related_decisions: []
+auto_generated: false
+---
+
+## Context
+
+This is a design file.
+`)
+
+    const result = await runAdrIndex(config, milvus, tracker, anchorIndex)
+    // Only the plan file should be indexed (design file excluded by plan regex)
+    expect(result.filesIndexed).toBe(1)
+
+    // Verify docType in chunks passed to Milvus is 'plan'
+    const insertedChunks = milvus.insertAdrChunks.mock.calls[0][0]
+    expect(insertedChunks[0].docType).toBe('plan')
+  })
+
+  it('skips missing root directories silently', async () => {
+    // Remove spec and plan directories
+    await rm(specDir, { recursive: true, force: true })
+    await rm(planDir, { recursive: true, force: true })
+
+    // ADR dir still exists with an ADR file
+    await writeFile(path.join(adrDir, 'ADR-0001-test.md'),
+      `---
+id: ADR-0001-test
+type: decision-record
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test"
+  change_type: refactor
+related_decisions: []
+auto_generated: false
+---
+
+## 决策目标
+
+Test goal
+`)
+
+    const result = await runAdrIndex(config, milvus, tracker, anchorIndex)
+    // Should still index the ADR file, spec/plan dirs missing → skipped silently
+    expect(result.filesIndexed).toBe(1)
+  })
+
+  it('all roots share the same Merkle tracker', async () => {
+    // Create files in all three roots
+    await writeFile(path.join(adrDir, 'ADR-0001-test.md'),
+      `---
+id: ADR-0001-test
+type: decision-record
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test"
+  change_type: refactor
+related_decisions: []
+auto_generated: false
+---
+
+## 决策目标
+
+Test goal
+`)
+
+    await writeFile(path.join(specDir, '2026-09-01-my-design.md'),
+      `---
+id: 2026-09-01-my-design
+type: spec
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test spec"
+  change_type: new_feature
+related_decisions: []
+auto_generated: false
+---
+
+## Context
+
+Spec content.
+`)
+
+    await writeFile(path.join(planDir, '2026-09-01-my-plan.md'),
+      `---
+id: 2026-09-01-my-plan
+type: plan
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test plan"
+  change_type: new_feature
+related_decisions: []
+auto_generated: false
+---
+
+## Implementation
+
+Plan content.
+`)
+
+    await runAdrIndex(config, milvus, tracker, anchorIndex, { mode: 'full' })
+    const stats = tracker.getStats()
+    expect(stats.totalFiles).toBe(3)
+  })
+
+  it('computes incremental delta across all roots', async () => {
+    // Create files in all three roots
+    await writeFile(path.join(adrDir, 'ADR-0001-test.md'),
+      `---
+id: ADR-0001-test
+type: decision-record
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test"
+  change_type: refactor
+related_decisions: []
+auto_generated: false
+---
+
+## 决策目标
+
+Test goal
+`)
+
+    await writeFile(path.join(specDir, '2026-09-01-my-design.md'),
+      `---
+id: 2026-09-01-my-design
+type: spec
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test spec"
+  change_type: new_feature
+related_decisions: []
+auto_generated: false
+---
+
+## Context
+
+Spec content.
+`)
+
+    await writeFile(path.join(planDir, '2026-09-01-my-plan.md'),
+      `---
+id: 2026-09-01-my-plan
+type: plan
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test plan"
+  change_type: new_feature
+related_decisions: []
+auto_generated: false
+---
+
+## Implementation
+
+Plan content.
+`)
+
+    // Full index first
+    await runAdrIndex(config, milvus, tracker, anchorIndex, { mode: 'full' })
+    jest.clearAllMocks()
+
+    // Incremental run — no changes
+    const result = await runAdrIndex(config, milvus, tracker, anchorIndex, { mode: 'incremental' })
+    expect(result.filesIndexed).toBe(0)
+    expect(result.filesSkipped).toBe(3)
   })
 })

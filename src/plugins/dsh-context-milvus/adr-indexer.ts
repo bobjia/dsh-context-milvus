@@ -11,6 +11,15 @@ import type { AdrIndexStatus } from './types.js'
 import type { AdrService } from './adr-service.js'
 
 const ADR_FILE_RE = /^ADR-\d{4}-.+\.md$/
+const SPEC_FILE_RE = /^\d{4}-\d{2}-\d{2}-.+design\.md$/
+const PLAN_FILE_RE = /^\d{4}-\d{2}-\d{2}-(?:(?!.*design\.md$).)+\.md$/
+
+/** A single root directory to scan */
+export interface ScanRoot {
+  path: string
+  fileRe: RegExp
+  label: string
+}
 
 /** Result of a single ADR indexing run */
 export interface AdrIndexResult {
@@ -23,14 +32,37 @@ export interface AdrIndexResult {
 }
 
 /**
+ * Scan a single root directory, returning a map of filePath → content hash.
+ * Missing or unreadable directories are skipped silently (empty map).
+ */
+async function scanDirectory(root: ScanRoot): Promise<Map<string, string>> {
+  let files: string[]
+  try {
+    files = (await readdir(root.path))
+      .filter(f => root.fileRe.test(f))
+      .map(f => path.join(root.path, f))
+  } catch {
+    return new Map()
+  }
+
+  const currentFiles = new Map<string, string>()
+  for (const filePath of files) {
+    const content = await readFile(filePath, 'utf-8')
+    const hash = HashTracker.hashContent(content)
+    currentFiles.set(filePath, hash)
+  }
+  return currentFiles
+}
+
+/**
  * Run the ADR indexing pipeline.
  *
  * 1. Skip if ADR indexing is disabled
  * 2. Ensure the Milvus ADR collection exists
- * 3. Scan the ADR directory and hash matching files
+ * 3. Scan the ADR, spec, and plan directories and hash matching files
  * 4. Compute delta via Merkle tracker
- * 5. Remove deleted ADRs (from Milvus + anchor index)
- * 6. Chunk → embed → insert changed ADRs; update anchor index
+ * 5. Remove deleted files (from Milvus + anchor index)
+ * 6. Chunk → embed → insert changed files; update anchor index
  * 7. Persist Merkle + anchor index state
  */
 export async function runAdrIndex(
@@ -51,29 +83,29 @@ export async function runAdrIndex(
   progress('检查 Milvus ADR 集合...')
   await milvus.ensureAdrCollection()
 
-  progress('扫描 ADR 目录...')
-  const adrRoot = config.adrRoot
-  let adrFiles: string[]
-  try {
-    adrFiles = (await readdir(adrRoot))
-      .filter(f => ADR_FILE_RE.test(f))
-      .map(f => path.join(adrRoot, f))
-  } catch {
-    return { filesIndexed: 0, chunksIndexed: 0, filesRemoved: 0, chunksRemoved: 0, filesSkipped: 0, durationMs: 0 }
+  // Build scan roots from config
+  const scanRoots: ScanRoot[] = [
+    { path: config.adrRoot, fileRe: ADR_FILE_RE, label: 'ADR' },
+    { path: config.specRoot, fileRe: SPEC_FILE_RE, label: 'spec' },
+    { path: config.planRoot, fileRe: PLAN_FILE_RE, label: 'plan' },
+  ]
+
+  // Scan all roots and merge into a single file → hash map
+  progress('扫描目录...')
+  const currentFiles = new Map<string, string>()
+  for (const root of scanRoots) {
+    const files = await scanDirectory(root)
+    for (const [filePath, hash] of files) {
+      currentFiles.set(filePath, hash)
+    }
   }
 
-  // Compute hashes
-  const currentFiles = new Map<string, string>()
-  for (const filePath of adrFiles) {
-    const content = await readFile(filePath, 'utf-8')
-    const hash = HashTracker.hashContent(content)
-    currentFiles.set(filePath, hash)
-  }
+  const allFiles = Array.from(currentFiles.keys())
 
   // Compute delta
   let delta: { toIndex: string[]; toRemove: string[]; unchanged: string[] }
   if (mode === 'full') {
-    delta = { toIndex: adrFiles, toRemove: [], unchanged: [] }
+    delta = { toIndex: allFiles, toRemove: [], unchanged: [] }
   } else {
     delta = tracker.computeDelta(currentFiles)
   }
@@ -81,7 +113,7 @@ export async function runAdrIndex(
   // Remove deleted files
   let chunksRemoved = 0
   if (delta.toRemove.length > 0) {
-    progress(`移除已删除 ADR: ${delta.toRemove.length} 个...`)
+    progress(`移除已删除文件: ${delta.toRemove.length} 个...`)
     for (const filePath of delta.toRemove) {
       chunksRemoved += await milvus.deleteAdrByFilePath(filePath)
     }
@@ -100,7 +132,7 @@ export async function runAdrIndex(
   let chunksIndexed = 0
 
   if (delta.toIndex.length > 0) {
-    progress(`索引 ${delta.toIndex.length} 个 ADR 文件...`)
+    progress(`索引 ${delta.toIndex.length} 个文件...`)
     for (const filePath of delta.toIndex) {
       try {
         const content = await readFile(filePath, 'utf-8')
