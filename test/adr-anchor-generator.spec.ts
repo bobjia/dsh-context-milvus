@@ -180,6 +180,56 @@ describe('detectCodeReferences', () => {
     expect(refs[0].symbols).toContain('parseInput')
   })
 
+  // ── Trailing-punctuation handling ──
+
+  it('strips trailing period from @file: annotations', async () => {
+    await createFile('src/foo.ts')
+    const content = 'See @file:src/foo.ts. for details'
+    const refs = detectCodeReferences(content, codebaseRoot)
+    expect(refs).toHaveLength(1)
+    expect(refs[0].file).toBe(path.join(codebaseRoot, 'src/foo.ts'))
+  })
+
+  it('strips trailing period from path patterns', async () => {
+    await createFile('src/foo.ts')
+    const content = 'check src/foo.ts.'
+    const refs = detectCodeReferences(content, codebaseRoot)
+    expect(refs).toHaveLength(1)
+    expect(refs[0].file).toBe(path.join(codebaseRoot, 'src/foo.ts'))
+  })
+
+  it('strips trailing period from @symbol: annotations', async () => {
+    await createFile('src/types.ts')
+    const content = 'the @file:src/types.ts @symbol:FooBar. function'
+    const refs = detectCodeReferences(content, codebaseRoot)
+    expect(refs).toHaveLength(1)
+    expect(refs[0].symbols).toContain('FooBar')
+  })
+
+  it('strips trailing closing paren from @file: annotations', async () => {
+    await createFile('src/bar.ts')
+    const content = 'See @file:src/bar.ts) for details'
+    const refs = detectCodeReferences(content, codebaseRoot)
+    expect(refs).toHaveLength(1)
+    expect(refs[0].file).toBe(path.join(codebaseRoot, 'src/bar.ts'))
+  })
+
+  it('strips trailing comma from @file: annotations', async () => {
+    await createFile('src/baz.ts')
+    const content = 'Files like @file:src/baz.ts, are common.'
+    const refs = detectCodeReferences(content, codebaseRoot)
+    expect(refs).toHaveLength(1)
+    expect(refs[0].file).toBe(path.join(codebaseRoot, 'src/baz.ts'))
+  })
+
+  it('strips trailing comma from path patterns', async () => {
+    await createFile('src/qux.ts')
+    const content = 'Import from src/qux.ts, then use it.'
+    const refs = detectCodeReferences(content, codebaseRoot)
+    expect(refs).toHaveLength(1)
+    expect(refs[0].file).toBe(path.join(codebaseRoot, 'src/qux.ts'))
+  })
+
   // ── Cumulative strategies + deduplication ──
 
   it('deduplicates by file path and merges symbols', async () => {

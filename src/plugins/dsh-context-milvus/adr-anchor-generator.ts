@@ -21,11 +21,11 @@ export interface GenerateResult {
 
 // --- Regex patterns ---
 
-const FILE_ANNOTATION_RE = /@file:([^\s\n]+(?:\.[a-z]+)?)/g
-const SYMBOL_ANNOTATION_RE = /@symbol:([^\s\n]+)/g
+const FILE_ANNOTATION_RE = /@file:([^\s\n.,:;)\]>]+(?:\.[a-z]+)*)/g
+const SYMBOL_ANNOTATION_RE = /@symbol:([^\s\n.,:;)\]>]+)/g
 
 const PATH_PREFIXES = ['src/', 'lib/', 'packages/', 'app/', 'include/', 'test/']
-const PATH_RE = /(?<=^|\s|["'`(])(src|lib|packages|app|include|test)\/[^\s:;,)]+(?:\.[a-z]+)?/g
+const PATH_RE = /(?<=^|\s|["'`(])(src|lib|packages|app|include|test)\/[^\s:;,).]+(?:\.[a-z]+)*/g
 
 const SYMBOL_RE = /`([a-zA-Z_$][a-zA-Z0-9_$]*)`/g
 
