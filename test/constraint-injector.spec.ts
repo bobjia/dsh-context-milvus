@@ -1,5 +1,7 @@
 // test/constraint-injector.spec.ts
 import { jest } from '@jest/globals'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 // Mock dsh-llm — the installed package index pulls in @deepseek-ai/dsh-timeout
 // which is not present in this repo's node_modules, so mock the message helper.
@@ -230,5 +232,162 @@ describe('setupConstraintInjection', () => {
     expect(callArg.content[0].text).toContain('你修改了文件')
     expect(callArg.content[0].text).toContain('ADR-0001')
     expect(result.messages).toHaveLength(2)
+  })
+
+  // ── Spec/plan write detection tests ────────────────────────────────────
+
+  it('warns on write to spec path suggesting index_specs', async () => {
+    const tempDir = fs.mkdtempSync('constraint-spec-test-')
+    const specDir = path.join(tempDir, 'specs')
+    const specFile = path.join(specDir, '2026-09-02-my-design.md')
+    fs.mkdirSync(specDir, { recursive: true })
+
+    resolveConfig.mockReturnValue({
+      adrEnabled: true,
+      adrConstraintReinjectEvery: 0,
+      adrSystemPrompt: '',
+      specRoot: 'specs',
+      planRoot: 'plans',
+      indexRoot: tempDir,
+    })
+    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    const toolsResultHook = getToolsResultHook()
+    const preStepHook = getPreStepHook()
+
+    const agent = { session: { id: 'session-spec', header: { cwd: tempDir } } }
+    // write tool on a spec file → pending warning for index_specs
+    toolsResultHook(
+      { agent, name: 'write', arguments: { file_path: specFile } },
+      { isError: false },
+    )
+
+    const decision = { kind: 'normal', messages: [{ role: 'user', content: 'x' }] }
+    const next = jest.fn().mockResolvedValue(decision)
+    const result = await preStepHook({ agent, messages: [], step: {} }, next)
+
+    expect(mockCreateUserMessage).toHaveBeenCalledTimes(1)
+    const callArg = mockCreateUserMessage.mock.calls[0][0]
+    expect(callArg.content[0].text).toContain('检测到新的规格文档')
+    expect(callArg.content[0].text).toContain('index_specs')
+    expect(result.messages).toHaveLength(2)
+
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  })
+
+  it('warns on write to plan path suggesting index_specs', async () => {
+    const tempDir = fs.mkdtempSync('constraint-plan-test-')
+    const planDir = path.join(tempDir, 'plans')
+    const planFile = path.join(planDir, '2026-09-02-my-plan.md')
+    fs.mkdirSync(planDir, { recursive: true })
+
+    resolveConfig.mockReturnValue({
+      adrEnabled: true,
+      adrConstraintReinjectEvery: 0,
+      adrSystemPrompt: '',
+      specRoot: 'specs',
+      planRoot: 'plans',
+      indexRoot: tempDir,
+    })
+    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    const toolsResultHook = getToolsResultHook()
+    const preStepHook = getPreStepHook()
+
+    const agent = { session: { id: 'session-plan', header: { cwd: tempDir } } }
+    // write tool on a plan file → pending warning for index_specs
+    toolsResultHook(
+      { agent, name: 'write', arguments: { file_path: planFile } },
+      { isError: false },
+    )
+
+    const decision = { kind: 'normal', messages: [{ role: 'user', content: 'x' }] }
+    const next = jest.fn().mockResolvedValue(decision)
+    const result = await preStepHook({ agent, messages: [], step: {} }, next)
+
+    expect(mockCreateUserMessage).toHaveBeenCalledTimes(1)
+    const callArg = mockCreateUserMessage.mock.calls[0][0]
+    expect(callArg.content[0].text).toContain('检测到新的实现计划文件')
+    expect(callArg.content[0].text).toContain('index_specs')
+    expect(result.messages).toHaveLength(2)
+
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  })
+
+  it('does not warn on write to non-spec/plan paths', async () => {
+    const tempDir = fs.mkdtempSync('constraint-other-test-')
+    const otherFile = path.join(tempDir, 'src', 'lib.ts')
+    fs.mkdirSync(path.join(tempDir, 'src'), { recursive: true })
+
+    // Override anchorIndex to return no ADR matches for this file
+    anchorIndex.getAdrsForFile.mockReturnValue([])
+
+    resolveConfig.mockReturnValue({
+      adrEnabled: true,
+      adrConstraintReinjectEvery: 0,
+      adrSystemPrompt: '',
+      specRoot: 'specs',
+      planRoot: 'plans',
+      indexRoot: tempDir,
+    })
+    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    const toolsResultHook = getToolsResultHook()
+    const preStepHook = getPreStepHook()
+
+    const agent = { session: { id: 'session-other', header: { cwd: tempDir } } }
+    // write tool on a non-spec/plan file → no warning
+    toolsResultHook(
+      { agent, name: 'write', arguments: { file_path: otherFile } },
+      { isError: false },
+    )
+
+    const decision = { kind: 'normal', messages: [{ role: 'user', content: 'x' }] }
+    const next = jest.fn().mockResolvedValue(decision)
+    const result = await preStepHook({ agent, messages: [], step: {} }, next)
+
+    expect(mockCreateUserMessage).not.toHaveBeenCalled()
+    expect(result.messages).toHaveLength(1)
+
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  })
+
+  it('adds both ADR anchor warning and spec warning when file is in both', async () => {
+    const tempDir = fs.mkdtempSync('constraint-both-test-')
+    const specDir = path.join(tempDir, 'specs')
+    const specFile = path.join(specDir, '2026-09-02-my-design.md')
+    fs.mkdirSync(specDir, { recursive: true })
+
+    resolveConfig.mockReturnValue({
+      adrEnabled: true,
+      adrConstraintReinjectEvery: 0,
+      adrSystemPrompt: '',
+      specRoot: 'specs',
+      planRoot: 'plans',
+      indexRoot: tempDir,
+    })
+    // anchorIndex.getAdrsForFile already returns ['ADR-0001'] by default
+    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    const toolsResultHook = getToolsResultHook()
+    const preStepHook = getPreStepHook()
+
+    const agent = { session: { id: 'session-both', header: { cwd: tempDir } } }
+    // write tool on a spec file that is also in the anchor index → both warnings
+    toolsResultHook(
+      { agent, name: 'write', arguments: { file_path: specFile } },
+      { isError: false },
+    )
+
+    const decision = { kind: 'normal', messages: [{ role: 'user', content: 'x' }] }
+    const next = jest.fn().mockResolvedValue(decision)
+    const result = await preStepHook({ agent, messages: [], step: {} }, next)
+
+    expect(mockCreateUserMessage).toHaveBeenCalledTimes(1)
+    const callArg = mockCreateUserMessage.mock.calls[0][0]
+    // Both warnings should be present in the combined message
+    expect(callArg.content[0].text).toContain('你修改了文件')
+    expect(callArg.content[0].text).toContain('ADR-0001')
+    expect(callArg.content[0].text).toContain('检测到新的规格文档')
+    expect(callArg.content[0].text).toContain('index_specs')
+    expect(result.messages).toHaveLength(2)
+
+    fs.rmSync(tempDir, { recursive: true, force: true })
   })
 })

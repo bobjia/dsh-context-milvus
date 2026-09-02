@@ -12,7 +12,37 @@ jest.unstable_mockModule('@deepseek-ai/dsh-tools', () => ({
   defineTool: mockDefineTool,
 }))
 
+// Mock modules for registerTools (tools.ts)
+// Note: jest.unstable_mockModule resolves relative paths from the test file,
+// so we use paths relative to test/ that point to the source modules.
+const mockRunAdrIndex = jest.fn()
+const mockGetAdrIndexStatus = jest.fn()
+jest.unstable_mockModule('../src/plugins/dsh-context-milvus/adr-indexer.js', () => ({
+  runAdrIndex: mockRunAdrIndex,
+  getAdrIndexStatus: mockGetAdrIndexStatus,
+}))
+
+const mockRunIndex = jest.fn()
+const mockGetIndexStatus = jest.fn()
+jest.unstable_mockModule('../src/plugins/dsh-context-milvus/indexer.js', () => ({
+  runIndex: mockRunIndex,
+  getIndexStatus: mockGetIndexStatus,
+}))
+
+class MockHashTracker {
+  constructor(_path: string) {}
+  async load() {}
+  async save() {}
+  computeDelta() { return { toIndex: [], toRemove: [], unchanged: [] } }
+  getStats() { return { totalFiles: 0, totalChunks: 0 } }
+  getLastIndexedTimestamp() { return null }
+}
+jest.unstable_mockModule('../src/plugins/dsh-context-milvus/merkle.js', () => ({
+  HashTracker: MockHashTracker,
+}))
+
 const { registerAdrTools } = await import('../src/plugins/dsh-context-milvus/adr-tools.js')
+const { registerTools } = await import('../src/plugins/dsh-context-milvus/tools.js')
 
 describe('registerAdrTools', () => {
   let ctx: any
@@ -369,5 +399,83 @@ describe('index_specs tool', () => {
     expect(result[0].text).toContain('文件索引: 1')
     expect(result[0].text).toContain('分块索引: 4')
     expect(result[0].text).not.toContain('预览')
+  })
+})
+
+describe('registerTools - index_code adr config', () => {
+  let ctx: any
+  let milvus: any
+  let tracker: any
+  let adrOptions: any
+  let resolveConfig: any
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockRunIndex.mockResolvedValue({
+      filesIndexed: 0, chunksIndexed: 0, filesRemoved: 0, chunksRemoved: 0, filesSkipped: 0, durationMs: 10,
+    })
+    mockRunAdrIndex.mockResolvedValue({
+      filesIndexed: 0, chunksIndexed: 0, filesRemoved: 0, chunksRemoved: 0, filesSkipped: 0, durationMs: 5,
+    })
+    ctx = { tools: { register: mockRegister } }
+    milvus = {
+      ensureCollection: jest.fn().mockResolvedValue(undefined),
+      ensureAdrCollection: jest.fn().mockResolvedValue(undefined),
+      search: jest.fn().mockResolvedValue([]),
+    }
+    tracker = new MockHashTracker('/tmp/test')
+    adrOptions = {
+      service: { getActiveConstraints: jest.fn().mockResolvedValue([]) },
+      anchorIndex: { getAdrsForFile: jest.fn().mockReturnValue([]) },
+      adrTracker: new MockHashTracker('/tmp/test-adr'),
+    }
+    resolveConfig = jest.fn().mockReturnValue({
+      adrEnabled: true,
+      indexRoot: '/workspace/test',
+      adrRoot: 'docs/decisions',
+      specRoot: 'docs/superpowers/specs',
+      planRoot: 'docs/superpowers/plans',
+    })
+  })
+
+  it('passes absolute specRoot and planRoot to runAdrIndex', async () => {
+    registerTools(ctx, resolveConfig, milvus, tracker, adrOptions)
+    const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
+    expect(indexCodeDef).toBeDefined()
+
+    await indexCodeDef.execute({ mode: 'incremental' })
+
+    expect(mockRunAdrIndex).toHaveBeenCalledTimes(1)
+    const adrConfig = mockRunAdrIndex.mock.calls[0][0]
+    expect(adrConfig.specRoot).toBe('/workspace/test/docs/superpowers/specs')
+    expect(adrConfig.planRoot).toBe('/workspace/test/docs/superpowers/plans')
+    expect(adrConfig.adrRoot).toBe('/workspace/test/docs/decisions')
+  })
+
+  it('does not call runAdrIndex when adrEnabled is false', async () => {
+    resolveConfig.mockReturnValue({
+      adrEnabled: false,
+      indexRoot: '/workspace/test',
+      adrRoot: 'docs/decisions',
+      specRoot: 'docs/superpowers/specs',
+      planRoot: 'docs/superpowers/plans',
+    })
+    registerTools(ctx, resolveConfig, milvus, tracker, adrOptions)
+    const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
+    expect(indexCodeDef).toBeDefined()
+
+    await indexCodeDef.execute({ mode: 'incremental' })
+
+    expect(mockRunAdrIndex).not.toHaveBeenCalled()
+  })
+
+  it('does not call runAdrIndex when adrOptions is not provided', async () => {
+    registerTools(ctx, resolveConfig, milvus, tracker, undefined)
+    const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
+    expect(indexCodeDef).toBeDefined()
+
+    await indexCodeDef.execute({ mode: 'incremental' })
+
+    expect(mockRunAdrIndex).not.toHaveBeenCalled()
   })
 })

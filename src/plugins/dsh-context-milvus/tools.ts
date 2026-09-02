@@ -252,6 +252,8 @@ export function registerTools(
           const adrConfig = {
             ...effectiveConfig,
             adrRoot: path.resolve(effectiveConfig.indexRoot, effectiveConfig.adrRoot),
+            specRoot: path.resolve(effectiveConfig.indexRoot, effectiveConfig.specRoot),
+            planRoot: path.resolve(effectiveConfig.indexRoot, effectiveConfig.planRoot),
           }
           const adrResult = await runAdrIndex(
             adrConfig, milvus, adrOptions.adrTracker, adrOptions.anchorIndex,

@@ -183,19 +183,39 @@ export function setupConstraintInjection(
     const filePath = exec.arguments?.file_path as string | undefined
     if (!filePath) return
 
-    // Check if file is in anchor index
-    const adrIds = anchorIndex.getAdrsForFile(filePath)
-    if (adrIds.length === 0) return
-
-    // Add warning to session state
+    // Get or create per-session state
     const session = exec.agent.session
     let state = sessionState.get(session)
     if (!state) {
       state = { stepCount: 0, pendingWarnings: [] }
       sessionState.set(session, state)
     }
-    state.pendingWarnings.push(
-      `⚠️ 你修改了文件 ${filePath}，它被以下 ADR 的 code_anchors 覆盖: ${adrIds.join(', ')}。请确认是否需要更新相关 ADR 的约束条件或 code_anchors。`,
-    )
+
+    // Check if file is in anchor index (ADR code_anchors)
+    const adrIds = anchorIndex.getAdrsForFile(filePath)
+    if (adrIds.length > 0) {
+      state.pendingWarnings.push(
+        `⚠️ 你修改了文件 ${filePath}，它被以下 ADR 的 code_anchors 覆盖: ${adrIds.join(', ')}。请确认是否需要更新相关 ADR 的约束条件或 code_anchors。`,
+      )
+    }
+
+    // Check if file is under specRoot or planRoot — suggest index_specs
+    const config = resolveConfig()
+    const sessionCwd = exec.agent?.session?.header?.cwd as string | undefined
+    const indexRoot = sessionCwd || config.indexRoot || process.cwd()
+    const specRoot = path.resolve(indexRoot, config.specRoot || 'docs/superpowers/specs')
+    const planRoot = path.resolve(indexRoot, config.planRoot || 'docs/superpowers/plans')
+    const normalizedPath = path.resolve(filePath)
+
+    if (normalizedPath.startsWith(specRoot)) {
+      state.pendingWarnings.push(
+        `📄 检测到新的规格文档 ${filePath}。建议调用 \`index_specs\` 为其生成 code_anchors 并索引入库。`,
+      )
+    }
+    if (normalizedPath.startsWith(planRoot)) {
+      state.pendingWarnings.push(
+        `📄 检测到新的实现计划文件 ${filePath}。建议调用 \`index_specs\` 为其生成 code_anchors 并索引入库。`,
+      )
+    }
   })
 }
