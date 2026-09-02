@@ -439,7 +439,7 @@ describe('registerTools - index_code adr config', () => {
   })
 
   it('passes absolute specRoot and planRoot to runAdrIndex', async () => {
-    registerTools(ctx, resolveConfig, milvus, tracker, adrOptions)
+    registerTools(ctx, resolveConfig, milvus, tracker, undefined, adrOptions)
     const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
     expect(indexCodeDef).toBeDefined()
 
@@ -460,7 +460,7 @@ describe('registerTools - index_code adr config', () => {
       specRoot: 'docs/superpowers/specs',
       planRoot: 'docs/superpowers/plans',
     })
-    registerTools(ctx, resolveConfig, milvus, tracker, adrOptions)
+    registerTools(ctx, resolveConfig, milvus, tracker, undefined, adrOptions)
     const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
     expect(indexCodeDef).toBeDefined()
 

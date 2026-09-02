@@ -12,8 +12,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { MilvusService } from './milvus-service.js'
 import type { PluginConfig } from './config.js'
-import { deriveMerkleFilePath } from './config.js'
+import { deriveMerkleFilePath, deriveImportMapFilePath } from './config.js'
 import { HashTracker } from './merkle.js'
+import { ImportResolver } from './import-resolver.js'
 import { runIndex, getIndexStatus } from './indexer.js'
 import { runAdrIndex, getAdrIndexStatus as getAdrIndexStatusFn } from './adr-indexer.js'
 import type { AdrService } from './adr-service.js'
@@ -98,6 +99,7 @@ async function createTrackerForPath(
  *   each tool execution so GUI config edits take effect without restart
  * @param milvus - shared Milvus service instance
  * @param tracker - shared default HashTracker instance
+ * @param importResolver - optional ImportResolver for cross-file import/export analysis
  * @param adrOptions - optional ADR services for indexing & status
  */
 export function registerTools(
@@ -105,6 +107,7 @@ export function registerTools(
   resolveConfig: () => PluginConfig,
   milvus: MilvusService,
   tracker: HashTracker,
+  importResolver?: ImportResolver,
   adrOptions?: {
     service: AdrService
     anchorIndex: AdrAnchorIndex
@@ -239,12 +242,23 @@ export function registerTools(
         // Use a workspace-specific tracker if the path is different from default
         const effectiveTracker = await createTrackerForPath(config, overridePath, tracker)
 
+        // Use a workspace-specific import resolver if the path is different from default
+        const effectiveImportResolver = overridePath
+          ? new ImportResolver(deriveImportMapFilePath(overridePath))
+          : importResolver
+        if (overridePath && effectiveImportResolver) {
+          await effectiveImportResolver.load().catch(() => {
+            // No import map yet — fresh start
+          })
+        }
+
         // Progress callback for indexing logs
         const progress = (msg: string) => console.log(`[index_code] ${msg}`)
 
         const codeResult = await runIndex(effectiveConfig, milvus, effectiveTracker, {
           mode,
           progress,
+          importResolver: effectiveImportResolver,
         })
 
         // After code indexing, also index ADRs if enabled
@@ -457,7 +471,7 @@ export function registerTools(
           }
         }
 
-        return findCallers(findBySymbol, params.symbol, direction, maxResults)
+        return findCallers(findBySymbol, params.symbol, direction, { maxResults })
       },
     }),
   )

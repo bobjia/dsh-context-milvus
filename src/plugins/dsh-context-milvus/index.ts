@@ -26,10 +26,11 @@ import * as path from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
-import { getConfig, deriveMerkleFilePath, type CordisConfig } from './config.js'
+import { getConfig, deriveMerkleFilePath, deriveImportMapFilePath, type CordisConfig } from './config.js'
 import { MilvusService } from './milvus-service.js'
 import { HashTracker } from './merkle.js'
 import { EmbeddingClient } from './embedding.js'
+import { ImportResolver } from './import-resolver.js'
 import { registerTools } from './tools.js'
 import { AdrAnchorIndex } from './adr-anchor-index.js'
 import { AdrService } from './adr-service.js'
@@ -200,6 +201,13 @@ export async function apply(ctx: Context, config?: CordisConfig) {
     // No state file yet — fresh start
   })
 
+  // Initialize ImportResolver for cross-file import/export analysis
+  const importMapPath = deriveImportMapFilePath(resolved.indexRoot)
+  const importResolver = new ImportResolver(importMapPath)
+  await importResolver.load().catch(() => {
+    // No import map yet — fresh start
+  })
+
   // Try to initialize collection; failure doesn't block tool registration
   milvus.ensureCollection().catch((err: Error) => {
     console.warn(
@@ -242,7 +250,7 @@ export async function apply(ctx: Context, config?: CordisConfig) {
 
   // Register all tools — pass the config thunk so each tool execution
   // picks up the latest settings without restart
-  registerTools(ctx, () => getConfig(current()), milvus, tracker, adrOptions)
+  registerTools(ctx, () => getConfig(current()), milvus, tracker, importResolver, adrOptions)
 
   console.log(
     `[dsh-context-milvus] 已加载 (${resolved.indexExtensions.length} 种文件类型, ` +

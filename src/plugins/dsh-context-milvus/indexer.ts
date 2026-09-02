@@ -16,6 +16,7 @@ import { EmbeddingClient } from './embedding.js'
 import type { MilvusService } from './milvus-service.js'
 import { type PluginConfig, DEFAULT_IGNORE_PATTERNS } from './config.js'
 import { IgnoreMatcher } from './ignore-matcher.js'
+import { ImportResolver } from './import-resolver.js'
 import type { CodeChunk, IndexStatus } from './types.js'
 
 /** Result of a single indexing run */
@@ -145,6 +146,7 @@ export async function runIndex(
     mode?: 'full' | 'incremental'
     progress?: (msg: string) => void
     onFileProgress?: (filePath: string) => void
+    importResolver?: ImportResolver  // Optional, for import map building
   },
 ): Promise<IndexResult> {
   const mode = options?.mode ?? 'incremental'
@@ -263,7 +265,33 @@ export async function runIndex(
     }
   }
 
-  // 6. Save Merkle state
+  // 6. Build import map for changed files
+  if (options?.importResolver && delta.toIndex.length > 0) {
+    progress('扫描 import/export 关系...')
+    for (const filePath of delta.toIndex) {
+      try {
+        const content = await readFile(filePath, 'utf-8')
+        const ext = path.extname(filePath).toLowerCase()
+        await options.importResolver.scanFile(filePath, content, ext)
+      } catch {
+        // Skip files that fail to parse
+      }
+    }
+  }
+
+  // Remove deleted files from import map
+  if (options?.importResolver && delta.toRemove.length > 0) {
+    for (const filePath of delta.toRemove) {
+      options.importResolver.removeFile(filePath)
+    }
+  }
+
+  // Save import map
+  if (options?.importResolver) {
+    await options.importResolver.save()
+  }
+
+  // 7. Save Merkle state
   await tracker.save()
 
   const durationMs = Date.now() - startTime
