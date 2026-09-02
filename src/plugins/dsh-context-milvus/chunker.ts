@@ -39,6 +39,13 @@ const LANGUAGES: LanguageDef[] = [
         'getter',
         'setter',
       ],
+      referenceNodeTypes: [
+        'call_expression',
+        'import_statement',
+        'import_specifier',
+        'member_expression',
+        'identifier',
+      ],
     },
     loadTs: () => require('tree-sitter-typescript').typescript,
   },
@@ -55,6 +62,7 @@ const LANGUAGES: LanguageDef[] = [
         'getter',
         'setter',
       ],
+      referenceNodeTypes: ['call_expression', 'import_statement', 'import_specifier', 'member_expression', 'identifier'],
     },
     loadTs: () => require('tree-sitter-typescript').tsx,
   },
@@ -68,6 +76,7 @@ const LANGUAGES: LanguageDef[] = [
         'async_function_definition',
         'decorated_definition',
       ],
+      referenceNodeTypes: ['call', 'import_statement', 'import_from_statement', 'attribute', 'identifier'],
     },
     loadTs: () => require('tree-sitter-python'),
   },
@@ -86,6 +95,7 @@ const LANGUAGES: LanguageDef[] = [
         'static_item',
         'macro_definition',
       ],
+      referenceNodeTypes: ['call_expression', 'use_declaration', 'scoped_use_list', 'field_expression', 'identifier'],
     },
     loadTs: () => require('tree-sitter-rust'),
   },
@@ -99,6 +109,7 @@ const LANGUAGES: LanguageDef[] = [
         'type_declaration',
         'type_spec',
       ],
+      referenceNodeTypes: ['call_expression', 'import_declaration', 'selector_expression', 'identifier'],
     },
     loadTs: () => require('tree-sitter-go'),
   },
@@ -114,6 +125,7 @@ const LANGUAGES: LanguageDef[] = [
         'constructor_declaration',
         'record_declaration',
       ],
+      referenceNodeTypes: ['method_invocation', 'import_declaration', 'field_access', 'identifier'],
     },
     loadTs: () => require('tree-sitter-java'),
   },
@@ -142,6 +154,7 @@ const LANGUAGES: LanguageDef[] = [
         'struct_specifier',
         'enum_specifier',
       ],
+      referenceNodeTypes: ['call_expression', 'using_directive', 'field_expression', 'identifier'],
     },
     loadTs: () => require('tree-sitter-cpp'),
   },
@@ -157,8 +170,8 @@ const LANGUAGES: LanguageDef[] = [
         'enum_declaration',
         'constructor_declaration',
       ],
+      referenceNodeTypes: ['call_expression', 'using_directive', 'field_expression', 'identifier'],
     },
-    // tree-sitter-c-sharp is ESM-only with top-level await, so use import() instead of require()
     loadTs: async () => {
       const mod = await import('tree-sitter-c-sharp')
       return mod.default || mod
@@ -176,6 +189,7 @@ const LANGUAGES: LanguageDef[] = [
         'object_definition',
         'constructor_definition',
       ],
+      referenceNodeTypes: ['apply_expression', 'import', 'select_expression', 'identifier'],
     },
     loadTs: () => require('tree-sitter-scala'),
   },
@@ -255,6 +269,89 @@ function extractNodeName(node: any): string {
   return `anonymous_${node.type}`
 }
 
+/** Language keywords to exclude from references */
+const LANGUAGE_KEYWORDS = new Set([
+  'return', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 'do', 'switch',
+  'case', 'break', 'continue', 'throw', 'try', 'catch', 'finally', 'async', 'await',
+  'yield', 'new', 'typeof', 'instanceof', 'void', 'delete', 'import', 'export',
+  'default', 'from', 'as', 'in', 'of', 'this', 'super', 'class', 'function',
+  'interface', 'enum', 'type', 'extends', 'implements', 'static', 'public',
+  'private', 'protected', 'abstract', 'readonly', 'declare', 'module', 'namespace',
+  'require', 'true', 'false', 'null', 'undefined', 'any', 'string', 'number',
+  'boolean', 'void', 'never', 'unknown', 'bigint', 'symbol',
+])
+
+/** Symbols too generic to be useful as references */
+const COMMON_WORDS = new Set([
+  'data', 'config', 'result', 'process', 'error', 'value', 'item', 'args',
+  'options', 'tmp', 'temp', 'key', 'val', 'name', 'type', 'size', 'length',
+  'index', 'count', 'total', 'status', 'msg', 'err', 'str', 'num', 'obj',
+  'arr', 'fn', 'cb', 'done', 'next', 'promise', 'callback', 'resolve',
+  'reject', 'then', 'catch', 'finally', 'map', 'filter', 'reduce', 'forEach',
+  'some', 'every', 'find', 'flat', 'flatMap', 'sort', 'reverse', 'includes',
+])
+
+/** Extract referenced symbols from a chunk's AST node */
+function extractReferences(node: any, ownName: string, refTypes: Set<string>): string[] {
+  const refs = new Set<string>()
+
+  function walk(n: any) {
+    if (!n || !n.type) return
+    if (refTypes.has(n.type)) {
+      const symbol = extractSymbolFromNode(n)
+      if (symbol && symbol.length > 1 && !LANGUAGE_KEYWORDS.has(symbol) && !COMMON_WORDS.has(symbol) && symbol !== ownName) {
+        refs.add(symbol)
+      }
+    }
+    if (n.childCount > 0) {
+      for (const child of n.children) {
+        walk(child)
+      }
+    }
+  }
+
+  walk(node)
+  return Array.from(refs)
+}
+
+/** Extract the symbol name from a reference node */
+function extractSymbolFromNode(node: any): string | null {
+  switch (node.type) {
+    case 'call_expression': {
+      // For a call like parseConfig(args), the function child has the name
+      const fnNode = node.childForFieldName('function')
+      return fnNode ? fnNode.text : null
+    }
+    case 'identifier':
+    case 'type_identifier':
+    case 'property_identifier':
+      return node.text
+    case 'member_expression':
+    case 'field_expression':
+    case 'select_expression':
+    case 'attribute':
+      return node.text  // e.g. "this.foo", "svc.start"
+    case 'import_statement':
+    case 'import_declaration':
+    case 'import':
+    case 'import_from_statement':
+      // For import { X } from ..., collect imported identifiers
+      // We collect the binding names, not module paths
+      return null  // handled by child identifiers
+    case 'import_specifier':
+      // The imported name itself
+      return node.childForFieldName('name')?.text ?? null
+    case 'method_invocation':
+      // Java: obj.method() → the method name
+      return node.childForFieldName('name')?.text ?? null
+    case 'apply_expression':
+      // Scala: function(args) → the function node
+      return node.childForFieldName('function')?.text ?? null
+    default:
+      return null
+  }
+}
+
 function collectChunks(node: any, chunkTypes: Set<string>, depth: number, maxDepth: number): any[] {
   if (depth > maxDepth) return []
   const result: any[] = []
@@ -283,15 +380,21 @@ async function chunkWithTreeSitter(
       seen.add(n.id)
       return true
     })
-    .map((node: any) => ({
-      filePath,
-      content: node.text,
-      startLine: node.startPosition.row + 1,
-      endLine: node.endPosition.row + 1,
-      language: def.config.name,
-      chunkType: node.type,
-      name: extractNodeName(node),
-    }))
+    .map((node: any) => {
+      const ownName = extractNodeName(node)
+      const refTypes = def.config.referenceNodeTypes
+      const refSet = refTypes ? new Set<string>(refTypes) : new Set<string>()
+      return {
+        filePath,
+        content: node.text,
+        startLine: node.startPosition.row + 1,
+        endLine: node.endPosition.row + 1,
+        language: def.config.name,
+        chunkType: node.type,
+        name: ownName,
+        references: extractReferences(node, ownName, refSet),
+      }
+    })
 }
 
 // ── Regex-based chunking (fallback for Python, Rust, Go, Java, PHP, C++, C#, Scala) ─────────
