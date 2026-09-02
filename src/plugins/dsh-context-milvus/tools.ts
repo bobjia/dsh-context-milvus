@@ -18,6 +18,8 @@ import { runIndex, getIndexStatus } from './indexer.js'
 import { runAdrIndex, getAdrIndexStatus as getAdrIndexStatusFn } from './adr-indexer.js'
 import type { AdrService } from './adr-service.js'
 import type { AdrAnchorIndex } from './adr-anchor-index.js'
+import { findCallers, traceChain } from './code-relations.js'
+import type { FindBySymbol } from './code-relations.js'
 
 /** Format search results for model consumption */
 function formatSearchResults(value: any[]): string {
@@ -355,6 +357,216 @@ export function registerTools(
         }
 
         return v
+      },
+    }),
+  )
+
+  // ── find_callers ────────────────────────────────────────────────────
+
+  ctx.tools.register(
+    defineTool({
+      name: 'find_callers',
+      description:
+        '查找代码中引用某个符号（函数/变量/类）的所有位置。' +
+        '用于代码修改影响分析：改了某个函数，看它被哪些地方调用了。' +
+        'direction=backward 找引用者（影响面），direction=forward 找被调用者（依赖面）。',
+
+      parameters: {
+        symbol: {
+          type: 'string',
+          required: true,
+          description: '要查找的符号名（函数名、变量名、类名）',
+        },
+        direction: {
+          type: 'string',
+          description: 'backward=谁引用了我（影响面，默认）；forward=我引用了谁（依赖面）',
+        },
+        maxResults: {
+          type: 'number',
+          description: '最大返回结果数，默认 20',
+        },
+      },
+
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            chunks: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  filePath: { type: 'string' },
+                  content: { type: 'string' },
+                  startLine: { type: 'number' },
+                  endLine: { type: 'number' },
+                  chunkType: { type: 'string' },
+                  name: { type: 'string' },
+                },
+                additionalProperties: false,
+              },
+            },
+          },
+          additionalProperties: false,
+        },
+        render: (_args: any, value: any) => {
+          const result = value as { chunks: any[] }
+          if (result.chunks.length === 0) {
+            return [{ type: 'text' as const, text: '未找到引用该符号的代码。' }]
+          }
+          const lines = result.chunks.map((c: any, i: number) => {
+            return [
+              `[${i + 1}] ${c.filePath}:${c.startLine}-${c.endLine}`,
+              `    ${c.chunkType}「${c.name}」`,
+              c.content.length > 200 ? c.content.slice(0, 200) + '...' : c.content,
+            ].join('\n')
+          })
+          return [{ type: 'text' as const, text: `找到 ${result.chunks.length} 个引用位置：\n\n${lines.join('\n---\n')}` }]
+        },
+      },
+
+      async execute(params: any, exec?: any) {
+        await milvus.ensureCollection()
+        const direction = params.direction === 'forward' ? 'forward' as const : 'backward' as const
+        const maxResults = params.maxResults ?? 20
+
+        const findBySymbol: FindBySymbol = async (symbol, dir, limit) => {
+          if (dir === 'backward') {
+            const results = await milvus.queryByReference(symbol, limit)
+            return results.map(r => ({
+              filePath: r.filePath,
+              content: r.content,
+              startLine: r.startLine,
+              endLine: r.endLine,
+              chunkType: r.chunkType,
+              name: r.name,
+            }))
+          } else {
+            // Forward: find the definition, then collect its references
+            const results = await milvus.queryByName(symbol, limit)
+            // Return the definition chunks with their references (callees)
+            return results.map(r => ({
+              filePath: r.filePath,
+              content: r.content,
+              startLine: r.startLine,
+              endLine: r.endLine,
+              chunkType: r.chunkType,
+              name: r.name,
+              references: (r as any).references ?? [],
+            }))
+          }
+        }
+
+        return findCallers(findBySymbol, params.symbol, direction, maxResults)
+      },
+    }),
+  )
+
+  // ── trace_call_chain ────────────────────────────────────────────────
+
+  ctx.tools.register(
+    defineTool({
+      name: 'trace_call_chain',
+      description:
+        '从入口符号出发，沿引用关系 BFS 追踪调用链。' +
+        'direction=backward 做影响分析（找谁调用了入口），direction=forward 做依赖分析（入口调用了谁）。',
+
+      parameters: {
+        entry: {
+          type: 'string',
+          required: true,
+          description: '入口符号名',
+        },
+        direction: {
+          type: 'string',
+          description: 'backward=影响分析（找调用者，默认）；forward=依赖分析（找被调用者）',
+        },
+        maxDepth: {
+          type: 'number',
+          description: '最大递归深度，默认 3',
+        },
+        maxResults: {
+          type: 'number',
+          description: '每层最大结果数，默认 10',
+        },
+      },
+
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            chain: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  depth: { type: 'number' },
+                  symbol: { type: 'string' },
+                  filePath: { type: 'string' },
+                  startLine: { type: 'number' },
+                  endLine: { type: 'number' },
+                  callers: {
+                    type: 'array',
+                    items: { type: 'string' },
+                  },
+                },
+                additionalProperties: false,
+              },
+            },
+          },
+          additionalProperties: false,
+        },
+        render: (_args: any, value: any) => {
+          const result = value as { chain: any[] }
+          if (result.chain.length === 0) {
+            return [{ type: 'text' as const, text: '未找到调用链。' }]
+          }
+          const lines = result.chain.map((n: any) => {
+            const indent = '  '.repeat(n.depth)
+            const callerList = n.callers.length > 0
+              ? `\n${indent}  └─ 调用者: ${n.callers.join(', ')}`
+              : ''
+            return `${indent}${n.symbol} (${n.filePath}:${n.startLine}-${n.endLine})${callerList}`
+          })
+          return [{
+            type: 'text' as const,
+            text: `调用链 (${result.chain.length} 层):\n\n${lines.join('\n')}`,
+          }]
+        },
+      },
+
+      async execute(params: any, exec?: any) {
+        await milvus.ensureCollection()
+        const direction = params.direction === 'forward' ? 'forward' as const : 'backward' as const
+        const maxDepth = params.maxDepth ?? 3
+        const maxResults = params.maxResults ?? 10
+
+        const findBySymbol: FindBySymbol = async (symbol, dir, limit) => {
+          if (dir === 'backward') {
+            const results = await milvus.queryByReference(symbol, limit)
+            return results.map(r => ({
+              filePath: r.filePath,
+              content: r.content,
+              startLine: r.startLine,
+              endLine: r.endLine,
+              chunkType: r.chunkType,
+              name: r.name,
+            }))
+          } else {
+            const results = await milvus.queryByName(symbol, limit)
+            return results.map(r => ({
+              filePath: r.filePath,
+              content: r.content,
+              startLine: r.startLine,
+              endLine: r.endLine,
+              chunkType: r.chunkType,
+              name: r.name,
+              references: (r as any).references ?? [],
+            }))
+          }
+        }
+
+        return traceChain(findBySymbol, params.entry, { direction, maxDepth, maxResults })
       },
     }),
   )
