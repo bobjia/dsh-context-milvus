@@ -110,6 +110,8 @@ describe('getConfig()', () => {
     delete process.env.INDEX_EXTENSIONS
     delete process.env.HYBRID_MODE
     delete process.env.BM25_RRF_K
+    delete process.env.SPEC_ROOT
+    delete process.env.PLAN_ROOT
     })
 
   afterAll(() => {
@@ -205,6 +207,40 @@ describe('getConfig()', () => {
   it('sets adrConstraintReinjectEvery default to 0', () => {
     const cfg = getConfig()
     expect(cfg.adrConstraintReinjectEvery).toBe(0)
+  })
+
+  it('specRoot defaults to docs/superpowers/specs', () => {
+    const cfg = getConfig()
+    expect(cfg.specRoot).toBe('docs/superpowers/specs')
+  })
+
+  it('planRoot defaults to docs/superpowers/plans', () => {
+    const cfg = getConfig()
+    expect(cfg.planRoot).toBe('docs/superpowers/plans')
+  })
+
+  it('SPEC_ROOT env var overrides default', () => {
+    process.env.SPEC_ROOT = 'docs/my-specs'
+    const cfg = getConfig()
+    expect(cfg.specRoot).toBe('docs/my-specs')
+  })
+
+  it('PLAN_ROOT env var overrides default', () => {
+    process.env.PLAN_ROOT = 'docs/my-plans'
+    const cfg = getConfig()
+    expect(cfg.planRoot).toBe('docs/my-plans')
+  })
+
+  it('Cordis config overrides SPEC_ROOT env var', () => {
+    process.env.SPEC_ROOT = 'docs/env-specs'
+    const cfg = getConfig({ specRoot: 'docs/config-specs' })
+    expect(cfg.specRoot).toBe('docs/config-specs')
+  })
+
+  it('Cordis config overrides PLAN_ROOT env var', () => {
+    process.env.PLAN_ROOT = 'docs/env-plans'
+    const cfg = getConfig({ planRoot: 'docs/config-plans' })
+    expect(cfg.planRoot).toBe('docs/config-plans')
   })
 })
 

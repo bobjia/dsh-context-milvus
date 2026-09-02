@@ -54,6 +54,11 @@ export interface CordisConfig {
   adrConstraintReinjectEvery?: number
   /** Custom system prompt section for ADR rules (empty=use default) */
   adrSystemPrompt?: string
+
+  /** 规格文档目录（相对 indexRoot） */
+  specRoot?: string
+  /** 实现计划目录（相对 indexRoot） */
+  planRoot?: string
 }
 
 /** Resolved runtime config (all fields have values) */
@@ -75,6 +80,8 @@ export interface PluginConfig {
   adrCollection: string
   adrConstraintReinjectEvery: number
   adrSystemPrompt: string
+  specRoot: string
+  planRoot: string
 }
 
 /** Default file extensions to index, keyed by language */
@@ -217,5 +224,7 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
     adrCollection: overrides?.adrCollection ?? 'adr_embeddings',
     adrConstraintReinjectEvery: overrides?.adrConstraintReinjectEvery ?? 0,
     adrSystemPrompt: overrides?.adrSystemPrompt ?? '',
+    specRoot: overrides?.specRoot ?? process.env.SPEC_ROOT ?? 'docs/superpowers/specs',
+    planRoot: overrides?.planRoot ?? process.env.PLAN_ROOT ?? 'docs/superpowers/plans',
   }
 }

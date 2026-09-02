@@ -12,12 +12,14 @@
  *     milvusAddress, milvusToken, milvusCollection, milvusDim,
  *     embeddingEndpoint, embeddingApiKey, embeddingModel,
  *     indexRoot, indexExtensions, indexIgnoreDirs, hybridMode, bm25RrfK, merkleFilePath,
- *     adrEnabled, adrRoot, adrCollection, adrConstraintReinjectEvery, adrSystemPrompt
+ *     adrEnabled, adrRoot, adrCollection, adrConstraintReinjectEvery, adrSystemPrompt,
+ *     specRoot, planRoot
  *
  *   环境变量 (fallback, ADR 除外):
  *     MILVUS_ADDRESS, MILVUS_TOKEN, MILVUS_COLLECTION, MILVUS_EMBEDDING_DIM,
  *     EMBEDDING_ENDPOINT, EMBEDDING_API_KEY, EMBEDDING_MODEL,
- *     INDEX_ROOT, INDEX_EXTENSIONS, INDEX_IGNORE_DIRS, HYBRID_MODE, BM25_RRF_K, MERKLE_FILE_PATH
+ *     INDEX_ROOT, INDEX_EXTENSIONS, INDEX_IGNORE_DIRS, HYBRID_MODE, BM25_RRF_K, MERKLE_FILE_PATH,
+ *     SPEC_ROOT, PLAN_ROOT
  */
 
 import * as path from 'node:path'
@@ -151,6 +153,16 @@ export const Config = z.object({
     .default('')
     .description('自定义 ADR 系统提示段落（留空使用内置模板）')
     .role('textarea'),
+
+  /** 规格文档目录 */
+  specRoot: z.string()
+    .default('docs/superpowers/specs')
+    .description('Brainstorming 规格文档目录（相对 indexRoot）'),
+
+  /** 实现计划目录 */
+  planRoot: z.string()
+    .default('docs/superpowers/plans')
+    .description('实现计划文档目录（相对 indexRoot）'),
 })
 
 export async function apply(ctx: Context, config?: CordisConfig) {
