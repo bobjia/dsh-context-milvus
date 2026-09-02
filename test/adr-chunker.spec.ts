@@ -85,6 +85,14 @@ This is the goal of the decision.
     }
   })
 
+  it('sets docType to "adr" on each chunk', async () => {
+    const chunks = await chunkAdrFile('/docs/decisions/ADR-0001-test.md', sampleAdr)
+    expect(chunks.length).toBeGreaterThan(0)
+    for (const chunk of chunks) {
+      expect(chunk.docType).toBe('adr')
+    }
+  })
+
   it('sets status and triggerType from frontmatter', async () => {
     const chunks = await chunkAdrFile('/docs/decisions/ADR-0001-test.md', sampleAdr)
     for (const chunk of chunks) {

@@ -49,6 +49,7 @@ export async function chunkAdrFile(filePath: string, content: string): Promise<A
         chunks.push({
           filePath,
           adrId: frontmatter.id,
+          docType: 'adr',
           section: sectionLabel,
           content: currentLines.join('\n').trim(),
           startLine: currentStartLine + lineOffset,
@@ -72,6 +73,7 @@ export async function chunkAdrFile(filePath: string, content: string): Promise<A
     chunks.push({
       filePath,
       adrId: frontmatter.id,
+      docType: 'adr',
       section: sectionLabel,
       content: currentLines.join('\n').trim(),
       startLine: currentStartLine + lineOffset,

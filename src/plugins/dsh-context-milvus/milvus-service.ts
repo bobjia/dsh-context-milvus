@@ -433,6 +433,7 @@ export class MilvusService {
         { name: 'vector', data_type: DataType.FloatVector, dim: this.dim },
         ...(this.hybridMode ? [{ name: 'sparse_vector', data_type: DataType.SparseFloatVector }] : []),
         { name: 'adr_id', data_type: DataType.VarChar, max_length: 256 },
+        { name: 'doc_type', data_type: DataType.VarChar, max_length: 32, default_value: 'adr' },
         { name: 'file_path', data_type: DataType.VarChar, max_length: 1024 },
         { name: 'status', data_type: DataType.VarChar, max_length: 32 },
         { name: 'section', data_type: DataType.VarChar, max_length: 64 },
@@ -480,6 +481,7 @@ export class MilvusService {
         data: batch.map(chunk => ({
           vector: chunk.vector,
           adr_id: chunk.adrId,
+          doc_type: chunk.docType || 'adr',
           file_path: chunk.filePath,
           status: chunk.status,
           section: chunk.section,
@@ -508,7 +510,7 @@ export class MilvusService {
     const vector = vectors[0]
 
     const outputFields = [
-      'adr_id', 'file_path', 'status', 'section', 'content',
+      'adr_id', 'doc_type', 'file_path', 'status', 'section', 'content',
       'start_line', 'end_line', 'code_anchors', 'trigger_type',
     ]
 
@@ -552,6 +554,7 @@ export class MilvusService {
 
     return items.map((item: any) => ({
       adrId: item.adr_id ?? '',
+      docType: item.doc_type ?? 'adr',
       filePath: item.file_path ?? '',
       status: item.status ?? '',
       section: item.section ?? '',

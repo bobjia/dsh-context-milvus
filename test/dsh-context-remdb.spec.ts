@@ -711,6 +711,13 @@ describe('MilvusService ADR collection', () => {
     expect(fieldNames).toContain('section')
     expect(fieldNames).toContain('code_anchors')
     expect(fieldNames).toContain('trigger_type')
+
+    // Verify doc_type field exists with a default of 'adr'
+    expect(fieldNames).toContain('doc_type')
+    const docTypeField = callArgs.fields.find((f: any) => f.name === 'doc_type')
+    expect(docTypeField.data_type).toBe(21) // DataType.VarChar
+    expect(docTypeField.default_value).toBe('adr')
+    expect(docTypeField.max_length).toBe(32)
   })
 
   it('falls back to dense-only ADR schema when hybrid creation is unsupported', async () => {
@@ -754,17 +761,43 @@ describe('MilvusService ADR collection', () => {
     ;(service as any).adrCollection = 'adr_embeddings'
 
     const chunks = [
-      { filePath: '/doc.md', adrId: 'ADR-0001', section: 'goal', content: 'text', startLine: 1, endLine: 2, status: 'active', codeAnchors: ['src/a.ts'], triggerType: 'refactor', vector: [0.1, 0.2] },
-      { filePath: '/doc.md', adrId: 'ADR-0001', section: 'constraints', content: 'text2', startLine: 3, endLine: 4, status: 'active', codeAnchors: ['src/a.ts'], triggerType: 'refactor', vector: [0.3, 0.4] },
+      { filePath: '/doc.md', adrId: 'ADR-0001', docType: 'adr', section: 'goal', content: 'text', startLine: 1, endLine: 2, status: 'active', codeAnchors: ['src/a.ts'], triggerType: 'refactor', vector: [0.1, 0.2] },
+      { filePath: '/doc.md', adrId: 'ADR-0002', docType: 'spec', section: 'overview', content: 'text2', startLine: 3, endLine: 4, status: 'active', codeAnchors: ['src/b.ts'], triggerType: 'refactor', vector: [0.3, 0.4] },
     ]
     const count = await service.insertAdrChunks(chunks as any)
     expect(count).toBe(2)
     expect(mockInsert).toHaveBeenCalledWith(
       expect.objectContaining({ collection_name: 'adr_embeddings' }),
     )
+
+    // Verify doc_type is included in the insert data
+    const insertData = mockInsert.mock.calls[0][0].data
+    expect(insertData[0].doc_type).toBe('adr')
+    expect(insertData[1].doc_type).toBe('spec')
   })
 
-  it('searches ADR collection', async () => {
+  it('defaults doc_type to "adr" when chunk docType is missing', async () => {
+    mockInsert.mockResolvedValue({ insert_cnt: 1 })
+    const embedding = mockEmbeddingClient([[0.1, 0.2]])
+    const service = new MilvusService({
+      address: 'localhost:19530',
+      collection: 'code_embeddings',
+      dim: 768,
+      embeddingClient: embedding,
+      hybridMode: false,
+    })
+    ;(service as any).adrCollection = 'adr_embeddings'
+
+    // Chunk without docType
+    const chunks = [
+      { filePath: '/doc.md', adrId: 'ADR-0001', section: 'goal', content: 'text', startLine: 1, endLine: 2, status: 'active', codeAnchors: ['src/a.ts'], triggerType: 'refactor', vector: [0.1, 0.2] },
+    ]
+    await service.insertAdrChunks(chunks as any)
+    const insertData = mockInsert.mock.calls[0][0].data
+    expect(insertData[0].doc_type).toBe('adr')
+  })
+
+  it('searches ADR collection and maps docType', async () => {
     const embedding = mockEmbeddingClient([[0.1, 0.2, 0.3]])
     const service = new MilvusService({
       address: 'localhost:19530',
@@ -778,6 +811,7 @@ describe('MilvusService ADR collection', () => {
     mockSearch.mockResolvedValue({
       results: [{
         adr_id: 'ADR-0001',
+        doc_type: 'spec',
         file_path: '/doc.md',
         status: 'active',
         section: 'goal',
@@ -791,8 +825,39 @@ describe('MilvusService ADR collection', () => {
     const results = await service.searchAdr('test query', 5)
     expect(results).toHaveLength(1)
     expect(results[0].adrId).toBe('ADR-0001')
+    expect(results[0].docType).toBe('spec')
     expect(results[0].content).toBe('text')
     expect(results[0].score).toBe(0.95)
+  })
+
+  it('defaults docType to "adr" when missing from search results', async () => {
+    const embedding = mockEmbeddingClient([[0.4, 0.5, 0.6]])
+    const service = new MilvusService({
+      address: 'localhost:19530',
+      collection: 'code_embeddings',
+      dim: 768,
+      embeddingClient: embedding,
+      hybridMode: false,
+    })
+    ;(service as any).adrCollection = 'adr_embeddings'
+
+    mockSearch.mockResolvedValue({
+      results: [{
+        adr_id: 'ADR-0002',
+        // doc_type intentionally absent — simulates older index without doc_type field
+        file_path: '/doc2.md',
+        status: 'active',
+        section: 'constraints',
+        content: 'text2',
+        score: 0.85,
+        trigger_type: 'refactor',
+        code_anchors: '["src/b.ts"]',
+      }],
+    })
+
+    const results = await service.searchAdr('test query', 5)
+    expect(results).toHaveLength(1)
+    expect(results[0].docType).toBe('adr')
   })
 
   it('deletes ADR chunks by file path', async () => {

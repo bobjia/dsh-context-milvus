@@ -98,6 +98,7 @@ export interface AdrFrontmatter {
 export interface AdrChunk {
   filePath: string
   adrId: string
+  docType: string
   section: string
   content: string
   startLine: number
@@ -110,6 +111,7 @@ export interface AdrChunk {
 /** ADR search result */
 export interface AdrSearchResult {
   adrId: string
+  docType: string
   filePath: string
   status: string
   section: string
