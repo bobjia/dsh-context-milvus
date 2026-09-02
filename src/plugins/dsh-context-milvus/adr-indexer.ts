@@ -11,7 +11,7 @@ import type { AdrIndexStatus } from './types.js'
 import type { AdrService } from './adr-service.js'
 
 const ADR_FILE_RE = /^ADR-\d{4}-.+\.md$/
-const SPEC_FILE_RE = /^\d{4}-\d{2}-\d{2}-.+design\.md$/
+const SPEC_FILE_RE = /^\d{4}-\d{2}-\d{2}-.+-design\.md$/
 const PLAN_FILE_RE = /^\d{4}-\d{2}-\d{2}-(?:(?!.*design\.md$).)+\.md$/
 
 /** A single root directory to scan */
@@ -168,7 +168,9 @@ export async function runAdrIndex(
         const inserted = await milvus.insertAdrChunks(chunksWithVectors)
 
         // Update anchor index
-        const adrId = path.basename(filePath).replace(/\.md$/, '')
+        // Use the chunk's frontmatter-derived adrId (e.g. SPEC-…, PLAN-…) as the
+        // primary key, falling back to the file basename for legacy ADR files.
+        const adrId = chunks.length > 0 ? chunks[0].adrId : path.basename(filePath).replace(/\.md$/, '')
         const anchorFiles = chunks.length > 0 ? chunks[0].codeAnchors : []
         anchorIndex.setAdr(adrId, anchorFiles)
 

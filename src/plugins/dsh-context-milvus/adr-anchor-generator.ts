@@ -52,7 +52,7 @@ export async function findCandidateFiles(
       const fullPath = path.join(dir, entry.name)
       if (entry.isDirectory()) {
         await walk(fullPath)
-      } else if (entry.isFile() && fileRe.test(entry.name)) {
+      } else if (entry.isFile() && entry.name.match(fileRe)) {
         try {
           const content = await readFile(fullPath, 'utf-8')
           if (!parseFrontmatter(content)) {
@@ -220,6 +220,34 @@ export function detectCodeReferences(
 }
 
 /**
+ * Shared helper: read a spec/plan file, parse metadata, and detect code
+ * references. Returns null when the file already has frontmatter.
+ *
+ * Deduplicates the frontmatter check, basename parsing, docType detection,
+ * adrId computation, and code-reference detection that was previously
+ * duplicated in generateSpecFrontmatter and previewFrontmatter.
+ */
+async function buildSpecMetadata(
+  filePath: string,
+  codebaseRoot: string,
+): Promise<{ adrId: string; docType: string; topic: string; now: string; detectedRefs: DetectedRef[]; content: string } | null> {
+  const content = await readFile(filePath, 'utf-8')
+  if (parseFrontmatter(content)) return null
+
+  const basename = path.basename(filePath)
+  const isSpec = /design\.md$/.test(basename)
+  const docType = isSpec ? 'spec' : 'plan'
+
+  const now = new Date().toISOString().slice(0, 10)
+  const topic = basename.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '')
+  const adrId = `${docType === 'spec' ? 'SPEC' : 'PLAN'}-${now}-${topic}`
+
+  const detectedRefs = detectCodeReferences(content, codebaseRoot)
+
+  return { adrId, docType, topic, now, detectedRefs, content }
+}
+
+/**
  * Generate YAML frontmatter for a spec/plan document.
  * Returns null if the document already has frontmatter.
  */
@@ -227,23 +255,10 @@ export async function generateSpecFrontmatter(
   filePath: string,
   codebaseRoot: string,
 ): Promise<GenerateResult | null> {
-  const content = await readFile(filePath, 'utf-8')
+  const metadata = await buildSpecMetadata(filePath, codebaseRoot)
+  if (!metadata) return null
 
-  // Skip if already has frontmatter
-  if (parseFrontmatter(content)) return null
-
-  // Detect type from filename
-  const basename = path.basename(filePath)
-  const isSpec = /design\.md$/.test(basename)
-  const docType = isSpec ? 'spec' : 'plan'
-
-  // Detect code references
-  const detectedRefs = detectCodeReferences(content, codebaseRoot)
-
-  // Build frontmatter object
-  const now = new Date().toISOString().slice(0, 10)
-  const topic = basename.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '')
-  const adrId = `${docType === 'spec' ? 'SPEC' : 'PLAN'}-${now}-${topic}`
+  const { adrId, docType, topic, now, detectedRefs, content } = metadata
 
   const frontmatter: AdrFrontmatter = {
     id: adrId,
@@ -289,18 +304,8 @@ export async function previewFrontmatter(
   filePath: string,
   codebaseRoot: string,
 ): Promise<GenerateResult | null> {
-  const content = await readFile(filePath, 'utf-8')
-  if (parseFrontmatter(content)) return null
+  const metadata = await buildSpecMetadata(filePath, codebaseRoot)
+  if (!metadata) return null
 
-  const basename = path.basename(filePath)
-  const isSpec = /design\.md$/.test(basename)
-  const docType = isSpec ? 'spec' : 'plan'
-
-  const now = new Date().toISOString().slice(0, 10)
-  const topic = basename.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '')
-  const adrId = `${docType === 'spec' ? 'SPEC' : 'PLAN'}-${now}-${topic}`
-
-  const detectedRefs = detectCodeReferences(content, codebaseRoot)
-
-  return { adrId, detectedRefs, generated: false }
+  return { adrId: metadata.adrId, detectedRefs: metadata.detectedRefs, generated: false }
 }
