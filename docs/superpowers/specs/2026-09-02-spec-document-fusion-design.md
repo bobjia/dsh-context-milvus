@@ -61,7 +61,7 @@ Key modules already available:
 | `adr-tools.ts` | 7 ADR tools | Extended with `index_specs` |
 | `constraint-injector.ts` | System prompt + lifecycle hooks | Extended with spec-write detection |
 | `milvus-service.ts` | Milvus CRUD | Schema extended with `doc_type` |
-| `merkle.ts` | SHA-256 hash tracker | Reused (multi-root via separate tracker) |
+| `merkle.ts` | SHA-256 hash tracker | Reused (shared tracker across all roots) |
 
 ## Architecture decisions
 
@@ -70,12 +70,22 @@ Key modules already available:
 Specs and plans are indexed into the same `adr_embeddings` Milvus collection as
 ADRs, distinguished by a `doc_type` field (`"adr"` / `"spec"` / `"plan"`).
 
+**docType mapping** (from frontmatter `type` field → Milvus `doc_type`):
+
+| Frontmatter `type` | `doc_type` in Milvus |
+|--------------------|---------------------|
+| `decision-record`  | `adr` |
+| `spec`             | `spec` |
+| `plan`             | `plan` |
+
 Rationale:
 - Reuses the existing hybrid search pipeline (BM25 + dense vector + RRF)
 - Single collection for all decision-related documents
 - `search_adr` naturally finds specs alongside ADRs — no new search tool
-- Adding a `docType` field is a backward-compatible schema change (existing
-  ADR chunks get `docType: "adr"` on re-index)
+- Schema migration: `ensureAdrCollection` adds the `doc_type` field as a
+  nullable VarChar. Existing ADR chunks get `docType: "adr"` on the next
+  incremental re-index (delete + re-insert). A `full` re-index is recommended
+  once after upgrade to populate the field for all chunks.
 
 ### Decision 2: Multi-root scanning, not a single adrRoot
 
@@ -237,12 +247,18 @@ interface DetectedRef {
 
 ### Detection algorithm
 
+All three strategies are **cumulative** — each contributes to the final anchor
+set. Duplicates (same file path) are deduplicated, and symbols from different
+strategies are merged.
+
 1. **Explicit annotations** (`@file:path`): Direct code references written by
-   the author in the spec text. Most reliable source.
+   the author in the spec text. Most reliable source. Optionally followed by
+   `@symbol:name` for specific symbols, or `@lines:start,end` for line ranges.
 2. **Path pattern matching**: Scan for `src/`, `lib/`, `packages/`, etc.
    prefixed paths that match existing files in the codebase.
 3. **Symbol references**: Backtick-quoted identifiers (`` `createAdr` ``)
-   matched to nearby file paths.
+   matched to nearby file paths (looks backward in the text for the nearest
+   applicable file path).
 
 ### Frontmatter template (auto-generated)
 
