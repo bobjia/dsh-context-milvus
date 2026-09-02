@@ -33,16 +33,17 @@ export interface AdrIndexResult {
 
 /**
  * Scan a single root directory, returning a map of filePath → content hash.
- * Missing or unreadable directories are skipped silently (empty map).
+ * Missing or unreadable directories return null — the caller decides whether
+ * to treat that as "skip this root" or "everything is unavailable".
  */
-async function scanDirectory(root: ScanRoot): Promise<Map<string, string>> {
+async function scanDirectory(root: ScanRoot): Promise<Map<string, string> | null> {
   let files: string[]
   try {
     files = (await readdir(root.path))
       .filter(f => root.fileRe.test(f))
       .map(f => path.join(root.path, f))
   } catch {
-    return new Map()
+    return null
   }
 
   const currentFiles = new Map<string, string>()
@@ -90,11 +91,19 @@ export async function runAdrIndex(
     { path: config.planRoot, fileRe: PLAN_FILE_RE, label: 'plan' },
   ]
 
-  // Scan all roots and merge into a single file → hash map
+  // Scan all roots and merge into a single file → hash map.
+  // If ALL roots are unavailable (e.g. transient mount issue), return early
+  // with a zero result to preserve the existing tracker state rather than
+  // treating every previously-tracked file as "removed".
   progress('扫描目录...')
+  const scanResults = await Promise.all(scanRoots.map(r => scanDirectory(r)))
+  const nonNullResults = scanResults.filter((r): r is Map<string, string> => r !== null)
+  if (nonNullResults.length === 0) {
+    return { filesIndexed: 0, chunksIndexed: 0, filesRemoved: 0, chunksRemoved: 0, filesSkipped: 0, durationMs: Date.now() - startTime }
+  }
+
   const currentFiles = new Map<string, string>()
-  for (const root of scanRoots) {
-    const files = await scanDirectory(root)
+  for (const files of nonNullResults) {
     for (const [filePath, hash] of files) {
       currentFiles.set(filePath, hash)
     }

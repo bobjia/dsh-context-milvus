@@ -309,6 +309,50 @@ Test goal
     expect(result.filesIndexed).toBe(1)
   })
 
+  it('preserves tracker state when all root directories are missing', async () => {
+    // First: index a file normally to establish tracker state
+    await writeFile(path.join(adrDir, 'ADR-0001-test.md'),
+      `---
+id: ADR-0001-test
+type: decision-record
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test"
+  change_type: refactor
+related_decisions: []
+auto_generated: false
+---
+
+## 决策目标
+
+Test goal
+`)
+    await runAdrIndex(config, milvus, tracker, anchorIndex, { mode: 'full' })
+    expect(tracker.getStats().totalFiles).toBe(1)
+
+    // Now remove ALL three root directories (simulating transient unavailability)
+    await rm(adrDir, { recursive: true, force: true })
+    await rm(specDir, { recursive: true, force: true })
+    await rm(planDir, { recursive: true, force: true })
+    jest.clearAllMocks()
+
+    // Second run (incremental) — no root is available → zero result, state preserved
+    const result = await runAdrIndex(config, milvus, tracker, anchorIndex, { mode: 'incremental' })
+    expect(result.filesIndexed).toBe(0)
+    expect(result.filesRemoved).toBe(0)
+    expect(result.filesSkipped).toBe(0)
+    expect(tracker.getStats().totalFiles).toBe(1)
+    // No Milvus deletions should have been triggered
+    expect(milvus.deleteAdrByFilePath).not.toHaveBeenCalled()
+  })
+
   it('all roots share the same Merkle tracker', async () => {
     // Create files in all three roots
     await writeFile(path.join(adrDir, 'ADR-0001-test.md'),
