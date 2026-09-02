@@ -11,6 +11,7 @@ export interface CodeChunk {
   language: string
   chunkType: string   // e.g. 'function', 'class', 'method', 'interface'
   name: string        // e.g. function name, class name
+  references?: string[]  // symbols referenced by this chunk (for code relationship analysis)
 }
 
 /** 搜索结果（供 Agent 消费） */
@@ -23,6 +24,7 @@ export interface SearchResult {
   endLine: number
   name: string
   chunkType: string
+  references?: string[]  // symbols referenced by this chunk (for code relationship analysis)
 }
 
 /** 索引状态 */
@@ -61,6 +63,7 @@ export interface LanguageConfig {
   name: string
   extensions: string[]
   chunkNodeTypes: string[]
+  referenceNodeTypes?: string[]  // AST node types to collect as references
 }
 
 /** ADR code anchor — links a decision to a code location */
