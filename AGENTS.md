@@ -17,6 +17,8 @@
 | `list_adrs` | 列出 ADR 决策记录目录 | `status`、`change_type`、`limit` |
 | `load_constraints` | 加载 active ADR 的约束条件 | `adr_ids`、`format` |
 | `check_adr_consistency` | 检查 ADR 与代码的一致性 | `file_path`、`fix` |
+| `find_callers` | 查找代码中引用某个符号的所有位置，用于修改影响分析 | `symbol`(必填)、`direction`、`maxResults` |
+| `trace_call_chain` | 从入口符号出发 BFS 追踪调用链，支持影响分析和依赖分析 | `entry`(必填)、`direction`、`maxDepth`、`maxResults` |
 
 ## 使用规则
 
@@ -43,6 +45,14 @@
 6. **Brainstorming 产出后调用 index_specs**
 
    当 brainstorming 技能完成规格文档写作后，调用 `index_specs` 为其生成 code_anchors 并索引入库，让规格与代码建立双向链接。
+
+7. **修改代码前用 find_callers 做影响分析**
+
+   在修改或重命名函数/变量/类之前，先调用 `find_callers` 看哪些地方引用了它，避免遗漏连锁影响。
+
+8. **理解功能调用链用 trace_call_chain**
+
+   当需要理解一个功能的完整调用链路时，从入口函数开始用 `trace_call_chain direction=backward` 追踪调用者，或用 `direction=forward` 追踪其调用的下游函数。
 
 ## 何时用 `full` vs `incremental`
 
