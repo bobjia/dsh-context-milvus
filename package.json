@@ -1,6 +1,6 @@
 {
   "name": "dsh-context-milvus",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "DSH plugin for semantic code search via Milvus vector database",
   "type": "module",
   "files": [

@@ -424,6 +424,7 @@ export function registerTools(
                   endLine: { type: 'number' },
                   chunkType: { type: 'string' },
                   name: { type: 'string' },
+                  references: { type: 'array', items: { type: 'string' } },
                   resolution: {
                     type: 'object',
                     properties: {

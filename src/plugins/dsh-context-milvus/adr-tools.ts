@@ -500,6 +500,7 @@ export function registerAdrTools(
             adrId: { type: 'string' },
             detectedRefs: { type: 'array', items: { type: 'object', properties: {
               file: { type: 'string' }, symbols: { type: 'array', items: { type: 'string' } },
+              lines: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
             }, additionalProperties: false } },
           }, additionalProperties: false } },
         }, additionalProperties: false,
