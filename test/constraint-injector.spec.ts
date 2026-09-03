@@ -52,10 +52,11 @@ describe('setupConstraintInjection', () => {
   })
 
   it('registers a system prompt section', () => {
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    const disposer = setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
     expect(ctx.systemPrompt.section).toHaveBeenCalled()
     expect(sectionResult.name).toBe('decision-memory:rules')
     expect(sectionResult.order).toBe(50)
+    expect(typeof disposer).toBe('function')
   })
 
   it('registers a runtime context provider', () => {
@@ -74,11 +75,34 @@ describe('setupConstraintInjection', () => {
     expect(ctx.on).toHaveBeenCalledWith('tools/result', expect.any(Function))
   })
 
-  it('does nothing when adrEnabled is false', () => {
+  it('registers hooks regardless of adrEnabled (guard moved to caller)', () => {
     resolveConfig.mockReturnValue({ adrEnabled: false })
     setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
-    expect(ctx.systemPrompt.section).not.toHaveBeenCalled()
-    expect(ctx.on).not.toHaveBeenCalled()
+    expect(ctx.systemPrompt.section).toHaveBeenCalled()
+    expect(ctx.on).toHaveBeenCalled()
+  })
+
+  it('disposer tears down all registered sections and hooks', () => {
+    const sectionDisposer = jest.fn()
+    const contextDisposer = jest.fn()
+    const preStepDisposer = jest.fn()
+    const toolsResultDisposer = jest.fn()
+
+    ctx.systemPrompt.section.mockReturnValue(sectionDisposer)
+    ctx.systemPrompt.context.mockReturnValue(contextDisposer)
+    ctx.on.mockImplementation((name: string) => {
+      if (name === 'agent/pre-step') return preStepDisposer
+      if (name === 'tools/result') return toolsResultDisposer
+      return undefined
+    })
+
+    const disposer = setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    disposer()
+
+    expect(sectionDisposer).toHaveBeenCalledTimes(1)
+    expect(contextDisposer).toHaveBeenCalledTimes(1)
+    expect(preStepDisposer).toHaveBeenCalledTimes(1)
+    expect(toolsResultDisposer).toHaveBeenCalledTimes(1)
   })
 
   // ── Runtime behavior tests ────────────────────────────────────────────

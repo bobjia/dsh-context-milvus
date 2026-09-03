@@ -20,8 +20,8 @@ import type { ConstraintSummary } from './types.js'
 // not in this project's dependency tree. Cast ctx as any for those accesses.
 /** Minimal shape of the framework-provided systemPrompt service. */
 interface SystemPromptService {
-  section(section: { name: string; order: number; text: string | (() => string) }): void
-  context(context: { name: string; order: number; text: string | (() => string) }): void
+  section(section: { name: string; order: number; text: string | (() => string) }): () => void
+  context(context: { name: string; order: number; text: string | (() => string) }): () => void
 }
 
 const DEFAULT_SYSTEM_PROMPT = `## 决策记忆系统规则
@@ -79,37 +79,40 @@ function buildConstraintSummary(constraints: ConstraintSummary[]): string {
 
 /**
  * Set up system prompt injection, constraint re-injection, and file-change tracking.
+ *
+ * Returns a disposer function that, when called, tears down all registered hooks
+ * and prompt sections. This enables runtime toggling of ADR features.
  */
 export function setupConstraintInjection(
   ctx: Context,
   resolveConfig: () => PluginConfig,
   adrService: AdrService,
   anchorIndex: AdrAnchorIndex,
-): void {
-  const config = resolveConfig()
-  if (!config.adrEnabled) return
+): () => void {
+  const disposers: (() => void)[] = []
 
   const systemPrompt = ctx.get('systemPrompt') as SystemPromptService | undefined
 
   // ── 1. Register system prompt section ───────────────────────────────────
   if (systemPrompt?.section) {
+    const config = resolveConfig()
     const promptText = config.adrSystemPrompt || DEFAULT_SYSTEM_PROMPT
-    systemPrompt.section({
+    disposers.push(systemPrompt.section({
       name: 'decision-memory:rules',
       order: 50,
       text: promptText,
-    })
+    }))
 
     // ── 2. Register runtime context provider (sync — reads cache) ──────────
-    systemPrompt.context({
+    disposers.push(systemPrompt.context({
       name: 'decision-memory:active-constraints',
       order: 50,
       text: () => constraintCache,
-    })
+    }))
   }
 
   // ── 3. Register pre-step hook for constraint re-injection ────────────────
-  ;(ctx as any).on('agent/pre-step', async ({ agent, messages, step }: any, next: (...args: any[]) => any) => {
+  disposers.push((ctx as any).on('agent/pre-step', async ({ agent, messages, step }: any, next: (...args: any[]) => any) => {
     // Run the next middleware first
     const decision = await next()
     if (!decision || decision.kind === 'reject') return decision
@@ -171,11 +174,11 @@ export function setupConstraintInjection(
     }
 
     return decision
-  })
+  }))
 
   // ── 4. Register tools/result hook for file-change tracking ──────────────
   const FILE_TOOL_NAMES = new Set(['write', 'edit'])
-  ;(ctx as any).on('tools/result', (exec: any, result: any) => {
+  disposers.push((ctx as any).on('tools/result', (exec: any, result: any) => {
     if (!exec.agent || !result || result.isError) return
     if (!FILE_TOOL_NAMES.has(exec.name)) return
 
@@ -217,5 +220,9 @@ export function setupConstraintInjection(
         `📄 检测到新的实现计划文件 ${filePath}。建议调用 \`index_specs\` 为其生成 code_anchors 并索引入库。`,
       )
     }
-  })
+  }))
+
+  return () => {
+    for (const d of disposers) d()
+  }
 }

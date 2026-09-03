@@ -172,11 +172,43 @@ export async function apply(ctx: Context, config?: CordisConfig) {
   // GUI edit without requiring a plugin reload.
   let current: () => CordisConfig = () => config ?? {}
 
+  // ADR toggle state: disposers for runtime registration/unregistration
+  let adrToolDisposers: (() => void)[] = []
+  let constraintDisposer: (() => void) | null = null
+  let prevAdrEnabled = false
+
+  /** Toggle ADR features on/off at runtime without plugin reload. */
+  function toggleAdr(enable: boolean): void {
+    if (enable && !prevAdrEnabled) {
+      // ADR was just enabled — register tools and hooks
+      adrToolDisposers = registerAdrTools(
+        ctx, () => getConfig(current()), milvus, adrService, anchorIndex,
+        { runAdrIndex, tracker: adrTracker },
+      )
+      constraintDisposer = setupConstraintInjection(
+        ctx, () => getConfig(current()), adrService, anchorIndex,
+      )
+      console.log(`[dsh-context-milvus] ADR 决策记忆已启用`)
+    } else if (!enable && prevAdrEnabled) {
+      // ADR was just disabled — unregister tools and hooks
+      adrToolDisposers.forEach(d => d())
+      adrToolDisposers = []
+      if (constraintDisposer) {
+        constraintDisposer()
+        constraintDisposer = null
+      }
+      console.log('[dsh-context-milvus] ADR 决策记忆已禁用')
+    }
+    prevAdrEnabled = enable
+  }
+
   installSettingsSection(ctx, SETTINGS_NAMESPACE, Config, config ?? {}, {
     setSource: (source) => {
       current = source
     },
     onChange: () => {
+      const newConfig = getConfig(current())
+      toggleAdr(newConfig.adrEnabled)
       console.log('[dsh-context-milvus] Configuration updated via settings')
     },
   })
@@ -215,41 +247,36 @@ export async function apply(ctx: Context, config?: CordisConfig) {
     )
   })
 
-  // ── ADR (Decision Memory) initialization ──────────────────────────────
-  const adrResolved = getConfig(current())
-  let adrOptions: { service: AdrService; anchorIndex: AdrAnchorIndex; adrTracker: HashTracker } | undefined
+  // ── ADR (Decision Memory) services ────────────────────────────────────
+  // Always create ADR services at startup so they are available for the
+  // main tools (index_code, index_status). ADR tools and constraint
+  // injection hooks are registered/unregistered dynamically via toggleAdr().
+  const adrRoot = path.resolve(resolved.indexRoot, resolved.adrRoot)
 
-  if (adrResolved.adrEnabled) {
-    const adrRoot = path.resolve(adrResolved.indexRoot, adrResolved.adrRoot)
+  const anchorIndex = new AdrAnchorIndex(
+    deriveMerkleFilePath(adrRoot).replace('merkle', 'anchors'),
+  )
+  await anchorIndex.load().catch(() => {})
 
-    const anchorIndex = new AdrAnchorIndex(
-      deriveMerkleFilePath(adrRoot).replace('merkle', 'anchors'),
-    )
-    await anchorIndex.load().catch(() => {})
+  const adrService = new AdrService(adrRoot)
 
-    const adrService = new AdrService(adrRoot)
+  const adrTracker = new HashTracker(
+    deriveMerkleFilePath(adrRoot).replace('merkle', 'adr-merkle'),
+  )
+  await adrTracker.load().catch(() => {})
 
-    const adrTracker = new HashTracker(
-      deriveMerkleFilePath(adrRoot).replace('merkle', 'adr-merkle'),
-    )
-    await adrTracker.load().catch(() => {})
+  const adrOptions = { service: adrService, anchorIndex, adrTracker }
 
-    // Register ADR tools (with auto-indexing support)
-    registerAdrTools(ctx, () => getConfig(current()), milvus, adrService, anchorIndex, {
-      runAdrIndex,
-      tracker: adrTracker,
-    })
-
-    // Set up constraint injection (system prompt + lifecycle hooks)
-    setupConstraintInjection(ctx, () => getConfig(current()), adrService, anchorIndex)
-
-    adrOptions = { service: adrService, anchorIndex, adrTracker }
-
+  // Initial ADR setup — register tools and hooks if enabled at startup
+  prevAdrEnabled = resolved.adrEnabled
+  if (resolved.adrEnabled) {
+    toggleAdr(true)
     console.log(`[dsh-context-milvus] ADR 决策记忆已加载 (${adrRoot})`)
   }
 
   // Register all tools — pass the config thunk so each tool execution
-  // picks up the latest settings without restart
+  // picks up the latest settings without restart. adrOptions is always
+  // passed; tools check config.adrEnabled at execution time.
   registerTools(ctx, () => getConfig(current()), milvus, tracker, importResolver, adrOptions)
 
   console.log(

@@ -93,16 +93,15 @@ export function registerAdrTools(
   milvus: MilvusService,
   adrService: AdrService,
   anchorIndex: AdrAnchorIndex,
-  adrIndexer?: {  // NEW: for auto-indexing after create/update
+  adrIndexer?: {
     runAdrIndex: typeof runAdrIndex
     tracker: HashTracker
   },
-): void {
-  const config = resolveConfig()
-  if (!config.adrEnabled) return
+): (() => void)[] {
+  const disposers: (() => void)[] = []
 
   // ── search_adr ──────────────────────────────────────────────────────────
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'search_adr',
     description: '在 ADR 决策记录中执行语义搜索。当需要了解某段代码的"为什么"时使用此工具。',
     parameters: {
@@ -133,10 +132,10 @@ export function registerAdrTools(
       if (params.path) filters.pathPrefix = params.path
       return milvus.searchAdr(params.query, params.topK ?? 5, Object.keys(filters).length > 0 ? filters : undefined)
     },
-  }))
+  })))
 
   // ── search_adr_by_file ──────────────────────────────────────────────────
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'search_adr_by_file',
     description: '通过代码文件路径查找相关的 ADR 决策记录。基于 code_anchors 确定性关联。',
     parameters: {
@@ -179,10 +178,10 @@ export function registerAdrTools(
       }
       return results
     },
-  }))
+  })))
 
   // ── create_adr ──────────────────────────────────────────────────────────
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'create_adr',
     description: '创建新的 ADR 决策记录。当做出新设计决策、引入新依赖或架构变更时使用。',
     parameters: {
@@ -219,10 +218,10 @@ export function registerAdrTools(
       }
       return { adrId: result.id, filePath: result.filePath }
     },
-  }))
+  })))
 
   // ── update_adr ──────────────────────────────────────────────────────────
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'update_adr',
     description: '更新已有 ADR 决策记录。修改约束、变更状态或补充内容时使用。',
     parameters: {
@@ -258,10 +257,10 @@ export function registerAdrTools(
       }
       return { adrId: result.id, filePath: result.filePath }
     },
-  }))
+  })))
 
   // ── list_adrs ───────────────────────────────────────────────────────────
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'list_adrs',
     description: '列出 ADR 决策记录目录。可按状态和变更类型过滤。',
     parameters: {
@@ -298,10 +297,10 @@ export function registerAdrTools(
         limit: params.limit ?? 100,
       })
     },
-  }))
+  })))
 
   // ── load_constraints ────────────────────────────────────────────────────
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'load_constraints',
     description: '加载当前 active ADR 的约束条件，包括隐性约束和被否决的反模式。',
     parameters: {
@@ -366,10 +365,10 @@ export function registerAdrTools(
         return item
       })
     },
-  }))
+  })))
 
   // ── check_adr_consistency ───────────────────────────────────────────────
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'check_adr_consistency',
     description: '检查 ADR 决策记录与代码的一致性。验证 code_anchors 是否仍然有效，检测未覆盖的变更。',
     parameters: {
@@ -477,10 +476,10 @@ export function registerAdrTools(
 
       return { staleAnchors, uncoveredChanges, fixedAnchors }
     },
-  }))
+  })))
 
   // ── index_specs ────────────────────────────────────────────────────────
-  ctx.tools.register(defineTool({
+  disposers.push(ctx.tools.register(defineTool({
     name: 'index_specs',
     description: '扫描规格文档目录，为无 frontmatter 的文档生成锚点并索引。',
     parameters: {
@@ -584,5 +583,7 @@ export function registerAdrTools(
         preview,
       }
     },
-  }))
+  })))
+
+  return disposers
 }

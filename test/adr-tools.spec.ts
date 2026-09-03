@@ -5,7 +5,7 @@ import * as path from 'node:path'
 import * as os from 'node:os'
 
 // Mock dsh-tools
-const mockRegister = jest.fn()
+const mockRegister = jest.fn(() => jest.fn())  // returns a disposer function
 const mockDefineTool = jest.fn((opts: any) => opts)
 
 jest.unstable_mockModule('@deepseek-ai/dsh-tools', () => ({
@@ -73,15 +73,18 @@ describe('registerAdrTools', () => {
     resolveConfig = jest.fn().mockReturnValue({ adrEnabled: true })
   })
 
-  it('registers 8 tools when adrEnabled is true', () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+  it('registers 8 tools and returns disposers', () => {
+    const disposers = registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
     expect(mockRegister).toHaveBeenCalledTimes(8)
+    expect(disposers).toHaveLength(8)
+    disposers.forEach(d => expect(typeof d).toBe('function'))
   })
 
-  it('registers no tools when adrEnabled is false', () => {
+  it('registers 8 tools regardless of adrEnabled (guard moved to caller)', () => {
     resolveConfig.mockReturnValue({ adrEnabled: false })
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
-    expect(mockRegister).not.toHaveBeenCalled()
+    const disposers = registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    expect(mockRegister).toHaveBeenCalledTimes(8)
+    expect(disposers).toHaveLength(8)
   })
 
   it('search_adr tool calls milvus.searchAdr', async () => {
