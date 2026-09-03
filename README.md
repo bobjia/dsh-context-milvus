@@ -32,14 +32,15 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 - **`search_code`** — 语义搜索代码：输入自然语言查询，返回匹配的代码片段
 - **`index_code`** — 索引代码仓库：AST 解析 + 分块 → Embedding → 存储到 Milvus
 - **`index_status`** — 查看索引状态：文件数量、最后索引时间、哈希统计
-- **`find_callers`** — 代码关系分析（影响分析）：查找引用某个符号的所有位置
-- **`trace_call_chain`** — 调用链追踪：从入口符号 BFS 展开调用链（影响/依赖分析）
+- **`find_callers`** — 代码关系分析（影响分析）：查找引用某个符号的所有位置，支持跨文件 import 精确解析
+- **`trace_call_chain`** — 调用链追踪：从入口符号 BFS 展开调用链（影响/依赖分析），支持跨文件解析消歧
 - **混合检索** — BM25 关键词 + 向量语义双路检索，RRF 融合，`hybridMode` 控制开关
 - **忽略模式系统** — 三层 gitignore 风格忽略规则（默认模式 + 代码库忽略文件 + 全局忽略文件）
 - **增量索引** — 基于 Merkle SHA-256 哈希追踪，仅处理变更文件
 - **工作区隔离** — 不同工作区使用独立的 Merkle 状态文件，互不干扰
 - **ADR 决策记忆系统** — 记录代码变更背后的设计原因（Architecture Decision Record），支持语义搜索、CRUD、约束注入和一致性检查
-- **代码关系分析** — 索引时从 AST 提取每个代码块引用的符号（`references`，各语言树状语法节点），支持跨文件精确匹配（V1 基于名称，不做 import 解析）
+- **代码关系分析** — 索引时从 AST 提取每个代码块引用的符号（`references`，各语言树状语法节点），支持跨文件精确匹配
+- **跨文件 import 解析（V2）** — 索引期用 tree-sitter AST 扫描 import/export 语句，构建持久化双向 Import Map，`find_callers` / `trace_call_chain` 据此做跨文件符号精确匹配（同名消歧、跨模块追踪）
 
 ---
 
@@ -80,8 +81,8 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 | `list_adrs` | 列出 ADR 决策记录目录 | `status`、`change_type`、`limit` |
 | `load_constraints` | 加载 active ADR 的约束条件 | `adr_ids`、`format` |
 | `check_adr_consistency` | 检查 ADR 与代码的一致性 | `file_path`、`fix` |
-| `find_callers` | 查找引用某符号的所有位置，用于修改影响分析 | `symbol`（必填）、`direction`、`maxResults` |
-| `trace_call_chain` | 从入口符号 BFS 追踪调用链（影响/依赖分析） | `entry`（必填）、`direction`、`maxDepth`、`maxResults` |
+| `find_callers` | 查找引用某符号的所有位置，用于修改影响分析，支持跨文件 import 精确解析 | `symbol`（必填）、`direction`、`maxResults`、`sourceFile`、`resolve` |
+| `trace_call_chain` | 从入口符号 BFS 追踪调用链（影响/依赖分析），支持 import 解析消歧 | `entry`（必填）、`direction`、`maxDepth`、`maxResults`、`resolve` |
 
 ### 工作流程
 
@@ -91,8 +92,9 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 4. Agent 基于精准上下文做调试、重构、开发，不再疯狂 grep 读一堆文件。
 5. 代码变更后，执行 `index_code mode=incremental` 增量更新，只重新索引变更的文件。
 6. 随时通过 `index_status` 查看索引状态（已索引文件数、代码块总数、最后索引时间）。
-7. 修改代码前用 `find_callers` 做影响分析：查看哪些地方引用了要修改的符号，避免遗漏连锁影响。
-8. 理解功能调用链用 `trace_call_chain`：从入口函数 BFS 展开调用链，`direction=backward` 追踪调用者，`direction=forward` 追踪下游依赖。
+7. 修改代码前用 `find_callers` 做影响分析：查看哪些地方引用了要修改的符号，避免遗漏连锁影响。同名符号跨文件时，用 `sourceFile` 参数限定定义文件做精确消歧。
+8. 理解功能调用链用 `trace_call_chain`：从入口函数 BFS 展开调用链，`direction=backward` 追踪调用者，`direction=forward` 追踪下游依赖。`resolve: false` 可回退到 V1 名称匹配模式。
+9. 跨文件引用分析：`find_callers` 和 `trace_call_chain` 默认启用 import 解析（`resolve: true`），索引期构建的 Import Map 自动将 `import { X } from './foo'` 映射到 `foo.ts` 的导出，消除同名符号歧义，支持跨模块调用链追踪。当 import map 未构建时自动降级为 V1 名称匹配。
 
 ### ADR 决策记忆工作流程
 
@@ -391,7 +393,7 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 
 ### `find_callers`
 
-查找代码中引用某个符号（函数/变量/类）的所有位置，用于修改影响分析。
+查找代码中引用某个符号（函数/变量/类）的所有位置，用于修改影响分析。V2 新增跨文件 import 精确解析：同名符号跨文件时，用 `sourceFile` 参数限定定义文件做消歧。
 
 **参数：**
 
@@ -400,6 +402,8 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 | `symbol` | string | 是 | — | 要查找的符号名（函数名、变量名、类名） |
 | `direction` | string | 否 | `backward` | `backward`=谁引用了我（影响面）；`forward`=我引用了谁（依赖面） |
 | `maxResults` | number | 否 | 20 | 最大返回结果数 |
+| `sourceFile` | string | 否 | — | 限定定义文件路径（显式消歧，只返回从该文件导入该符号的调用者） |
+| `resolve` | boolean | 否 | `true` | 是否启用 import 解析（设为 `false` 回退到 V1 名称匹配模式） |
 
 **返回格式：**
 
@@ -412,15 +416,22 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
       "startLine": 42,
       "endLine": 68,
       "chunkType": "function_declaration",
-      "name": "loginUser"
+      "name": "loginUser",
+      "resolution": {
+        "status": "resolved",
+        "targetFile": "src/auth/session.ts",
+        "exportedAs": "loginUser"
+      }
     }
   ]
 }
 ```
 
+> `resolution` 字段：`status` 为 `resolved`（已解析到跨文件导入）、`local`（同文件内定义）、`unresolved`（未解析，V1 名称匹配回退）。仅启用 import 解析且 Import Map 已构建时存在。
+
 ### `trace_call_chain`
 
-从入口符号出发，沿引用关系 BFS 追踪调用链。`direction=backward` 做影响分析（找谁调用了入口），`direction=forward` 做依赖分析（入口调用了谁）。使用 visited set 防止循环。
+从入口符号出发，沿引用关系 BFS 追踪调用链。`direction=backward` 做影响分析（找谁调用了入口），`direction=forward` 做依赖分析（入口调用了谁）。使用 visited set 防止循环。V2 支持 import 解析消歧（`resolve: true` 默认启用），使用 `filePath:symbol` 复合键追踪跨文件调用链。
 
 **参数：**
 
@@ -430,6 +441,7 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 | `direction` | string | 否 | `backward` | 展开方向 |
 | `maxDepth` | number | 否 | 3 | 最大递归深度 |
 | `maxResults` | number | 否 | 10 | 每层最大结果数 |
+| `resolve` | boolean | 否 | `true` | 是否启用 import 解析（设为 `false` 回退到 V1） |
 
 **返回格式：**
 
@@ -585,10 +597,11 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 │  │  code-relations.ts (BFS engine)    │                    └──────────────────┘  │
 │  │  findCallers / traceChain          │                                          │
 │  └────────────────────────────────────┘                                          │
-│  ┌──────────────────────────────────────────────────────────────────────────────┐│
-│  │  ignore-matcher (gitignore-style 三层忽略系统)                                ││
-│  │  ① DEFAULT_IGNORE_PATTERNS → ② 代码库忽略文件 ③ ~/.context/.contextignore   ││
-│  └──────────────────────────────────────────────────────────────────────────────┘│
+│  ┌──────────────────────────────┐  ┌──────────────────────────────────────────┐  │
+│  │  import-resolver.ts          │  │  ignore-matcher (gitignore-style 三层忽略) │  │
+│  │  Import Map (持久化双向解析)  │  │  ① DEFAULT_IGNORE_PATTERNS → ② 代码库忽略   │  │
+│  └──────────────────────────────┘  │  ③ ~/.context/.contextignore             │  │
+│                                    └──────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────────────────────────┘
                         │
               ┌─────────┴─────────┐
@@ -610,9 +623,10 @@ index.ts (entry point)
   ├── merkle.ts     — SHA-256 哈希追踪器（增量索引，持久化到 JSON）
   ├── tools.ts      — DSH 工具定义、格式化、工作区感知的追踪器创建
   │     └── code-relations.ts — 代码关系分析引擎（BFS 调用链 + 去噪）
+  │           └── import-resolver.ts — 跨文件 Import Map（tree-sitter AST 扫描 import/export）
   ├── ignore-matcher.ts — gitignore 风格模式匹配（文件排除）
   └── indexer.ts    — 索引管线编排
-        └── chunker.ts — tree-sitter AST 分块 + regex 回退 (含 references 提取)
+        └── chunker.ts — tree-sitter AST 分块 + regex 回退 (含 references 提取 + 语言 import/export 配置)
   └── adr-frontmatter.ts — YAML frontmatter 解析
   └── adr-chunker.ts     — Markdown 章节分块
   └── adr-anchor-index.ts — code_anchors 反向索引
@@ -638,6 +652,9 @@ npx jest test/dsh-context-remdb.spec.ts
 
 # 代码关系分析测试
 npx jest test/code-relations.spec.ts
+
+# 跨文件 Import 解析测试
+npx jest test/import-resolver.spec.ts
 
 # ADR 模块测试
 npx jest test/adr-frontmatter.spec.ts
