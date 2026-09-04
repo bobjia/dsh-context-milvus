@@ -1,3 +1,52 @@
+---
+id: SPEC-2026-09-04-adr-token-optimization-design
+type: spec
+status: active
+created: '2026-09-04'
+updated: '2026-09-04'
+author: dsh-context-milvus
+supersedes: null
+superseded_by: null
+code_anchors:
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/config.ts
+    symbols:
+      - adrEnabled
+      - adrConstraintReinjectEvery
+    lines:
+      - 109
+      - 109
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/constraint-injector.ts
+    symbols:
+      - DEFAULT_SYSTEM_PROMPT
+      - createUserMessage
+      - buildConstraintSummary
+    lines:
+      - 110
+      - 110
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/test/constraint-injector.spec.ts
+    symbols: []
+    lines:
+      - 116
+      - 116
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/test/dsh-context-remdb.spec.ts
+    symbols:
+      - adrEnabled
+      - adrConstraintReinjectEvery
+    lines:
+      - 117
+      - 117
+    git_commit: ''
+trigger:
+  task_id: null
+  requirement_summary: adr token optimization design
+  change_type: architecture
+related_decisions: []
+auto_generated: true
+---
+
 # ADR Token Optimization — Design
 
 Date: 2026-09-01

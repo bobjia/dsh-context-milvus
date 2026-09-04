@@ -1,3 +1,74 @@
+---
+id: SPEC-2026-09-04-decision-causal-memory-design
+type: spec
+status: active
+created: '2026-09-04'
+updated: '2026-09-04'
+author: dsh-context-milvus
+supersedes: null
+superseded_by: null
+code_anchors:
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus
+    symbols:
+      - adr_embeddings
+      - code_embeddings
+      - id
+      - vector
+      - sparse_vector
+      - adr_id
+      - file_path
+      - status
+      - active
+      - superseded
+      - deprecated
+      - section
+      - content
+      - start_line
+      - end_line
+      - code_anchors
+      - trigger_type
+      - new_feature
+      - refactor
+      - bugfix
+      - header
+      - goal
+      - constraints
+      - alternatives
+      - hidden_constraints
+      - rejected
+      - tests
+      - boundary
+      - search_adr_by_file
+      - adrConstraintReinjectEvery
+      - search_adr
+      - create_adr
+      - update_adr
+      - list_adrs
+      - load_constraints
+      - check_adr_consistency
+      - adrEnabled
+      - ADR_ENABLED
+      - 'true'
+      - adrRoot
+      - ADR_ROOT
+      - adrCollection
+      - ADR_COLLECTION
+      - ADR_REINJECT_EVERY
+      - adrSystemPrompt
+      - ADR_SYSTEM_PROMPT
+      - registerTools
+    lines:
+      - 51
+      - 302
+    git_commit: ''
+trigger:
+  task_id: null
+  requirement_summary: decision causal memory design
+  change_type: architecture
+related_decisions: []
+auto_generated: true
+---
+
 # Decision Causal Memory System — Design
 
 Date: 2026-09-01

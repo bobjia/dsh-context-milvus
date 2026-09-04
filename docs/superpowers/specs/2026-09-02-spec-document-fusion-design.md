@@ -1,3 +1,93 @@
+---
+id: SPEC-2026-09-04-spec-document-fusion-design
+type: spec
+status: active
+created: '2026-09-04'
+updated: '2026-09-04'
+author: dsh-context-milvus
+supersedes: null
+superseded_by: null
+code_anchors:
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/adr-indexer.ts
+    symbols:
+      - specRoot
+      - planRoot
+      - dry_run
+      - runAdrIndex
+      - docType
+      - index_code
+      - adrEnabled
+      - adrRoot
+      - indexRoot
+      - cwd
+      - index_specs
+    lines:
+      - 274
+      - 360
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/adr-anchor-generator.ts
+    symbols: []
+    lines:
+      - 359
+      - 359
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/adr-chunker.ts
+    symbols: []
+    lines:
+      - 361
+      - 361
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/adr-tools.ts
+    symbols:
+      - index_specs
+    lines:
+      - 362
+      - 362
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/types.ts
+    symbols: []
+    lines:
+      - 363
+      - 363
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/milvus-service.ts
+    symbols: []
+    lines:
+      - 364
+      - 364
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/config.ts
+    symbols: []
+    lines:
+      - 365
+      - 365
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/index.ts
+    symbols: []
+    lines:
+      - 366
+      - 366
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/tools.ts
+    symbols: []
+    lines:
+      - 367
+      - 367
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/constraint-injector.ts
+    symbols: []
+    lines:
+      - 368
+      - 368
+    git_commit: ''
+trigger:
+  task_id: null
+  requirement_summary: spec document fusion design
+  change_type: architecture
+related_decisions: []
+auto_generated: true
+---
+
 # Spec Document Fusion — Design
 
 Date: 2026-09-02

@@ -1,3 +1,65 @@
+---
+id: SPEC-2026-09-04-bm25-hybrid-search-design
+type: spec
+status: active
+created: '2026-09-04'
+updated: '2026-09-04'
+author: dsh-context-milvus
+supersedes: null
+superseded_by: null
+code_anchors:
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/milvus-service.ts
+    symbols: []
+    lines:
+      - 136
+      - 136
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/config.ts
+    symbols:
+      - bm25RrfK
+    lines:
+      - 137
+      - 137
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/src/plugins/dsh-context-milvus/index.ts
+    symbols: []
+    lines:
+      - 138
+      - 138
+    git_commit: ''
+  - file: /mnt/home/bobjia/workspace/dsh-context-milvus/test/dsh-context-remdb.spec.ts
+    symbols:
+      - createCollection
+      - functions
+      - enable_analyzer
+      - SparseFloatVector
+      - hybridSearch
+      - rrf
+      - k
+      - search
+      - sparse_vector
+      - renameCollection
+      - bm25RrfK
+      - k1
+      - b
+      - dover_amp
+      - index_code
+      - full
+      - loginUser
+      - login
+      - user
+    lines:
+      - 139
+      - 172
+    git_commit: ''
+trigger:
+  task_id: null
+  requirement_summary: bm25 hybrid search design
+  change_type: architecture
+related_decisions: []
+auto_generated: true
+---
+
 # BM25 Keyword Fusion — Design
 
 Date: 2026-08-29

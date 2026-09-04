@@ -52,6 +52,16 @@ window.__ModuleLoader__.load({
       merkleFilePathHint: "增量索引哈希状态文件路径，留空使用默认位置",
       bm25RrfK: "BM25 RRF 参数 k",
       bm25RrfKHint: "RRF 融合算法参数，默认 60",
+      adrEnabled: "ADR 决策记忆",
+      adrEnabledHint: "启用后可使用 ADR 工具记录/查询架构决策",
+      adrRoot: "ADR 目录",
+      adrRootHint: "ADR 文件目录（相对 indexRoot），默认 docs/decisions",
+      adrCollection: "ADR 集合名称",
+      adrCollectionHint: "Milvus 中存储 ADR 向量的集合名称",
+      adrConstraintReinjectEvery: "约束重注入步数",
+      adrConstraintReinjectEveryHint: "每 N 步自动重注入约束（0=禁用）",
+      adrSystemPrompt: "自定义 ADR 规则提示",
+      adrSystemPromptHint: "系统提示词中 ADR 规则的定制内容（留空使用默认）",
       save: "保存",
       discard: "撤销",
       overridden: "已覆盖",
@@ -90,6 +100,16 @@ window.__ModuleLoader__.load({
       merkleFilePathHint: "Leave blank for default location",
       bm25RrfK: "BM25 RRF k",
       bm25RrfKHint: "RRF fusion parameter, default 60",
+      adrEnabled: "ADR Decision Memory",
+      adrEnabledHint: "Enable ADR tools for recording/querying architecture decisions",
+      adrRoot: "ADR Directory",
+      adrRootHint: "ADR file directory (relative to indexRoot), default docs/decisions",
+      adrCollection: "ADR Collection Name",
+      adrCollectionHint: "Milvus collection storing ADR embeddings",
+      adrConstraintReinjectEvery: "Constraint Re-inject Steps",
+      adrConstraintReinjectEveryHint: "Auto re-inject constraints every N steps (0=disabled)",
+      adrSystemPrompt: "Custom ADR Rules Prompt",
+      adrSystemPromptHint: "Custom section for ADR rules in system prompt (empty=default)",
       save: "Save",
       discard: "Discard",
       overridden: "Overridden",
@@ -495,6 +515,11 @@ window.__ModuleLoader__.load({
         { id: "merkleFilePath", label: t("merkleFilePath"), hint: t("merkleFilePathHint"), numeric: false, secret: false },
         { id: "indexIgnoreDirs", label: t("indexIgnoreDirs"), hint: t("indexIgnoreDirsHint"), numeric: false, secret: false },
         { id: "bm25RrfK", label: t("bm25RrfK"), hint: t("bm25RrfKHint"), numeric: true, secret: false },
+        { id: "adrEnabled", label: t("adrEnabled"), hint: t("adrEnabledHint"), numeric: false, secret: false, boolean: true },
+        { id: "adrRoot", label: t("adrRoot"), hint: t("adrRootHint"), numeric: false, secret: false },
+        { id: "adrCollection", label: t("adrCollection"), hint: t("adrCollectionHint"), numeric: false, secret: false },
+        { id: "adrConstraintReinjectEvery", label: t("adrConstraintReinjectEvery"), hint: t("adrConstraintReinjectEveryHint"), numeric: true, secret: false },
+        { id: "adrSystemPrompt", label: t("adrSystemPrompt"), hint: t("adrSystemPromptHint"), numeric: false, secret: false, textarea: true },
       ];
 
       return jsxRuntime.jsxs("div", {
@@ -605,6 +630,42 @@ window.__ModuleLoader__.load({
                     children: jsxRuntime.jsxs("div", {
                       children: fields.map(function (field) {
                         var fieldState = state[field.id] || {};
+                        if (field.boolean) {
+                          return jsxRuntime.jsx(BooleanField, {
+                            id: "plugin-config-dsh-context-milvus-" + field.id,
+                            label: field.label,
+                            hint: field.hint,
+                            disabled: disabled,
+                            overriddenLabel: t("overridden"),
+                            resetLabel: t("reset"),
+                            text: fieldState.text,
+                            overridden: fieldState.overridden,
+                            onEdit: function (text) {
+                              props.edit(field.id, text);
+                            },
+                            onReset: function () {
+                              props.resetField(field.id);
+                            },
+                          }, field.id);
+                        }
+                        if (field.textarea) {
+                          return jsxRuntime.jsx(TextareaField, {
+                            id: "plugin-config-dsh-context-milvus-" + field.id,
+                            label: field.label,
+                            hint: field.hint,
+                            disabled: disabled,
+                            overriddenLabel: t("overridden"),
+                            resetLabel: t("reset"),
+                            text: fieldState.text,
+                            overridden: fieldState.overridden,
+                            onEdit: function (text) {
+                              props.edit(field.id, text);
+                            },
+                            onReset: function () {
+                              props.resetField(field.id);
+                            },
+                          }, field.id);
+                        }
                         return jsxRuntime.jsx(ValueField, {
                           id: "plugin-config-dsh-context-milvus-" + field.id,
                           label: field.label,
@@ -766,6 +827,11 @@ window.__ModuleLoader__.load({
         ignorePatterns: "string",
         hybridMode: "boolean",
         bm25RrfK: "number",
+        adrEnabled: "boolean",
+        adrRoot: "string",
+        adrCollection: "string",
+        adrConstraintReinjectEvery: "number",
+        adrSystemPrompt: "string",
       };
 
       function toTypedValue(field, text) {
@@ -792,6 +858,8 @@ window.__ModuleLoader__.load({
           "embeddingEndpoint", "embeddingApiKey", "embeddingModel",
           "indexRoot", "indexExtensions", "merkleFilePath",
           "indexIgnoreDirs", "ignorePatterns", "hybridMode", "bm25RrfK",
+          "adrEnabled", "adrRoot", "adrCollection",
+          "adrConstraintReinjectEvery", "adrSystemPrompt",
         ];
 
         var fields = {};

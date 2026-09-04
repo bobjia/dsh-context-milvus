@@ -1,3 +1,21 @@
+---
+id: SPEC-2026-09-04-dsh-context-remdb-design
+type: spec
+status: active
+created: '2026-09-04'
+updated: '2026-09-04'
+author: dsh-context-milvus
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: dsh context remdb design
+  change_type: architecture
+related_decisions: []
+auto_generated: true
+---
+
 # dsh-context-remdb Design Specification
 
 ## Overview
