@@ -13,9 +13,11 @@ related_decisions: []
 
 为 `dsh-context-milvus` 建立一套可复现的统计评测体系，用**证据而非断言**证明插件的实际效果，用于推广/README 展示。
 
-核心策略：**双层非参数 + Bootstrap 证据链**，从「检索质量」到「端到端 Agent 效率」形成完整因果叙事：
+核心策略：**三层证据体系**——「离线检索质量」（可控实验）+「端到端 Agent 效率」（可控实验）+「实际运行观测」（观测性相关），贯穿使用非参数 + Bootstrap：
 
 > **检索准（离线可证）→ 效率高（端到端可证）→ 任务成功（pass@k 可证）**
+> 
+> 第三层「实际运行观测」用真实使用数据**三角验证**前两层结论，仅作「相关/趋势」声明，不作因果断言。
 
 ## 目标与非目标
 
@@ -85,6 +87,28 @@ related_decisions: []
 - 成功率配对比例：**McNemar 检验**。
 - 三次主对比做 **Holm 多重比较校正**。
 
+## 评测层三：实际运行观测（观测性/相关）
+
+> 定位：**三角验证（triangulation）**，用真实使用数据印证前两层结论，但**不替代**可控实验——观测性数据混杂因素无法控制，只能作「相关/趋势」声明。
+
+### 数据源（分两档可行性）
+
+**插件原生指标（当前即可落地）**：在工具 `execute` 内埋点，落本地 JSONL（默认关闭，opt-in）：
+- `search_code`：query、topK、path、结果数、top score、检索耗时
+- `index_code`：files/chunks indexed、duration、增量命中情况
+- `index_status`：totalFiles / totalChunks / lastIndexed
+
+**宿主级指标（需 DSH 暴露）**：session 级 token 消耗、工具调用总数、任务完成度。插件工具当前仅能访问 `exec.agent.session.header.cwd`，**token/工具调用计数不在插件可见范围内**，需依赖 DSH 宿主遥测或日志解析（待确认假设）。
+
+### 统计方法
+- 描述性聚合：median / IQR / 百分位 + Bootstrap 95% CI。
+- 相关性：索引使用情况（如 `search_code` 命中次数）与结果质量信号的相关性。
+- 若有时间序列：**interrupted time series / 分段回归** 做前后对比。
+- 明确标注「观测性，仅相关，不声称因果」。
+
+### 隐私约定
+- 默认关闭、仅本地落盘、不采集源代码内容（只记 query 文本与统计量，query 可脱敏）。
+
 ## 样本量与效力（诚实性）
 
 - 设定粗略功效目标（如检测 20% token 降幅，α=0.05，power=0.8，反推所需任务数 N）。
@@ -100,10 +124,12 @@ related_decisions: []
 
 1. 本设计文档（`docs/superpowers/specs/`）。
 2. 可复跑评测脚本（落点为 `scripts/eval/`），随代码库维护。
-3. 一份评测结果报告（README/推广素材，含上述图表与话术）。
+3. 插件原生埋点（opt-in，本地 JSONL 指标文件），供第三层观测统计。
+4. 一份评测结果报告（README/推广素材，含上述图表与话术）。
 
 ## 复现性约定
 
 - 固定随机种子（任务抽样、运行顺序、Bootstrap）。
 - 记录 embedding 模型、LLM 版本、Milvus 版本、依赖版本号。
 - 评测脚本以 `scripts/eval/` 独立目录组织，与业务代码解耦。
+- 埋点默认关闭，仅本地落盘，不采集源代码内容。
