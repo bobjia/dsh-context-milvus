@@ -3,136 +3,138 @@
 [![npm version](https://img.shields.io/npm/v/dsh-context-milvus)](https://www.npmjs.com/package/dsh-context-milvus)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/bobjia/dsh-context-milvus)
 
-DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持完整的索引 ↔ 搜索闭环。
+**English** | [简体中文](README.zh.md)
 
-> dsh-context-milvus = **给 DSH Agent 装上一套代码库专用语义检索引擎，Milvus 负责高速向量语义检索，把"大海捞针式 grep"变成"精准召回相关代码片段"，降 token、减工具调用、提升大仓库下编码 Agent 质量**。
+A DSH plugin that provides semantic code search over a **Milvus** vector database, with a complete index ↔ search pipeline.
+
+> dsh-context-milvus = **equips your DSH Agent with a dedicated codebase semantic search engine. Milvus handles high-speed vector retrieval, transforming "needle-in-a-haystack grep" into precise recall of relevant code snippets — reducing tokens, minimizing tool calls, and improving coding agent quality on large repositories**.
 
 ---
 
 ## Why dsh-context-milvus?
 
-`dsh-context-milvus` 是面向 **DeepSeek Harness（DSH）编码 Agent** 的开源代码语义检索插件，底层使用 Milvus 做向量库，以 DSH 插件（Cordis Plugin）形式提供工具注册。核心目的：**解决原生 DSH Agent 仅靠 grep 字符串搜索带来的高 token 消耗、多轮工具调用、上下文污染、大型代码库理解差的问题**。
+`dsh-context-milvus` is an open-source code semantic search plugin for **DeepSeek Harness (DSH) coding agents**, built on Milvus as the vector database and registered as a Cordis Plugin. Its core purpose: **solve the high token consumption, excessive tool calls, context pollution, and poor large-codebase comprehension that plague native DSH Agent grep workflows**.
 
-> 原生 DSH Agent 工作方式：遇到问题反复 `search_code`（grep）→ `read` 文件 → 再 search，大量无关文本灌入 prompt，工具调用爆炸，token 成本高，大仓库容易"找错代码、漏看依赖"。
+> Native DSH Agent workflow: encounter a problem → repeatedly `search_code` (grep) → `read` files → search again, flooding the prompt with irrelevant text, exploding tool calls, increasing token costs, and making it easy to miss dependencies in large repositories.
 
-### 解决原生 grep 检索的几大硬伤
+### Solving the key pain points of native grep search
 
-| 原生 grep 模式痛点 | dsh-context-milvus 的解决方式 |
+| Native grep workflow pain point | dsh-context-milvus solution |
 |---|---|
-| 只能字面字符串匹配，语义相关但命名不同的代码找不到 | **向量语义检索**，按代码含义匹配，不是只匹配关键词 |
-| 多轮工具调用，反复读一堆无关文件，token 暴涨 | 只召回真正相关的代码片段，通过 AST 按函数/类边界切分，精准命中 |
-| 把大量 grep 输出、无关源码塞进上下文，造成**上下文失焦污染**，模型推理质量下降 | Milvus 预建索引，Agent 一次工具调用拿到精简有效上下文，不把检索中间噪音塞进 prompt |
-| 大仓库上千文件，Agent 遍历效率极低 | Milvus 向量库做百万级代码块快速检索，支持增量更新代码索引，不用每次扫描整个仓库 |
-| 只能搜索已打开的或已知路径的文件 | 全仓库索引后，可按语义搜索任何位置的相关代码，不依赖文件路径记忆 |
+| Literal string matching only — semantically related but differently named code is missed | **Vector semantic search** — matches by code meaning, not just keywords |
+| Multiple tool call rounds, reading many irrelevant files, token explosion | Returns only truly relevant code snippets, split by AST at function/class boundaries for precision |
+| Flooding context with grep output and irrelevant source code, causing **context pollution** and degraded model reasoning | Milvus pre-built index, Agent gets concise effective context in one tool call without search noise in the prompt |
+| Thousands of files in large repos, Agent traversal is extremely inefficient | Milvus vector DB enables fast retrieval over millions of code blocks, supports incremental index updates without full repo rescanning |
+| Can only search already-open or known-path files | After full-repo indexing, can semantically search any code location regardless of file path knowledge |
 
 ---
 
-## 功能
+## Features
 
-- **`search_code`** — 语义搜索代码：输入自然语言查询，返回匹配的代码片段
-- **`index_code`** — 索引代码仓库：AST 解析 + 分块 → Embedding → 存储到 Milvus
-- **`index_status`** — 查看索引状态：文件数量、最后索引时间、哈希统计
-- **`find_callers`** — 代码关系分析（影响分析）：查找引用某个符号的所有位置，支持跨文件 import 精确解析
-- **`trace_call_chain`** — 调用链追踪：从入口符号 BFS 展开调用链（影响/依赖分析），支持跨文件解析消歧
-- **混合检索** — BM25 关键词 + 向量语义双路检索，RRF 融合，`hybridMode` 控制开关
-- **忽略模式系统** — 三层 gitignore 风格忽略规则（默认模式 + 代码库忽略文件 + 全局忽略文件）
-- **增量索引** — 基于 Merkle SHA-256 哈希追踪，仅处理变更文件
-- **工作区隔离** — 不同工作区使用独立的 Merkle 状态文件，互不干扰
-- **ADR 决策记忆系统** — 记录代码变更背后的设计原因（Architecture Decision Record），支持语义搜索、CRUD、约束注入和一致性检查
-- **代码关系分析** — 索引时从 AST 提取每个代码块引用的符号（`references`，各语言树状语法节点），支持跨文件精确匹配
-- **跨文件 import 解析（V2）** — 索引期用 tree-sitter AST 扫描 import/export 语句，构建持久化双向 Import Map，`find_callers` / `trace_call_chain` 据此做跨文件符号精确匹配（同名消歧、跨模块追踪）
-
----
-
-## Milvus 在这里承担什么角色，为什么选 Milvus
-
-1. **存储 AST 分块后的代码向量**：dsh-context-milvus 会用 tree-sitter AST 语法树把代码按函数/类/方法边界切分代码块，生成 embedding 存入 Milvus，避免把一个函数拦腰切断。
-2. **高性能向量检索**：对 query 编码后做向量相似度检索，低延迟，适合 Agent 实时工具调用场景。
-   > 注：BM25 关键词融合**已实现**——Milvus 原生 BM25 全文检索与向量语义双路检索，RRF 融合（`hybridMode` 默认开启）。
-3. **支持自托管 Milvus 实例 / Zilliz Cloud 托管版**，两种部署形态可选，团队可以管控数据；支持增量索引，代码变更后增量更新，不用全量重建索引。
-4. **专门适配代码 RAG**：支持按路径范围过滤（`search_code` 的 `path` 参数），检索时可以限定目录，非常适合代码库场景。
+- **`search_code`** — Semantic code search: natural language query, returns matching code snippets
+- **`index_code`** — Index codebase: AST parsing + chunking → Embedding → Milvus storage
+- **`index_status`** — View index status: file count, last index time, hash statistics
+- **`find_callers`** — Code relationship analysis (impact analysis): find all references to a symbol, with cross-file import resolution
+- **`trace_call_chain`** — Call chain tracing: BFS expansion from entry symbol (impact/dependency analysis), with cross-file resolution disambiguation
+- **Hybrid search** — BM25 keyword + vector semantic dual-path retrieval, RRF fusion, `hybridMode` toggle
+- **Ignore pattern system** — Three-layer gitignore-style ignore rules (default + codebase + global)
+- **Incremental indexing** — Merkle SHA-256 hash tracking, processes only changed files
+- **Workspace isolation** — Independent Merkle state files per workspace, no interference
+- **ADR decision memory system** — Records design rationale behind code changes (Architecture Decision Records), supports semantic search, CRUD, constraint injection, and consistency checking
+- **Code relationship analysis** — Extracts symbol references from AST during indexing (`references`, language-specific syntax nodes), supports cross-file exact matching
+- **Cross-file import resolution (V2)** — Scans import/export statements using tree-sitter AST during indexing, builds a persistent bidirectional Import Map, enabling `find_callers`/`trace_call_chain` to perform precise cross-file symbol matching (same-name disambiguation, cross-module tracing)
 
 ---
 
-## DSH 插件架构带来的优势
+## What role does Milvus play, and why Milvus?
 
-它不是独立的 MCP 服务，而是作为 **DSH 插件**（Cordis Plugin）直接嵌入 DSH Agent 进程：
-
-- **零额外网络开销**：插件与 Agent 同进程，工具调用不走 HTTP，延迟远低于 MCP
-- **天然共享 DSH 资源配置**：复用 DSH 的配置管理、环境变量注入、日志系统，无需额外配置
-- **DSH Web GUI 集成**：通过 Settings → Plugins 界面可视化配置，无需手写 YAML
-- **DSH 生态兼容**：与其他 DSH 插件（bash、agent-loop、web-search 等）共享工具注册表，Agent 可自由组合调用
-
----
-
-## 核心工作流程
-
-### 注册的三个 DSH 工具
-
-| 工具名 | 功能 | 关键参数 |
-|--------|------|----------|
-| `search_code` | 语义搜索代码 | `query`（自然语言查询）、`topK`（结果数）、`path`（搜索范围限定） |
-| `index_code` | 索引代码仓库 | `mode`（full 全量 / incremental 增量）、`path`（指定路径） |
-| `index_status` | 查看索引状态 | `path`（指定路径查看独立状态） |
-| `search_adr` | 语义搜索 ADR 决策记录 | `query`（自然语言查询）、`status`、`topK` |
-| `search_adr_by_file` | 通过代码文件路径查找关联的 ADR | `file_path`（代码文件路径）、`status` |
-| `create_adr` | 创建新的 ADR 决策记录 | `title`（必填）、`requirement`、`change_type` |
-| `update_adr` | 更新已有 ADR 决策记录 | `adr_id`（必填）、`content`、`status` |
-| `list_adrs` | 列出 ADR 决策记录目录 | `status`、`change_type`、`limit` |
-| `load_constraints` | 加载 active ADR 的约束条件 | `adr_ids`、`format` |
-| `check_adr_consistency` | 检查 ADR 与代码的一致性 | `file_path`、`fix` |
-| `find_callers` | 查找引用某符号的所有位置，用于修改影响分析，支持跨文件 import 精确解析 | `symbol`（必填）、`direction`、`maxResults`、`sourceFile`、`resolve` |
-| `trace_call_chain` | 从入口符号 BFS 追踪调用链（影响/依赖分析），支持 import 解析消歧 | `entry`（必填）、`direction`、`maxDepth`、`maxResults`、`resolve` |
-
-### 工作流程
-
-1. 执行 `index_code` 工具：解析项目，tree-sitter AST 拆分代码块 → 调用 Embedding 模型生成向量 → 存入 Milvus 集合。
-2. Agent 遇到编码问题，调用 `search_code` 工具向 Milvus 发起**混合检索**（向量语义 + BM25 关键词，RRF 融合）。
-3. Milvus 返回最相关的少量代码片段，注入 Agent 上下文。
-4. Agent 基于精准上下文做调试、重构、开发，不再疯狂 grep 读一堆文件。
-5. 代码变更后，执行 `index_code mode=incremental` 增量更新，只重新索引变更的文件。
-6. 随时通过 `index_status` 查看索引状态（已索引文件数、代码块总数、最后索引时间）。
-7. 修改代码前用 `find_callers` 做影响分析：查看哪些地方引用了要修改的符号，避免遗漏连锁影响。同名符号跨文件时，用 `sourceFile` 参数限定定义文件做精确消歧。
-8. 理解功能调用链用 `trace_call_chain`：从入口函数 BFS 展开调用链，`direction=backward` 追踪调用者，`direction=forward` 追踪下游依赖。`resolve: false` 可回退到 V1 名称匹配模式。
-9. 跨文件引用分析：`find_callers` 和 `trace_call_chain` 默认启用 import 解析（`resolve: true`），索引期构建的 Import Map 自动将 `import { X } from './foo'` 映射到 `foo.ts` 的导出，消除同名符号歧义，支持跨模块调用链追踪。当 import map 未构建时自动降级为 V1 名称匹配。
-
-### ADR 决策记忆工作流程
-
-ADR 决策记忆系统记录代码变更背后的"为什么"（设计决策、权衡、约束），让 Agent 不仅能读代码，还能理解其演进原因：
-
-> **注意：** ADR 功能默认关闭。如需启用，在 DSH 配置面板（Settings → Plugins → dsh-context-milvus）中设置 `adrEnabled: true`。
-
-1. **修改有 ADR 覆盖的代码前**，建议用 `search_adr_by_file` 查询该文件是否有 ADR 决策记录覆盖，避免违反既有决策。
-2. **做出设计决策时**，用 `create_adr` 记录决策背景、备选方案与理由，并通过 `update_adr` 维护 code_anchors 关联的代码位置。
-3. **需要了解约束时**，用 `load_constraints` 加载 active ADR 的约束条件注入上下文。
-4. **创建或更新 ADR 后**，建议用 `check_adr_consistency` 校验 ADR 与代码实现的一致性，必要时 `fix` 自动修复。
-5. 用 `search_adr` 语义搜索历史决策，理解代码"为什么这么做"。
+1. **Stores AST-chunked code vectors**: dsh-context-milvus uses tree-sitter AST to split code at function/class/method boundaries, generates embeddings, and stores them in Milvus — avoiding cutting a function in half.
+2. **High-performance vector search**: Encodes the query and performs vector similarity search with low latency, suitable for real-time Agent tool calls.
+   > Note: BM25 keyword fusion is **already implemented** — Milvus native BM25 full-text search + vector semantic dual-path retrieval, RRF fusion (`hybridMode` enabled by default).
+3. **Supports self-hosted Milvus / Zilliz Cloud**, two deployment options; teams can control data; supports incremental indexing after code changes without full rebuild.
+4. **Specifically adapted for code RAG**: Supports path-scoped filtering (`search_code` `path` parameter), allowing directory-limited searches — ideal for codebase scenarios.
 
 ---
 
-## 规格文档融合（Spec Document Fusion）
+## DSH plugin architecture advantages
 
-当 brainstorming 技能产出规格文档后，可以通过以下步骤将其与代码库建立链接：
+It is not a standalone MCP service, but a **DSH plugin** (Cordis Plugin) embedded directly into the DSH Agent process:
 
-1. **编写规格文档**：brainstorming 输出保存到 `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
-2. **生成锚点**：调用 `index_specs` 工具，自动检测文档中的代码引用并生成 frontmatter + code_anchors
-3. **索引入库**：`index_code` 会自动扫描 `docs/superpowers/specs/` 和 `docs/superpowers/plans/` 目录
-4. **搜索发现**：`search_adr` 工具会统一返回 ADR 和规格文档的搜索结果（带 `docType` 标注）
-
-### 配置项
-
-| 配置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `specRoot` | `docs/superpowers/specs` | 规格文档目录（相对 indexRoot） |
-| `planRoot` | `docs/superpowers/plans` | 实现计划目录（相对 indexRoot） |
-
-规格文档融合跟随 `adrEnabled` 开关，无需额外配置。
+- **Zero network overhead**: Plugin and Agent share the same process, tool calls don't go through HTTP, latency far below MCP
+- **Naturally shares DSH resource configuration**: Reuses DSH's config management, environment variable injection, and logging system — no additional configuration needed
+- **DSH Web GUI integration**: Visual configuration through Settings → Plugins interface, no YAML hand-editing
+- **DSH ecosystem compatibility**: Shares the tool registry with other DSH plugins (bash, agent-loop, web-search, etc.), Agents can freely combine them
 
 ---
 
-## 前置条件
+## Core Workflow
 
-### 1. 安装 Ollama（Embedding 服务）
+### Registered DSH tools
+
+| Tool | Function | Key Parameters |
+|------|----------|----------------|
+| `search_code` | Semantic code search | `query` (natural language), `topK` (result count), `path` (search scope) |
+| `index_code` | Index codebase | `mode` (full/incremental), `path` (target path) |
+| `index_status` | View index status | `path` (view per-workspace status) |
+| `search_adr` | Semantic ADR search | `query` (natural language), `status`, `topK` |
+| `search_adr_by_file` | Find ADRs by file path | `file_path` (code file path), `status` |
+| `create_adr` | Create new ADR | `title` (required), `requirement`, `change_type` |
+| `update_adr` | Update existing ADR | `adr_id` (required), `content`, `status` |
+| `list_adrs` | List ADR records | `status`, `change_type`, `limit` |
+| `load_constraints` | Load active ADR constraints | `adr_ids`, `format` |
+| `check_adr_consistency` | Check ADR-code consistency | `file_path`, `fix` |
+| `find_callers` | Find all references to a symbol for impact analysis, supports cross-file import resolution | `symbol` (required), `direction`, `maxResults`, `sourceFile`, `resolve` |
+| `trace_call_chain` | BFS call chain tracing from entry symbol (impact/dependency analysis), supports import resolution disambiguation | `entry` (required), `direction`, `maxDepth`, `maxResults`, `resolve` |
+
+### Workflow
+
+1. Run `index_code`: Parse the project, split code blocks via tree-sitter AST → call Embedding API to generate vectors → store in Milvus collection.
+2. Agent encounters a coding problem, calls `search_code` for **hybrid search** (vector semantic + BM25 keyword, RRF fusion).
+3. Milvus returns the most relevant code snippets, injected into the Agent's context.
+4. Agent debugs, refactors, or develops based on precise context — no more frantic grep file reading.
+5. After code changes, run `index_code mode=incremental` to incrementally re-index only changed files.
+6. Check index status anytime with `index_status` (indexed files, total code blocks, last index time).
+7. Before modifying code, use `find_callers` for impact analysis: see which places reference the symbol to avoid missing cascading effects. For same-name symbols across files, use the `sourceFile` parameter to disambiguate by definition file.
+8. Understand call chains with `trace_call_chain`: BFS expansion from entry function, `direction=backward` traces callers, `direction=forward` traces downstream dependencies. `resolve: false` falls back to V1 name-matching mode.
+9. Cross-file reference analysis: `find_callers` and `trace_call_chain` enable import resolution by default (`resolve: true`). The Import Map built during indexing automatically maps `import { X } from './foo'` to `foo.ts`'s exports, eliminating same-name ambiguity and supporting cross-module call chain tracing. Falls back to V1 name matching when the import map is not built.
+
+### ADR decision memory workflow
+
+The ADR decision memory system records the "why" behind code changes (design decisions, trade-offs, constraints), enabling the Agent to not only read code but understand its evolution:
+
+> **Note:** ADR functionality is disabled by default. To enable it, set `adrEnabled: true` in the DSH config panel (Settings → Plugins → dsh-context-milvus).
+
+1. **Before modifying code with ADR coverage**, use `search_adr_by_file` to check if the file has decision records, avoiding violation of existing decisions.
+2. **When making design decisions**, use `create_adr` to record the context, alternatives, and rationale, and use `update_adr` to maintain code_anchors linking to code locations.
+3. **When needing to understand constraints**, use `load_constraints` to load active ADR constraints into the context.
+4. **After creating or updating ADRs**, use `check_adr_consistency` to verify ADR-code consistency, with `fix` for auto-repair.
+5. Use `search_adr` for semantic search of historical decisions, understanding "why this was done this way."
+
+---
+
+## Spec Document Fusion
+
+When the brainstorming skill produces specification documents, they can be linked to the codebase through the following steps:
+
+1. **Write spec documents**: brainstorming output saved to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`
+2. **Generate anchors**: Call `index_specs` to automatically detect code references in the document and generate frontmatter + code_anchors
+3. **Index**: `index_code` automatically scans `docs/superpowers/specs/` and `docs/superpowers/plans/` directories
+4. **Discover**: `search_adr` returns both ADR and spec document results (with `docType` annotation)
+
+### Configuration
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `specRoot` | `docs/superpowers/specs` | Spec document directory (relative to indexRoot) |
+| `planRoot` | `docs/superpowers/plans` | Implementation plan directory (relative to indexRoot) |
+
+Spec document fusion follows the `adrEnabled` toggle — no additional configuration needed.
+
+---
+
+## Prerequisites
+
+### 1. Install Ollama (Embedding service)
 
 ```bash
 # macOS
@@ -141,57 +143,57 @@ brew install ollama
 # Linux
 curl -fsSL https://ollama.com/install.sh | sh
 
-# 启动 Ollama 服务
+# Start Ollama service
 ollama serve
 ```
 
-> 或使用任意 OpenAI 兼容的 Embedding API 服务（如 OpenAI、阿里云百炼等），通过配置 `embeddingEndpoint` 和 `embeddingApiKey` 切换。
+> Or use any OpenAI-compatible Embedding API service (OpenAI, Alibaba Cloud Bailian, etc.) by configuring `embeddingEndpoint` and `embeddingApiKey`.
 
-### 2. 安装 Embedding 模型
+### 2. Install Embedding model
 
 ```bash
-# 拉取 nomic-embed-text 模型（默认配置）
+# Pull nomic-embed-text model (default)
 ollama pull nomic-embed-text
 
-# 或其他支持的 Embedding 模型，如：
+# Or other supported Embedding models:
 ollama pull bge-m3
 ollama pull mxbai-embed-large
 ```
 
-### 3. 安装 Milvus（向量数据库）
+### 3. Install Milvus (vector database)
 
-**Docker 方式（推荐）：**
+**Docker (recommended):**
 
 ```bash
-# 拉取并启动 Milvus 单机版
+# Pull and start Milvus standalone
 docker run -d --name milvus \
   -p 19530:19530 \
   -p 9091:9091 \
   milvusdb/milvus:latest
 
-# 验证连接
+# Verify connection
 docker ps | grep milvus
 ```
 
-**Milvus 集群模式（Docker Compose）：**
+**Milvus cluster mode (Docker Compose):**
 
 ```bash
-# 下载 docker-compose 文件
+# Download docker-compose file
 wget https://github.com/milvus-io/milvus/releases/latest/download/milvus-standalone-docker-compose.yml -O docker-compose.yml
 
-# 启动
+# Start
 docker compose up -d
 ```
 
-> 或使用 [Zilliz Cloud](https://cloud.zilliz.com) 托管版，无需自运维。
+> Or use [Zilliz Cloud](https://cloud.zilliz.com) managed service — no self-hosting required.
 
-### 验证安装
+### Verify installation
 
 ```bash
-# 验证 Ollama
+# Verify Ollama
 curl http://localhost:11434/api/tags
 
-# 验证 Milvus
+# Verify Milvus
 docker run -it --rm \
   -e MILVUS_URL=localhost:19530 \
   milvusdb/milvus-sdk-node:latest \
@@ -201,62 +203,62 @@ docker run -it --rm \
 
 ---
 
-## 安装到 DSH
+## Install to DSH
 
-### 方式一：从 npm 安装（推荐）
+### Method 1: From npm (recommended)
 
-插件已发布到 npm registry，直接通过 DSH CLI 安装：
+The plugin is published to the npm registry. Install directly via DSH CLI:
 
 ```bash
 dsh plugin --profile web add dsh-context-milvus
 ```
 
-> npm 包内置编译后的 `dist/` 产物，安装时无需执行构建脚本，不会遇到 pnpm 的 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` 拦截。
+> The npm package includes pre-built `dist/` output — no build step required during installation, avoiding the `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` error.
 
-### 方式二：从本地 tarball 安装（离线 / 本地开发场景）
+### Method 2: From local tarball (offline / local development)
 
-构建并打包成 tarball，然后直接安装：
+Build and package as a tarball, then install directly:
 
 ```bash
-# 1. 构建
+# 1. Build
 npm run build
 
-# 2. 打包成 tarball
+# 2. Package as tarball
 pnpm pack
 
-# 3. 安装到 profile
+# 3. Install to profile
 dsh plugin --profile web add ./dsh-context-milvus-0.1.3.tgz
 ```
 
-> `pnpm pack` 打包的 tarball 包含编译后的 `dist/` 产物，安装时无需执行构建脚本，所以 pnpm 不会报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`。
+> `pnpm pack` produces a tarball containing the compiled `dist/` output — no build step required during installation, so pnpm won't raise `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`.
 
-### 方式三：从 Git 安装（需额外配置）
+### Method 3: From Git (requires additional configuration)
 
 ```bash
 dsh plugin --profile web add git+https://github.com/bobjia/dsh-context-milvus.git
 ```
 
-> `dist/` 产物不提交到 git，插件通过 `prepare` 脚本在安装时自动运行 `tsc` 生成构建产物。
+> `dist/` output is not committed to git. The plugin uses the `prepare` script to automatically run `tsc` during installation.
 >
-> **pnpm 10 限制**：pnpm 10 默认会阻止依赖执行构建脚本。若安装报以下错误：
+> **pnpm 10 limitation**: pnpm 10 blocks execution of build scripts by default. If you see:
 > ```
 > ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED
 > The git-hosted package "dsh-context-milvus@0.1.2" needs to execute build scripts
 > but is not in the "onlyBuiltDependencies" allowlist.
 > ```
-> 需要在 profile 的 `pnpm-workspace.yaml` 中添加：
+> Add to your profile's `pnpm-workspace.yaml`:
 > ```yaml
 > # ~/.dsh/profiles/<profile-name>/pnpm-workspace.yaml
 > onlyBuiltDependencies:
 > - dsh-context-milvus
 > ```
-> 然后重新运行安装命令。或者运行 `pnpm approve-builds` 并勾选 `dsh-context-milvus`。
+> Then re-run the install command. Or run `pnpm approve-builds` and select `dsh-context-milvus`.
 >
-> 不想让用户做这项授权，就使用方式一（npm）或方式二（tarball）。
+> To avoid this authorization, use Method 1 (npm) or Method 2 (tarball).
 
-### 配置插件
+### Configure the plugin
 
-安装后，编辑 profile 下的 `cordis.patch.yml` 配置插件参数：
+After installation, edit `cordis.patch.yml` under your profile:
 
 ```yaml
 # ~/.dsh/profiles/<profile-name>/cordis.patch.yml
@@ -273,23 +275,23 @@ dsh plugin --profile web add git+https://github.com/bobjia/dsh-context-milvus.gi
     bm25RrfK: 60
 ```
 
-配置完成后重启 DSH 即可使用。
+Restart DSH after configuration.
 
-### 从源码构建（本地开发）
+### Build from source (local development)
 
-如果使用本地开发版本，按以下步骤操作：
+If using a local development version:
 
-#### 1. 安装依赖
+#### 1. Install dependencies
 
 ```bash
 cd /mnt/home/bobjia/workspace/dsh-context-milvus
 npm install --legacy-peer-deps
 ```
 
-#### 2. 创建 @deepseek-ai 包的符号链接
+#### 2. Create symlinks for @deepseek-ai packages
 
 ```bash
-# 链接 DSH 运行时的包（npm install 可能破坏这些链接）
+# Link DSH runtime packages (npm install may break these links)
 ln -sf /mnt/home/bobjia/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/cordis \
   node_modules/@deepseek-ai/cordis
 ln -sf /mnt/home/bobjia/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-tools \
@@ -298,65 +300,65 @@ ln -sf /mnt/home/bobjia/.npm-global/lib/node_modules/@deepseek-ai/dsh/node_modul
   node_modules/@deepseek-ai/schemastery
 ```
 
-#### 3. 注册到 DSH
+#### 3. Register with DSH
 
 ```bash
-# 安装为本地依赖
+# Install as local dependency
 dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 ```
 
-> `dsh plugin add` 会自动将插件添加到 `dsh.profile.bundles`，无需手动编辑 `package.json`。
+> `dsh plugin add` automatically adds the plugin to `dsh.profile.bundles` — no need to manually edit `package.json`.
 
-#### 4. 配置插件
+#### 4. Configure plugin
 
-编辑 `~/.dsh/profiles/<profile-name>/cordis.patch.yml`（同上）后重启 DSH。
-
----
-
-## 配置系统
-
-### 配置优先级（高 → 低）
-
-1. **Cordis Config**（通过 `cordis.patch.yml` 或 DSH Web GUI 设置）
-2. **环境变量**（fallback）
-3. **默认值**（如 `localhost:19530`）
-
-### 配置字段一览
-
-| 字段 | 环境变量 | 类型 | 默认值 | 说明 |
-|------|---------|------|--------|------|
-| `milvusAddress` | `MILVUS_ADDRESS` | string | `localhost:19530` | Milvus 服务地址 |
-| `milvusToken` | `MILVUS_TOKEN` | string (secret) | 空 | Milvus 鉴权 Token |
-| `milvusCollection` | `MILVUS_COLLECTION` | string | `code_embeddings` | 集合名称 |
-| `milvusDim` | `MILVUS_EMBEDDING_DIM` | number | `768` | 向量维度 |
-| `embeddingEndpoint` | `EMBEDDING_ENDPOINT` | string | `http://localhost:11434/api/embed` | Embedding API 地址 |
-| `embeddingApiKey` | `EMBEDDING_API_KEY` | string (secret) | 空 | Embedding API 密钥 |
-| `embeddingModel` | `EMBEDDING_MODEL` | string | `nomic-embed-text` | Embedding 模型名称 |
-| `indexRoot` | `INDEX_ROOT` | string | `process.cwd()` | 代码仓库根路径 |
-| `indexExtensions` | `INDEX_EXTENSIONS` | string | 所有支持的扩展名 | 索引的文件后缀（逗号分隔） |
-| `hybridMode` | `HYBRID_MODE` | boolean | `true` | 启用混合检索（BM25 全文 + 向量语义，RRF 融合） |
-| `bm25RrfK` | `BM25_RRF_K` | number | `60` | RRF 融合参数 k |
-| `indexIgnoreDirs` | `INDEX_IGNORE_DIRS` | string | dist, build, target, vendor, ... | 扫描时跳过的目录名 |
-| `ignorePatterns` | `IGNORE_PATTERNS` | string (textarea) | 空 | 自定义 gitignore 风格忽略规则 |
-| `merkleFilePath` | `MERKLE_FILE_PATH` | string | `~/.milvus-index/merkle-{name}-{hash}.json` | Merkle 状态文件路径 |
+Edit `~/.dsh/profiles/<profile-name>/cordis.patch.yml` (same as above) and restart DSH.
 
 ---
 
-## 工具说明
+## Configuration System
+
+### Priority (highest → lowest)
+
+1. **Cordis Config** (set via `cordis.patch.yml` or DSH Web GUI)
+2. **Environment variables** (fallback)
+3. **Defaults** (e.g., `localhost:19530`)
+
+### Configuration fields
+
+| Field | Environment Variable | Type | Default | Description |
+|-------|---------------------|------|---------|-------------|
+| `milvusAddress` | `MILVUS_ADDRESS` | string | `localhost:19530` | Milvus server address |
+| `milvusToken` | `MILVUS_TOKEN` | string (secret) | empty | Milvus auth token |
+| `milvusCollection` | `MILVUS_COLLECTION` | string | `code_embeddings` | Collection name |
+| `milvusDim` | `MILVUS_EMBEDDING_DIM` | number | `768` | Vector dimension |
+| `embeddingEndpoint` | `EMBEDDING_ENDPOINT` | string | `http://localhost:11434/api/embed` | Embedding API URL |
+| `embeddingApiKey` | `EMBEDDING_API_KEY` | string (secret) | empty | Embedding API key |
+| `embeddingModel` | `EMBEDDING_MODEL` | string | `nomic-embed-text` | Embedding model name |
+| `indexRoot` | `INDEX_ROOT` | string | `process.cwd()` | Code repository root path |
+| `indexExtensions` | `INDEX_EXTENSIONS` | string | all supported extensions | File extensions to index (comma-separated) |
+| `hybridMode` | `HYBRID_MODE` | boolean | `true` | Enable hybrid search (BM25 full-text + vector semantic, RRF fusion) |
+| `bm25RrfK` | `BM25_RRF_K` | number | `60` | RRF fusion parameter k |
+| `indexIgnoreDirs` | `INDEX_IGNORE_DIRS` | string | dist, build, target, vendor, ... | Directories to skip during scan |
+| `ignorePatterns` | `IGNORE_PATTERNS` | string (textarea) | empty | Custom gitignore-style ignore rules |
+| `merkleFilePath` | `MERKLE_FILE_PATH` | string | `~/.milvus-index/merkle-{name}-{hash}.json` | Merkle state file path |
+
+---
+
+## Tool Reference
 
 ### `search_code`
 
-语义搜索代码。当用户提出模糊的功能需求、询问代码逻辑或需要根据自然语言描述查找代码时自动调用。
+Semantic code search. Automatically invoked when the user asks about code functionality, logic, or needs to find code by natural language.
 
-**参数：**
+**Parameters:**
 
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `query` | string | 是 | — | 用户的自然语言查询 |
-| `topK` | number | 否 | 5 | 返回最相关的结果数量 |
-| `path` | string | 否 | (配置的根路径) | 搜索范围限定路径 |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | yes | — | Natural language query |
+| `topK` | number | no | 5 | Maximum results to return |
+| `path` | string | no | (configured root) | Path scope for search |
 
-**返回格式：**
+**Return format:**
 
 ```json
 [
@@ -375,37 +377,37 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 
 ### `index_code`
 
-索引代码仓库。支持两种模式：
+Index the codebase. Supports two modes:
 
-- **`full`** — 全量索引所有文件
-- **`incremental`** — 增量索引（仅处理变更文件，基于 Merkle 哈希）
+- **`full`** — Full index of all files
+- **`incremental`** — Incremental index (only changed files, based on Merkle hash)
 
-**参数：**
+**Parameters:**
 
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `mode` | string | 否 | `incremental` | 索引模式：`full` 或 `incremental` |
-| `path` | string | 否 | (配置的根路径) | 要索引的路径 |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `mode` | string | no | `incremental` | Index mode: `full` or `incremental` |
+| `path` | string | no | (configured root) | Path to index |
 
 ### `index_status`
 
-查看索引状态，包括文件数量、代码块总数、最后索引时间等。
+View index status, including file count, total code blocks, last index time, etc.
 
 ### `find_callers`
 
-查找代码中引用某个符号（函数/变量/类）的所有位置，用于修改影响分析。V2 新增跨文件 import 精确解析：同名符号跨文件时，用 `sourceFile` 参数限定定义文件做消歧。
+Find all references to a symbol (function/variable/class) in the codebase, for impact analysis. V2 adds cross-file import resolution: use `sourceFile` to disambiguate same-name symbols across files.
 
-**参数：**
+**Parameters:**
 
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `symbol` | string | 是 | — | 要查找的符号名（函数名、变量名、类名） |
-| `direction` | string | 否 | `backward` | `backward`=谁引用了我（影响面）；`forward`=我引用了谁（依赖面） |
-| `maxResults` | number | 否 | 20 | 最大返回结果数 |
-| `sourceFile` | string | 否 | — | 限定定义文件路径（显式消歧，只返回从该文件导入该符号的调用者） |
-| `resolve` | boolean | 否 | `true` | 是否启用 import 解析（设为 `false` 回退到 V1 名称匹配模式） |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `symbol` | string | yes | — | Symbol name to find (function, variable, class) |
+| `direction` | string | no | `backward` | `backward`=who references me (impact); `forward`=who I reference (dependency) |
+| `maxResults` | number | no | 20 | Maximum results |
+| `sourceFile` | string | no | — | Definition file path (explicit disambiguation: only return callers that import from this file) |
+| `resolve` | boolean | no | `true` | Whether to enable import resolution (`false` falls back to V1 name-matching) |
 
-**返回格式：**
+**Return format:**
 
 ```json
 {
@@ -427,23 +429,23 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 }
 ```
 
-> `resolution` 字段：`status` 为 `resolved`（已解析到跨文件导入）、`local`（同文件内定义）、`unresolved`（未解析，V1 名称匹配回退）。仅启用 import 解析且 Import Map 已构建时存在。
+> `resolution` field: `status` is `resolved` (resolved to a cross-file import), `local` (defined in the same file), or `unresolved` (fallback to V1 name-matching). Only present when import resolution is enabled and the Import Map is built.
 
 ### `trace_call_chain`
 
-从入口符号出发，沿引用关系 BFS 追踪调用链。`direction=backward` 做影响分析（找谁调用了入口），`direction=forward` 做依赖分析（入口调用了谁）。使用 visited set 防止循环。V2 支持 import 解析消歧（`resolve: true` 默认启用），使用 `filePath:symbol` 复合键追踪跨文件调用链。
+Starting from the entry symbol, BFS-traverses the call chain along reference relationships. `direction=backward` for impact analysis (find who calls the entry), `direction=forward` for dependency analysis (what the entry calls). Uses a visited set to prevent cycles. V2 supports import resolution disambiguation (`resolve: true` by default), using `filePath:symbol` composite keys for cross-file call chain tracing.
 
-**参数：**
+**Parameters:**
 
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `entry` | string | 是 | — | 入口符号名 |
-| `direction` | string | 否 | `backward` | 展开方向 |
-| `maxDepth` | number | 否 | 3 | 最大递归深度 |
-| `maxResults` | number | 否 | 10 | 每层最大结果数 |
-| `resolve` | boolean | 否 | `true` | 是否启用 import 解析（设为 `false` 回退到 V1） |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `entry` | string | yes | — | Entry symbol name |
+| `direction` | string | no | `backward` | Traversal direction |
+| `maxDepth` | number | no | 3 | Maximum recursion depth |
+| `maxResults` | number | no | 10 | Maximum results per level |
+| `resolve` | boolean | no | `true` | Whether to enable import resolution (`false` falls back to V1) |
 
-**返回格式：**
+**Return format:**
 
 ```json
 {
@@ -470,113 +472,113 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 
 ---
 
-## 代码分块
+## Code Chunking
 
-| 语言 | 扩展名 | 分块方式 | 覆盖的 AST 节点类型 |
-|------|--------|----------|--------------------|
+| Language | Extensions | Chunking method | Covered AST node types |
+|----------|-----------|-----------------|------------------------|
 | TypeScript | .ts, .tsx, .mts, .cts | tree-sitter | function_declaration, method_definition, class_declaration, interface_declaration, enum_declaration, type_alias_declaration, arrow_function, generator_function, getter, setter |
 | JavaScript | .js, .jsx, .mjs, .cjs | tree-sitter | function_declaration, method_definition, class_declaration, arrow_function, generator_function, getter, setter |
-| Python | .py | tree-sitter + regex 回退 | function_definition, class_definition, async_function_definition, decorated_definition |
-| Java | .java | tree-sitter + regex 回退 | class_declaration, interface_declaration, enum_declaration, method_declaration, constructor_declaration, record_declaration |
-| Go | .go | tree-sitter + regex 回退 | function_declaration, method_declaration, type_declaration, type_spec |
-| Rust | .rs | tree-sitter + regex 回退 | function_item, impl_item, trait_item, struct_item, enum_item, macro_definition |
-| C++ | .cpp, .cxx, .cc, .hpp, .h, .hh | tree-sitter + regex 回退 | function_definition, class_specifier, namespace_definition, struct_specifier, enum_specifier |
-| C# | .cs | tree-sitter + regex 回退 | method_declaration, class_declaration, interface_declaration, struct_declaration, enum_declaration |
-| Scala | .scala | tree-sitter + regex 回退 | class_definition, function_definition, trait_definition, object_definition, constructor_definition |
-| PHP | .php | regex 回退 | function_definition, class_declaration, interface_declaration, trait_declaration, enum_declaration |
+| Python | .py | tree-sitter + regex fallback | function_definition, class_definition, async_function_definition, decorated_definition |
+| Java | .java | tree-sitter + regex fallback | class_declaration, interface_declaration, enum_declaration, method_declaration, constructor_declaration, record_declaration |
+| Go | .go | tree-sitter + regex fallback | function_declaration, method_declaration, type_declaration, type_spec |
+| Rust | .rs | tree-sitter + regex fallback | function_item, impl_item, trait_item, struct_item, enum_item, macro_definition |
+| C++ | .cpp, .cxx, .cc, .hpp, .h, .hh | tree-sitter + regex fallback | function_definition, class_specifier, namespace_definition, struct_specifier, enum_specifier |
+| C# | .cs | tree-sitter + regex fallback | method_declaration, class_declaration, interface_declaration, struct_declaration, enum_declaration |
+| Scala | .scala | tree-sitter + regex fallback | class_definition, function_definition, trait_definition, object_definition, constructor_definition |
+| PHP | .php | regex fallback | function_definition, class_declaration, interface_declaration, trait_declaration, enum_declaration |
 
-> 除 PHP（纯 regex）外均优先使用 tree-sitter AST 解析。其中 Python、Java、Go、Rust、C++、C#、Scala 在 tree-sitter 解析失败时自动降级到 regex 回退；**TypeScript / JavaScript 没有 regex 回退**——若 tree-sitter 解析失败，该文件会被跳过（不产生索引）。
-
----
-
-## 忽略规则系统（IgnoreMatcher）
-
-三层 gitignore 风格的文件忽略规则，确保索引时只索引真正需要分析的代码文件：
-
-### 三层规则
-
-1. **内置默认规则**：自动排除 `node_modules/`、`dist/`、`build/`、`.git/`、`__pycache__/`、`*.log`、`*.min.js` 等 30+ 条常见构建产物和依赖目录
-2. **代码库忽略文件**：自动读取代码库根目录下的 `.gitignore`、`.ignore`、`.xxxignore` 等文件
-3. **全局忽略文件**：读取 `~/.context/.contextignore`（用户级全局规则）
-
-### 自动隐藏路径保护
-
-自动忽略以 `.` 开头的路径段（如 `.git/`、`.vscode/`、`.env`），防止隐藏目录和文件被误索引。
-
-### 向后兼容
-
-配置中的 `indexIgnoreDirs`（逗号分隔的目录名列表）会自动转换为 gitignore 风格模式（如 `dist` → `**/dist/**`），与旧版本兼容。
+> All languages except PHP (regex-only) use tree-sitter AST parsing as the primary method. Python, Java, Go, Rust, C++, C#, and Scala automatically fall back to regex when tree-sitter parsing fails; **TypeScript / JavaScript have no regex fallback** — if tree-sitter parsing fails, the file is skipped (no index entry).
 
 ---
 
-## 增量索引与工作区隔离
+## Ignore Pattern System (IgnoreMatcher)
 
-### 增量索引（Merkle 哈希追踪）
+Three-layer gitignore-style file ignore rules, ensuring only the code files that need analysis are indexed:
 
-- 使用 SHA-256 哈希追踪每个文件的内容变化
-- 索引时只重新索引新增或修改的文件，跳过未变更的文件
-- 删除的文件自动从 Milvus 中移除
-- 状态持久化到本地 JSON 文件
+### Three rule layers
 
-### 工作区隔离
+1. **Built-in defaults**: Automatically excludes `node_modules/`, `dist/`, `build/`, `.git/`, `__pycache__/`, `*.log`, `*.min.js`, and 30+ common build artifacts and dependency directories
+2. **Codebase ignore files**: Automatically reads `.gitignore`, `.ignore`, `.xxxignore`, etc. from the codebase root
+3. **Global ignore file**: Reads `~/.context/.contextignore` (user-level global rules)
 
-- 不同工作区使用独立的 Merkle 状态文件
-- 状态文件路径基于工作区路径的 SHA-256 哈希生成
-- 索引不同工作区不会互相干扰
-- 工具调用时通过 `path` 参数指定工作区，自动使用对应的状态文件
+### Automatic hidden path protection
 
----
+Automatically ignores path segments starting with `.` (e.g., `.git/`, `.vscode/`, `.env`), preventing hidden directories and files from being indexed.
 
-## 什么时候应该用，什么时候不建议
+### Backward compatibility
 
-### ✅ 适合场景
-
-- 几十~百万行规模代码仓库，使用 DSH Agent 做重构、bug 定位、跨文件阅读；
-- 希望降低 token 开销，减少 Agent 来回 grep 的工具循环；
-- 需要开源可自托管，不想依赖闭源索引服务；
-- 已在使用 DSH 框架，希望为 Agent 增强代码理解能力；
-- 需要增量索引，代码频繁变更但不想每次全量重建。
-
-### ❌ 不适合 / 注意点
-
-1. 需要 embedding API（OpenAI / Ollama 等），索引阶段代码片段会送给 embedding 服务；隐私要求极高可搭配 Ollama 本地 Embedding；
-2. 多了 Milvus / Zilliz Cloud 依赖，增加运维复杂度；小仓库（几百文件以内）收益不明显；
-3. 它是检索增强，**不能替代模型本身的上下文窗口**，只是筛选高质量上下文，解决"噪音过载"而不是无限放大窗口；
-4. 需要 DSH 环境（v0.6+），不能独立于 DSH 运行。
+The `indexIgnoreDirs` config (comma-separated directory names) is automatically converted to gitignore-style patterns (e.g., `dist` → `**/dist/**`), maintaining compatibility with older versions.
 
 ---
 
-## 对比：自建代码 RAG vs dsh-context-milvus
+## Incremental Indexing & Workspace Isolation
 
-如果你自己写一套代码 RAG for DSH Agent：要处理 AST 分块、向量检索调参、增量同步代码变更、DSH 工具封装、结果排序、忽略文件系统；dsh-context-milvus 已经把这套工程全部封装好，开箱即用，专门针对代码场景调优过。
+### Incremental Indexing (Merkle hash tracking)
 
-| 对比维度 | 自建代码 RAG | dsh-context-milvus |
-|----------|-------------|-------------------|
-| AST 分块 | 自行集成 tree-sitter，每种语言单独配置 | 内置 10 种语言 tree-sitter 分块，自动回退到 regex |
-| 语义检索 | 自行调用 embedding 服务并调参 | 内置向量语义检索，开箱即用（BM25 关键词融合） |
-| 增量索引 | 自行实现文件哈希对比和状态管理 | 内置 Merkle 文件状态追踪，SHA-256 哈希，增量更新 |
-| 工作区隔离 | 自行处理多工作区状态冲突 | 自动基于路径哈希隔离，互不干扰 |
-| 忽略文件 | 自行实现 .gitignore 解析 | 内置三层忽略规则系统（默认 + 代码库 + 全局） |
-| DSH 工具封装 | 自行封装 DSH 工具（defineTool） | 13 个原生 DSH 工具（5 代码工具 + 8 ADR 工具），一键注册，含输出格式化 |
-| 配置界面 | 自行实现或手写 YAML | DSH Web GUI 可视化配置，13 个配置字段 |
-| 配置来源 | 单一来源 | 三源合并（Cordis Config > 环境变量 > 默认值） |
-| 索引状态 | 自行实现查看 | 内置 `index_status` 工具，实时查看索引状态 |
+- Uses SHA-256 hash tracking for each file's content changes
+- Only re-indexes new or modified files; skips unchanged files
+- Deleted files are automatically removed from Milvus
+- State is persisted to a local JSON file
 
----
+### Workspace Isolation
 
-## DSH Web 界面配置
-
-安装后，在 DSH Web 界面 (http://127.0.0.1:3080) 的 **Settings → Plugins** 中可以看到 `dsh-context-milvus` 及其配置表单，支持：
-
-- 文本输入框（普通字段）
-- 密码输入框（secret 字段，如 `milvusToken`、`embeddingApiKey`）
-- 数值输入框（number 字段，如 `milvusDim`）
-- 开关（boolean 字段，如 `hybridMode`）
-- 字段说明/提示文本
+- Different workspaces use independent Merkle state files
+- State file paths are generated based on the workspace path's SHA-256 hash
+- Indexing different workspaces does not interfere with each other
+- The `path` parameter in tool calls specifies the workspace, automatically using the corresponding state file
 
 ---
 
-## 架构
+## When to Use (and When Not To)
+
+### ✅ Suitable Scenarios
+
+- Codebases from tens of thousands to millions of lines, using DSH Agent for refactoring, bug localization, or cross-file reading
+- Want to reduce token overhead and minimize Agent grep tool loops
+- Need an open-source, self-hostable solution, avoiding closed-source indexing services
+- Already using the DSH framework and want to enhance Agent code comprehension
+- Need incremental indexing — code changes frequently but don't want full rebuilds every time
+
+### ❌ Not Suitable / Caveats
+
+1. Requires an embedding API (OpenAI / Ollama, etc.), code snippets are sent to the embedding service during indexing; for high-privacy requirements, use Ollama local embeddings
+2. Adds Milvus / Zilliz Cloud as a dependency, increasing operational complexity; small codebases (a few hundred files) may not see significant benefit
+3. It is a **retrieval augmentation tool**, **not a replacement for the model's context window** — it filters high-quality context to solve "signal overload," not to infinitely expand the window
+4. Requires DSH environment (v0.6+), cannot run independently of DSH
+
+---
+
+## Comparison: DIY Code RAG vs dsh-context-milvus
+
+If you build your own code RAG for DSH Agent: you'd need to handle AST chunking, vector search tuning, incremental sync, DSH tool wrapping, result ranking, and ignore file systems. dsh-context-milvus packages all of this engineering into a plug-and-play solution, specifically tuned for code scenarios.
+
+| Dimension | DIY Code RAG | dsh-context-milvus |
+|-----------|-------------|-------------------|
+| AST Chunking | Integrate tree-sitter yourself, configure per language | Built-in 10-language tree-sitter chunking, auto fallback to regex |
+| Semantic Search | Call embedding service and tune parameters yourself | Built-in vector semantic search, plug-and-play (BM25 keyword fusion) |
+| Incremental Indexing | Implement file hash comparison and state management yourself | Built-in Merkle file state tracking, SHA-256, incremental updates |
+| Workspace Isolation | Handle multi-workspace state conflicts yourself | Automatic path-hash-based isolation, no interference |
+| Ignore Files | Implement .gitignore parsing yourself | Built-in three-layer ignore rule system (default + codebase + global) |
+| DSH Tool Wrapping | Wrap DSH tools yourself (defineTool) | 13 native DSH tools (5 code tools + 8 ADR tools), one-click registration, formatted output |
+| Configuration UI | Build yourself or hand-write YAML | DSH Web GUI visual configuration, 13 config fields |
+| Config Sources | Single source | Three-source merge (Cordis Config > env vars > defaults) |
+| Index Status | Build yourself | Built-in `index_status` tool, real-time index status |
+
+---
+
+## DSH Web Configuration
+
+After installation, go to the DSH Web interface (http://127.0.0.1:3080) **Settings → Plugins** to see `dsh-context-milvus` and its configuration form, supporting:
+
+- Text inputs (standard fields)
+- Password inputs (secret fields like `milvusToken`, `embeddingApiKey`)
+- Number inputs (number fields like `milvusDim`)
+- Toggles (boolean fields like `hybridMode`)
+- Field descriptions / help text
+
+---
+
+## Architecture
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────────┐
@@ -589,7 +591,7 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 ┌───────────────────────────────────────────────────────────────────────────────────┐
 │                  dsh-context-milvus                                                │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  ┌──────────────────┐  │
-│  │ chunker  │→ │embedding │→ │  milvus  │  │  merkle    │  │  ADR 模块集      │  │
+│  │ chunker  │→ │embedding │→ │  milvus  │  │  merkle    │  │  ADR module set  │  │
 │  │(AST+regex)│  │  client  │  │ service  │  │  tracker   │  │ frontmatter/     │  │
 │  └────┬─────┘  └──────────┘  └────┬─────┘  └────────────┘  │ chunker/anchor/  │  │
 │       │                           │                        │ service/indexer/  │  │
@@ -598,65 +600,65 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 │  │  findCallers / traceChain          │                                          │
 │  └────────────────────────────────────┘                                          │
 │  ┌──────────────────────────────┐  ┌──────────────────────────────────────────┐  │
-│  │  import-resolver.ts          │  │  ignore-matcher (gitignore-style 三层忽略) │  │
-│  │  Import Map (持久化双向解析)  │  │  ① DEFAULT_IGNORE_PATTERNS → ② 代码库忽略   │  │
-│  └──────────────────────────────┘  │  ③ ~/.context/.contextignore             │  │
-│                                    └──────────────────────────────────────────┘  │
+│  │  import-resolver.ts          │  │  ignore-matcher (gitignore-style 3-layer) │  │
+│  │  Import Map (persistent bi-  │  │  ① DEFAULT_IGNORE_PATTERNS → ② codebase  │  │
+│  │  directional resolution)     │  │  ③ ~/.context/.contextignore             │  │
+│  └──────────────────────────────┘  └──────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────────────────────────┘
                         │
               ┌─────────┴─────────┐
               │                   │
         ┌──────────┐       ┌──────────┐
         │  Milvus  │       │Embedding │
-        │ (向量库) │       │   API    │
+        │ (vector DB)      │   API    │
         └──────────┘       └──────────┘
 ```
 
-### 模块依赖关系
+### Module dependency graph
 
 ```
 index.ts (entry point)
-  ├── config.ts     — 配置解析（Cordis config > 环境变量 > 默认值）
-  │     └── DEFAULT_IGNORE_PATTERNS — 内置 gitignore 风格忽略规则
-  ├── milvus-service.ts — Milvus 向量数据库客户端封装（CRUD、搜索）
-  │     └── embedding.ts — OpenAI 兼容 Embedding API 客户端
-  ├── merkle.ts     — SHA-256 哈希追踪器（增量索引，持久化到 JSON）
-  ├── tools.ts      — DSH 工具定义、格式化、工作区感知的追踪器创建
-  │     └── code-relations.ts — 代码关系分析引擎（BFS 调用链 + 去噪）
-  │           └── import-resolver.ts — 跨文件 Import Map（tree-sitter AST 扫描 import/export）
-  ├── ignore-matcher.ts — gitignore 风格模式匹配（文件排除）
-  └── indexer.ts    — 索引管线编排
-        └── chunker.ts — tree-sitter AST 分块 + regex 回退 (含 references 提取 + 语言 import/export 配置)
-  └── adr-frontmatter.ts — YAML frontmatter 解析
-  └── adr-chunker.ts     — Markdown 章节分块
-  └── adr-anchor-index.ts — code_anchors 反向索引
-  └── adr-service.ts     — ADR CRUD + 状态管理
-  └── adr-indexer.ts     — ADR 索引管道
-  └── adr-tools.ts       — 8 个 ADR 工具
-  └── constraint-injector.ts — 系统提示注入 + 约束重注入
+  ├── config.ts     — Config resolution (Cordis config > env vars > defaults)
+  │     └── DEFAULT_IGNORE_PATTERNS — Built-in gitignore-style ignore rules
+  ├── milvus-service.ts — Milvus vector DB client wrapper (CRUD, search)
+  │     └── embedding.ts — OpenAI-compatible Embedding API client
+  ├── merkle.ts     — SHA-256 hash tracker (incremental indexing, persisted to JSON)
+  ├── tools.ts      — DSH tool definitions, formatting, workspace-aware tracker creation
+  │     └── code-relations.ts — Code relationship analysis engine (BFS call chain + dedup)
+  │           └── import-resolver.ts — Cross-file Import Map (tree-sitter AST import/export scan)
+  ├── ignore-matcher.ts — gitignore-style pattern matching (file exclusion)
+  └── indexer.ts    — Indexing pipeline orchestration
+        └── chunker.ts — tree-sitter AST chunking + regex fallback (includes references extraction + language import/export config)
+  └── adr-frontmatter.ts — YAML frontmatter parsing
+  └── adr-chunker.ts     — Markdown section chunking
+  └── adr-anchor-index.ts — code_anchors reverse index
+  └── adr-service.ts     — ADR CRUD + state management
+  └── adr-indexer.ts     — ADR indexing pipeline
+  └── adr-tools.ts       — 8 ADR tools
+  └── constraint-injector.ts — System prompt injection + re-injection
 ```
 
 ---
 
-## 测试
+## Testing
 
 ```bash
-# 运行测试
+# Run all tests
 npm test
 
-# 测试覆盖率
+# Test coverage
 npm run test:coverage
 
-# 单个测试文件
+# Single test file
 npx jest test/dsh-context-remdb.spec.ts
 
-# 代码关系分析测试
+# Code relationship analysis tests
 npx jest test/code-relations.spec.ts
 
-# 跨文件 Import 解析测试
+# Cross-file Import Resolution tests
 npx jest test/import-resolver.spec.ts
 
-# ADR 模块测试
+# ADR module tests
 npx jest test/adr-frontmatter.spec.ts
 npx jest test/adr-chunker.spec.ts
 npx jest test/adr-anchor-index.spec.ts
@@ -668,37 +670,37 @@ npx jest test/constraint-injector.spec.ts
 
 ---
 
-## 开发
+## Development
 
 ```bash
-# 编译
+# Build
 npm run build
 
-# 类型检查（不输出）
+# Type check (no output)
 npx tsc --noEmit
 
-# 运行测试（带详细输出）
+# Run tests (verbose)
 node --experimental-vm-modules node_modules/.bin/jest --no-cache --verbose
 ```
 
 ---
 
-## 依赖
+## Dependencies
 
 - [@zilliz/milvus2-sdk-node](https://github.com/milvus-io/milvus-sdk-node) — Milvus Node.js SDK
-- `ignore` — gitignore 风格模式匹配
-- `tree-sitter` — AST 解析引擎
-- `tree-sitter-typescript` — TypeScript/JSX 语法
-- `tree-sitter-python` — Python 语法
-- `tree-sitter-java` — Java 语法
-- `tree-sitter-go` — Go 语法
-- `tree-sitter-rust` — Rust 语法
-- `tree-sitter-cpp` — C++ 语法
-- `tree-sitter-c-sharp` — C# 语法
-- `tree-sitter-scala` — Scala 语法
-- `@deepseek-ai/cordis` — DSH 框架（由 DSH 运行时提供）
-- `@deepseek-ai/dsh-tools` — DSH 工具注册 API（由 DSH 运行时提供）
-- `@deepseek-ai/schemastery` — 配置 schema 定义（由 DSH 运行时提供）
+- `ignore` — gitignore-style pattern matching
+- `tree-sitter` — AST parsing engine
+- `tree-sitter-typescript` — TypeScript/JSX grammar
+- `tree-sitter-python` — Python grammar
+- `tree-sitter-java` — Java grammar
+- `tree-sitter-go` — Go grammar
+- `tree-sitter-rust` — Rust grammar
+- `tree-sitter-cpp` — C++ grammar
+- `tree-sitter-c-sharp` — C# grammar
+- `tree-sitter-scala` — Scala grammar
+- `@deepseek-ai/cordis` — DSH framework (provided by DSH runtime)
+- `@deepseek-ai/dsh-tools` — DSH tool registration API (provided by DSH runtime)
+- `@deepseek-ai/schemastery` — Config schema definition (provided by DSH runtime)
 
 ---
 
