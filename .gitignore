@@ -6,3 +6,4 @@ coverage/
 .worktrees/
 scripts/eval/retrieval/output/
 scripts/eval/agent/output/
+scripts/eval/telemetry/output/

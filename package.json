@@ -41,7 +41,9 @@
     "test": "node --experimental-vm-modules node_modules/.bin/jest",
     "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage",
     "test:eval": "node --test scripts/eval/retrieval/lib/*.test.mjs",
-    "test:eval-agent": "node --test scripts/eval/agent/lib/*.test.mjs"
+    "test:eval-agent": "node --test scripts/eval/agent/lib/*.test.mjs",
+    "test:eval-telemetry": "node --test scripts/eval/telemetry/lib/*.test.mjs",
+    "eval:telemetry": "node scripts/eval/telemetry/run.mjs"
   },
   "dependencies": {
     "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
