@@ -1,0 +1,12 @@
+{
+  "tasks": [
+    { "id": "task-001", "repo": "acme/example", "baseCommit": "abc123", "goldPatch": "diff --git a/src/a.ts b/src/a.ts", "testCommand": "npm test" },
+    { "id": "task-002", "repo": "acme/example", "baseCommit": "abc124", "goldPatch": "diff --git a/src/b.ts b/src/b.ts", "testCommand": "npm test" },
+    { "id": "task-003", "repo": "acme/example", "baseCommit": "abc125", "goldPatch": "diff --git a/src/c.ts b/src/c.ts", "testCommand": "npm test" },
+    { "id": "task-004", "repo": "acme/example", "baseCommit": "abc126", "goldPatch": "diff --git a/src/d.ts b/src/d.ts", "testCommand": "npm test" },
+    { "id": "task-005", "repo": "acme/example", "baseCommit": "abc127", "goldPatch": "diff --git a/src/e.ts b/src/e.ts", "testCommand": "npm test" },
+    { "id": "task-006", "repo": "acme/example", "baseCommit": "abc128", "goldPatch": "diff --git a/src/f.ts b/src/f.ts", "testCommand": "npm test" },
+    { "id": "task-007", "repo": "acme/example", "baseCommit": "abc129", "goldPatch": "diff --git a/src/g.ts b/src/g.ts", "testCommand": "npm test" },
+    { "id": "task-008", "repo": "acme/example", "baseCommit": "abc130", "goldPatch": "diff --git a/src/h.ts b/src/h.ts", "testCommand": "npm test" }
+  ]
+}
