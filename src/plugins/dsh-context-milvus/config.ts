@@ -45,6 +45,11 @@ export interface CordisConfig {
   /** Path to Merkle state file */
   merkleFilePath?: string
 
+  /** 启用本地遥测（JSONL，默认关闭） */
+  telemetryEnabled?: boolean
+  /** 遥测 JSONL 文件路径（留空用默认 ~/.milvus-index/telemetry.jsonl） */
+  telemetryFile?: string
+
   /** Enable ADR (decision memory) features */
   adrEnabled?: boolean
   /** ADR directory relative to indexRoot */
@@ -76,6 +81,8 @@ export interface PluginConfig {
   indexIgnoreDirs: string[]
   ignorePatterns: string[]
   merkleFilePath: string
+  telemetryEnabled: boolean
+  telemetryFile: string
   adrEnabled: boolean
   adrRoot: string
   adrCollection: string
@@ -229,6 +236,9 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
     bm25RrfK,
 
     merkleFilePath: overrides?.merkleFilePath ?? process.env.MERKLE_FILE_PATH ?? deriveMerkleFilePath(indexRoot),
+
+    telemetryEnabled: overrides?.telemetryEnabled ?? false,
+    telemetryFile: overrides?.telemetryFile ?? path.join(os.homedir(), '.milvus-index', 'telemetry.jsonl'),
 
     adrEnabled: overrides?.adrEnabled ?? false,
     adrRoot: overrides?.adrRoot ?? 'docs/decisions',

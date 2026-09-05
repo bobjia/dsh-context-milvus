@@ -164,6 +164,16 @@ export const Config = z.object({
   planRoot: z.string()
     .default('docs/superpowers/plans')
     .description('实现计划文档目录（相对 indexRoot）'),
+
+  /** 启用本地遥测统计（写入 JSONL，默认关闭） */
+  telemetryEnabled: z.boolean()
+    .default(false)
+    .description('启用本地遥测统计（search_code/index_code/index_status 写入 JSONL，默认关闭）'),
+
+  /** 遥测 JSONL 文件路径 */
+  telemetryFile: z.string()
+    .default('')
+    .description('遥测 JSONL 文件路径（留空使用默认 ~/.milvus-index/telemetry.jsonl）'),
 })
 
 export async function apply(ctx: Context, config?: CordisConfig) {
