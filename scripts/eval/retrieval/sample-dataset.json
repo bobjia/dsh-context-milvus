@@ -1,0 +1,8 @@
+{
+  "queries": [
+    { "query": "greeting a person by name", "relevantFiles": ["src/greeter.ts"] },
+    { "query": "arithmetic addition and multiplication", "relevantFiles": ["src/math.ts"] },
+    { "query": "parse json string into object", "relevantFiles": ["src/utils.py"] },
+    { "query": "network connection address from config", "relevantFiles": ["src/lib.rs"] }
+  ]
+}
