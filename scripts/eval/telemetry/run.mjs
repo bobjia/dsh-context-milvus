@@ -16,7 +16,7 @@ const byTool = groupByTool(entries)
 const rng = mulberry32(11)
 
 const NUMERIC = {
-  search_code: ['resultCount', 'topScore', 'durationMs'],
+  search_code: ['resultCount', 'topScore', 'durationMs', 'rerankFlipCount'],
   index_code: ['filesIndexed', 'chunksIndexed', 'filesSkipped', 'durationMs'],
   index_status: ['totalFiles', 'totalChunks'],
 }
@@ -48,6 +48,29 @@ if (searches.length >= 3) {
   lines.push('## 相关性（search_code）', '')
   lines.push(`- query 长度 vs resultCount: r=${pearson(qlen.slice(0, rc.length), rc).toFixed(3)}`)
   lines.push(`- query 长度 vs topScore: r=${pearson(qlen.slice(0, ts.length), ts).toFixed(3)}`)
+}
+
+// 分类指标：布尔字段比率 + 零结果率
+if (searches.length > 0) {
+  const rate = (pred) => {
+    const n = searches.filter((e) => pred(e)).length
+    return { n, rate: n / searches.length }
+  }
+  const zeroResult = rate((e) => Number(e.resultCount) === 0)
+  const expanded = rate((e) => e.queryExpansionApplied === true)
+  const reranked = rate((e) => e.rerankEnabled === true)
+  const top1Flipped = rate((e) => e.rerankTop1Flipped === true)
+  lines.push('')
+  lines.push('## 分类指标（search_code）', '')
+  lines.push(`- 零结果率: ${zeroResult.n}/${searches.length} = ${(zeroResult.rate * 100).toFixed(1)}%`)
+  lines.push(`- 查询扩展应用率: ${expanded.n}/${searches.length} = ${(expanded.rate * 100).toFixed(1)}%`)
+  lines.push(`- reranker 启用率: ${reranked.n}/${searches.length} = ${(reranked.rate * 100).toFixed(1)}%`)
+  lines.push(`- rerank 翻转 top-1 率: ${top1Flipped.n}/${searches.length} = ${(top1Flipped.rate * 100).toFixed(1)}%`)
+  // 平均翻转数（仅 rerank 启用的搜索）
+  const flips = searches.filter((e) => e.rerankEnabled === true).map((e) => Number(e.rerankFlipCount)).filter((v) => Number.isFinite(v))
+  if (flips.length > 0) {
+    lines.push(`- rerank 平均翻转数: ${(flips.reduce((a, b) => a + b, 0) / flips.length).toFixed(2)} (n=${flips.length})`)
+  }
 }
 lines.push('')
 

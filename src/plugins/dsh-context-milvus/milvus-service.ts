@@ -12,6 +12,24 @@ import { EmbeddingClient } from './embedding.js'
 import { expandQuery } from './query-expansion.js'
 import { rerankResults, type RerankConfig } from './reranker.js'
 
+/** Search metadata captured during each search() call */
+export interface SearchMeta {
+  /** Whether query expansion was applied */
+  queryExpansionApplied: boolean
+  /** The original query (before expansion) */
+  originalQuery: string
+  /** The effective query (after expansion, if enabled) */
+  effectiveQuery: string
+  /** Whether the reranker was active */
+  rerankEnabled: boolean
+  /** Whether the top-1 result changed after reranking */
+  rerankTop1Flipped: boolean
+  /** How many of the top-K results changed position after reranking */
+  rerankFlipCount: number
+  /** File paths of the top-K results (for offline labeling, no source code) */
+  resultFilePaths: string[]
+}
+
 export class MilvusService {
   private client: MilvusClient | null = null
   private collectionReady = false
@@ -29,6 +47,8 @@ export class MilvusService {
   private adrInitPromise: Promise<void> | null = null
   private readonly queryExpansion: boolean
   private readonly rerankConfig: RerankConfig
+  /** Metadata from the most recent search() call (used by telemetry) */
+  lastSearchMeta: SearchMeta | null = null
 
   constructor(config: {
     address: string
@@ -317,11 +337,36 @@ export class MilvusService {
       chunkType: item.chunk_type ?? '',
     }))
 
-    // Stage 2: rerank the pool down to topK
+    // Stage 2: rerank the pool down to topK, and capture telemetry meta
+    const queryExpansionApplied = this.queryExpansion && effectiveQuery !== query
+    let finalResults: SearchResult[]
     if (this.rerankConfig.enabled && results.length > topK) {
-      return rerankResults(query, results, topK)
+      const preRerankTopK = results.slice(0, topK)
+      finalResults = rerankResults(query, results, topK)
+      const prePaths = preRerankTopK.map((r) => r.filePath)
+      const postPaths = finalResults.map((r) => r.filePath)
+      this.lastSearchMeta = {
+        queryExpansionApplied,
+        originalQuery: query,
+        effectiveQuery,
+        rerankEnabled: true,
+        rerankTop1Flipped: prePaths[0] !== postPaths[0],
+        rerankFlipCount: prePaths.filter((p, i) => p !== postPaths[i]).length,
+        resultFilePaths: finalResults.map((r) => r.filePath),
+      }
+    } else {
+      finalResults = results.slice(0, topK)
+      this.lastSearchMeta = {
+        queryExpansionApplied,
+        originalQuery: query,
+        effectiveQuery,
+        rerankEnabled: false,
+        rerankTop1Flipped: false,
+        rerankFlipCount: 0,
+        resultFilePaths: finalResults.map((r) => r.filePath),
+      }
     }
-    return results.slice(0, topK)
+    return finalResults
   }
 
   // ── Bulk insert (for indexing) ────────────────────────────────────────

@@ -181,6 +181,7 @@ export function registerTools(
 
         await milvus.ensureCollection()
         const results = await milvus.search(query, topK, path)
+        const meta = milvus.lastSearchMeta
         telemetry.log({
           ts: new Date().toISOString(),
           tool: 'search_code',
@@ -190,6 +191,12 @@ export function registerTools(
           resultCount: results.length,
           topScore: results.length > 0 ? results[0].score : null,
           durationMs: Date.now() - started,
+          // Telemetry meta (from MilvusService)
+          queryExpansionApplied: meta?.queryExpansionApplied ?? false,
+          rerankEnabled: meta?.rerankEnabled ?? false,
+          rerankTop1Flipped: meta?.rerankTop1Flipped ?? false,
+          rerankFlipCount: meta?.rerankFlipCount ?? 0,
+          resultFilePaths: meta?.resultFilePaths ?? [],
         })
         return results
       },
