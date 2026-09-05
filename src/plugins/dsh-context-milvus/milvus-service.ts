@@ -9,6 +9,7 @@ import { MilvusClient, DataType, MetricType, FunctionType, ErrorCode, RANKER_TYP
 import type { SearchResultData, SearchSimpleReq } from '@zilliz/milvus2-sdk-node'
 import type { SearchResult, CodeChunk, AdrChunk, AdrSearchResult } from './types.js'
 import { EmbeddingClient } from './embedding.js'
+import { expandQuery } from './query-expansion.js'
 
 export class MilvusService {
   private client: MilvusClient | null = null
@@ -25,6 +26,7 @@ export class MilvusService {
   private readonly adrCollection: string
   private adrCollectionReady = false
   private adrInitPromise: Promise<void> | null = null
+  private readonly queryExpansion: boolean
 
   constructor(config: {
     address: string
@@ -35,6 +37,7 @@ export class MilvusService {
     hybridMode?: boolean
     bm25RrfK?: number
     adrCollection?: string
+    queryExpansion?: boolean
   }) {
     this.address = config.address
     this.token = config.token
@@ -45,6 +48,7 @@ export class MilvusService {
     this.bm25RrfK = config.bm25RrfK ?? 60
     this.effectiveHybridMode = this.hybridMode
     this.adrCollection = config.adrCollection ?? 'adr_embeddings'
+    this.queryExpansion = config.queryExpansion ?? true
   }
 
   // ── Client lazy init ──────────────────────────────────────────────────
@@ -244,8 +248,11 @@ export class MilvusService {
     const client = this.getClient()
     const { collection } = this
 
+    // Apply query expansion if enabled (embedding + BM25 both benefit)
+    const effectiveQuery = this.queryExpansion ? expandQuery(query) : query
+
     // Embed the query text using the configured embedding API
-    const vectors = await this.embeddingClient.embed([query])
+    const vectors = await this.embeddingClient.embed([effectiveQuery])
     if (vectors.length === 0) return []
     const vector = vectors[0]
 
@@ -260,7 +267,7 @@ export class MilvusService {
         collection_name: collection,
         data: [
           { anns_field: 'vector', data: vector, params: { metric_type: 'COSINE' } },
-          { anns_field: 'sparse_vector', data: query, params: { metric_type: 'BM25' } },
+          { anns_field: 'sparse_vector', data: effectiveQuery, params: { metric_type: 'BM25' } },
         ],
         rerank: { strategy: RANKER_TYPE.RRF, params: { k: this.bm25RrfK } },
         limit: topK,

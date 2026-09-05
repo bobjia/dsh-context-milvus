@@ -462,6 +462,7 @@ function collectChunks(node: any, chunkTypes: Set<string>, depth: number, maxDep
 
 async function chunkWithTreeSitter(
   filePath: string, content: string, ext: string, def: LanguageDef,
+  contextLines: number = 0,
 ): Promise<CodeChunk[]> {
   const parser = await getParser(ext)
   const tree = parser.parse(content)
@@ -469,6 +470,8 @@ async function chunkWithTreeSitter(
   const chunkTypes = new Set(def.config.chunkNodeTypes)
   const nodes = collectChunks(root, chunkTypes, 0, 10)
   const seen = new Set<number>()
+
+  const lines = content.split('\n')
 
   return nodes
     .filter((n: any) => {
@@ -480,11 +483,19 @@ async function chunkWithTreeSitter(
       const ownName = extractNodeName(node)
       const refTypes = def.config.referenceNodeTypes
       const refSet = refTypes ? new Set<string>(refTypes) : new Set<string>()
+
+      // Expand chunk boundaries to include surrounding context lines
+      const origStart = node.startPosition.row
+      const origEnd = node.endPosition.row
+      const expandedStart = Math.max(0, origStart - contextLines)
+      const expandedEnd = Math.min(lines.length, origEnd + 1 + contextLines)
+      const expandedContent = lines.slice(expandedStart, expandedEnd).join('\n')
+
       return {
         filePath,
-        content: node.text,
-        startLine: node.startPosition.row + 1,
-        endLine: node.endPosition.row + 1,
+        content: expandedContent,
+        startLine: expandedStart + 1,
+        endLine: expandedEnd,
         language: def.config.name,
         chunkType: node.type,
         name: ownName,
@@ -674,6 +685,7 @@ function findChunkEnd(lines: string[], startIndex: number): number {
 
 function chunkWithRegex(
   filePath: string, content: string, ext: string, def: LanguageDef,
+  contextLines: number = 0,
 ): CodeChunk[] {
   const language = def.config.name
   const patterns = REGEX_PATTERNS[language]
@@ -698,14 +710,17 @@ function chunkWithRegex(
       seenNames.add(key)
 
       const endLine = findChunkEnd(lines, lineIndex)
-      const chunkContent = lines.slice(lineIndex, endLine).join('\n').trim()
+      // Expand with context lines
+      const expandedStart = Math.max(0, lineIndex - contextLines)
+      const expandedEnd = Math.min(lines.length, endLine + contextLines)
+      const chunkContent = lines.slice(expandedStart, expandedEnd).join('\n').trim()
       if (!chunkContent) continue
 
       chunks.push({
         filePath,
         content: chunkContent,
-        startLine,
-        endLine: Math.min(endLine, lines.length),
+        startLine: expandedStart + 1,
+        endLine: Math.min(expandedEnd, lines.length),
         language,
         chunkType: regexChunkType(language, match, match[0]),
         name,
@@ -722,20 +737,24 @@ function chunkWithRegex(
  * Parse a source file and extract semantic code chunks.
  *
  * Uses tree-sitter AST for TypeScript/JavaScript, regex fallback for others.
+ *
+ * @param contextLines - Number of surrounding context lines to include in each chunk (default 0)
  */
-export async function chunkCode(filePath: string, content: string, ext: string): Promise<CodeChunk[]> {
+export async function chunkCode(filePath: string, content: string, ext: string, options?: { contextLines?: number }): Promise<CodeChunk[]> {
   const def = EXT_MAP.get(ext.toLowerCase())
   if (!def) throw new Error(`Unsupported file extension: ${ext}`)
+
+  const contextLines = options?.contextLines ?? 0
 
   // Try tree-sitter first
   if (hasTsParser(ext)) {
     try {
-      return await chunkWithTreeSitter(filePath, content, ext, def)
+      return await chunkWithTreeSitter(filePath, content, ext, def, contextLines)
     } catch {
       // Tree-sitter failed — fall through to regex
     }
   }
 
   // Regex fallback
-  return chunkWithRegex(filePath, content, ext, def)
+  return chunkWithRegex(filePath, content, ext, def, contextLines)
 }

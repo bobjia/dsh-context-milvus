@@ -649,7 +649,7 @@ describe('MilvusService', () => {
           output_fields: ['file_path', 'code_content', 'start_line', 'end_line', 'language', 'chunk_type', 'name'],
           data: [
             { anns_field: 'vector', data: [0.1, 0.2, 0.3], params: { metric_type: 'COSINE' } },
-            { anns_field: 'sparse_vector', data: 'login function', params: { metric_type: 'BM25' } },
+            { anns_field: 'sparse_vector', data: 'login function — login authenticate signin auth', params: { metric_type: 'BM25' } },
           ],
           rerank: { strategy: 'rrf', params: { k: 30 } },
           filter: 'file_path like "/workspace/proj%"',
@@ -1229,6 +1229,54 @@ enum Status {
     await expect(chunkCode('/tmp/test.xyz', 'some content', '.xyz')).rejects.toThrow(
       'Unsupported file extension',
     )
+  })
+
+  it('includes surrounding context lines when contextLines is set', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `/**
+ * Greets a person by name.
+ */
+function hello(name: string): string {
+  return "Hello " + name;
+}
+
+function world() {
+  return "world";
+}
+`
+    // Without contextLines (default): content is just the function body
+    const base = await chunkCode('/tmp/test.ts', code, '.ts')
+    const baseFunc = base.find((c) => c.name === 'hello')
+    expect(baseFunc).toBeDefined()
+    expect(baseFunc!.content).not.toContain('Greets a person')
+
+    // With contextLines=2: content includes the doc comment above
+    const expanded = await chunkCode('/tmp/test.ts', code, '.ts', { contextLines: 2 })
+    const expandedFunc = expanded.find((c) => c.name === 'hello')
+    expect(expandedFunc).toBeDefined()
+    expect(expandedFunc!.content).toContain('Greets a person by name')
+    expect(expandedFunc!.startLine).toBeLessThanOrEqual(4)
+    // Should still know the primary chunk name
+    expect(expandedFunc!.name).toBe('hello')
+    expect(expandedFunc!.chunkType).toBe('function_declaration')
+  })
+
+  it('does not include context lines when contextLines is 0', async () => {
+    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+
+    const code = `/**
+ * A doc comment.
+ */
+function hello(name: string): string {
+  return "Hello " + name;
+}
+`
+    const chunks = await chunkCode('/tmp/test.ts', code, '.ts', { contextLines: 0 })
+    const func = chunks.find((c) => c.name === 'hello')
+    expect(func).toBeDefined()
+    expect(func!.content).not.toContain('A doc comment')
+    expect(func!.startLine).toBe(4) // function starts at line 4
   })
 })
 

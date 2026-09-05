@@ -33,10 +33,14 @@ export interface CordisConfig {
   indexRoot?: string
   /** File extensions to index (comma-separated) */
   indexExtensions?: string
-  /** Enable hybrid search (BM25 + vector) */
+  /** 启用混合检索（BM25 关键词 + 向量语义，RRF 融合） */
   hybridMode?: boolean
   /** RRF 融合参数 k（越高越偏向名次，默认 60） */
   bm25RrfK?: number
+  /** 分块上下文重叠行数（每个 chunk 前后附加的行数，默认 2） */
+  chunkContextLines?: number
+  /** 启用查询扩展（用代码同义词扩充查询后再 embedding，默认 true） */
+  queryExpansion?: boolean
   /** Directory names to ignore during indexing (comma-separated) */
   indexIgnoreDirs?: string
   /** Custom ignore patterns (gitignore-style, comma-separated) */
@@ -78,6 +82,8 @@ export interface PluginConfig {
   indexExtensions: string[]
   hybridMode: boolean
   bm25RrfK: number
+  chunkContextLines: number
+  queryExpansion: boolean
   indexIgnoreDirs: string[]
   ignorePatterns: string[]
   merkleFilePath: string
@@ -234,6 +240,11 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
       : process.env.HYBRID_MODE !== 'false',
 
     bm25RrfK,
+
+    chunkContextLines: overrides?.chunkContextLines ?? 2,
+    queryExpansion: overrides?.queryExpansion !== undefined
+      ? overrides.queryExpansion
+      : process.env.QUERY_EXPANSION !== 'false',
 
     merkleFilePath: overrides?.merkleFilePath ?? process.env.MERKLE_FILE_PATH ?? deriveMerkleFilePath(indexRoot),
 

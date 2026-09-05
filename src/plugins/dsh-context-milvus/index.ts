@@ -112,6 +112,18 @@ export const Config = z.object({
     .default(60)
     .description('混合检索 RRF 融合参数 k（默认 60）'),
 
+  /** 分块上下文重叠行数 */
+  chunkContextLines: z.number()
+    .default(2)
+    .description('AST 分块时每个 chunk 前后附加的行数（默认 2，增加可提升检索召回率）')
+    .min(0)
+    .max(10),
+
+  /** 启用查询扩展 */
+  queryExpansion: z.boolean()
+    .default(true)
+    .description('用代码同义词扩充查询后再 embedding（可提升语义检索命中率）'),
+
   /** 跳过索引的目录名 (逗号分隔) */
   indexIgnoreDirs: z.string()
     .default('')
@@ -234,6 +246,7 @@ export async function apply(ctx: Context, config?: CordisConfig) {
     embeddingClient,
     hybridMode: resolved.hybridMode,
     bm25RrfK: resolved.bm25RrfK,
+    queryExpansion: resolved.queryExpansion,
   })
 
   const tracker = new HashTracker(resolved.merkleFilePath)

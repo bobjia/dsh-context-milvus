@@ -43,6 +43,48 @@ A DSH plugin that provides semantic code search over a **Milvus** vector databas
 - **ADR decision memory system** — Records design rationale behind code changes (Architecture Decision Records), supports semantic search, CRUD, constraint injection, and consistency checking
 - **Code relationship analysis** — Extracts symbol references from AST during indexing (`references`, language-specific syntax nodes), supports cross-file exact matching
 - **Cross-file import resolution (V2)** — Scans import/export statements using tree-sitter AST during indexing, builds a persistent bidirectional Import Map, enabling `find_callers`/`trace_call_chain` to perform precise cross-file symbol matching (same-name disambiguation, cross-module tracing)
+- **Native telemetry (opt-in)** — `search_code` / `index_code` / `index_status` write one JSONL line per execution (disabled by default, no source code captured), with an analysis script for descriptive stats + Bootstrap CI + correlation
+
+---
+
+## Effectiveness Evaluation
+
+A reproducible statistical evaluation suite (see `scripts/eval/`) quantifies how `dsh-context-milvus` improves retrieval quality and end-to-end agent efficiency. It covers offline retrieval quality, end-to-end agent evaluation, and native telemetry — using nonparametric statistics (Wilcoxon, Bootstrap CI, Cliff's Δ) with a unified file-level relevance standard. Run instructions and full reports live in `scripts/eval/*/output/report.md`.
+
+### Offline retrieval quality — 21 annotated queries × 19-file multi-language corpus
+
+Three retrieval strategies compared: **G** (grep keyword), **R** (naive RAG: sliding-window + pure vector), **P** (plugin: AST chunking + BM25 hybrid + RRF).
+
+| Metric | G (grep) | R (naive RAG) | P (plugin) |
+|--------|:--------:|:-------------:|:----------:|
+| recall@10 | 0.9524 | **1.0000** | **1.0000** |
+| MRR | 0.6754 | **0.9524** | 0.8333 |
+| nDCG@10 | 0.7446 | **0.9610** | 0.8770 |
+| hit@1 | 0.4762 | **0.9048** | 0.6667 |
+| precision@10 | **0.4203** | 0.1095 | 0.2358 |
+
+Key findings:
+
+- **AST chunking dramatically reduces retrieval noise**: P vs R precision@10 +0.1263 (p=0.000064, Cliff's Δ=0.905 — large effect). The plugin's function/class-boundary chunks are far more focused than fixed sliding windows.
+- **Semantic search beats keyword grep on ranking**: P vs G MRR +0.1579 (p=0.083), nDCG@10 +0.1324 (p=0.068) — relevant files rank higher, though significance is limited by sample size.
+- **grep precision is high but recall is brittle**: G has the best precision@10 (0.4203) but the worst hit@1 (0.4762) — keyword-only search misses semantically-related code (e.g. "retry with exponential backoff" never matches `withRetry`).
+
+### End-to-end agent evaluation — 8 tasks × 3 runs × 3 strategies
+
+| Group | Average pass rate | Token consumption |
+|-------|:-----------------:|:-----------------:|
+| G (grep) | 37.5% | baseline |
+| R (naive RAG) | 50.0% | −928 vs G |
+| **P (plugin)** | **62.5%** | **−2109 vs G** |
+
+Key findings:
+
+- **Highest task pass rate**: P 62.5% vs G 37.5% vs R 50.0%.
+- **Significant token reduction**: P vs G Δmean −2109 tokens/task (95% CI [−2325, −1864]), Wilcoxon p=0.014, **significant after Holm correction**, Cliff's Δ=−1.0. P also beats R by −928 tokens/task (p=0.014).
+
+### Native telemetry (opt-in)
+
+`search_code` / `index_code` / `index_status` record execution metrics (query, result count, top score, duration, files/chunks indexed, etc.) as one JSONL line per call — **disabled by default** (`telemetryEnabled: false`), no source code content captured. Run `node scripts/eval/telemetry/run.mjs` to generate a descriptive statistics + Bootstrap CI + correlation report from `~/.milvus-index/telemetry.jsonl`.
 
 ---
 

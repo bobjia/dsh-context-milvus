@@ -3,6 +3,24 @@
     { "query": "greeting a person by name", "relevantFiles": ["src/greeter.ts"] },
     { "query": "arithmetic addition and multiplication", "relevantFiles": ["src/math.ts"] },
     { "query": "parse json string into object", "relevantFiles": ["src/utils.py"] },
-    { "query": "network connection address from config", "relevantFiles": ["src/lib.rs"] }
+    { "query": "network connection address from config", "relevantFiles": ["src/lib.rs"] },
+
+    { "query": "verify user credentials and issue authentication token", "relevantFiles": ["src/auth/login.ts"] },
+    { "query": "track active user sessions and expire them", "relevantFiles": ["src/auth/session.ts"] },
+    { "query": "build sql query with where clauses and ordering", "relevantFiles": ["src/db/query.ts"] },
+    { "query": "apply and roll back database schema changes", "relevantFiles": ["src/db/migration.ts"] },
+    { "query": "custom exception classes with http status codes", "relevantFiles": ["src/error/errors.ts"] },
+    { "query": "retry a failing operation with exponential backoff", "relevantFiles": ["src/utils/retry.ts"] },
+    { "query": "store and retrieve values in redis with expiration", "relevantFiles": ["src/cache/redis.ts"] },
+    { "query": "background jobs processing with priority ordering", "relevantFiles": ["src/worker/queue.ts", "src/worker/task.ts"] },
+    { "query": "worker that executes a task payload", "relevantFiles": ["src/worker/task.ts"] },
+    { "query": "compute cosine similarity between text embeddings", "relevantFiles": ["src/ml/embed.py"] },
+    { "query": "http middleware chain for request logging", "relevantFiles": ["src/go/server.go"] },
+    { "query": "execute parameterized sql statements against database", "relevantFiles": ["src/go/database.go"] },
+    { "query": "asynchronous http get and post requests", "relevantFiles": ["src/java/HttpClient.java"] },
+    { "query": "read typed configuration from properties file", "relevantFiles": ["src/java/ConfigLoader.java"] },
+    { "query": "send email messages over smtp", "relevantFiles": ["src/csharp/EmailService.cs"] },
+    { "query": "vector similarity search over indexed embeddings", "relevantFiles": ["src/ml/embed.py"] },
+    { "query": "user login flow returning session token", "relevantFiles": ["src/auth/login.ts", "src/auth/session.ts"] }
   ]
 }

@@ -224,7 +224,9 @@ export async function runIndex(
         const hash = currentFiles.get(filePath) ?? HashTracker.hashContent(content)
 
         // Parse and chunk
-        const chunks = await chunkCode(filePath, content, ext)
+        const chunks = await chunkCode(filePath, content, ext, {
+          contextLines: config.chunkContextLines,
+        })
 
         if (chunks.length === 0) {
           // No chunkable structures found — still record the hash to avoid re-scanning
