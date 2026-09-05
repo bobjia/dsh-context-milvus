@@ -5,3 +5,4 @@ coverage/
 .npm-cache
 .worktrees/
 scripts/eval/retrieval/output/
+scripts/eval/agent/output/
