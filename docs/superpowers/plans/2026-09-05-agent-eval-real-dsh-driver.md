@@ -10,9 +10,11 @@
 node <driver> --task <taskId> --group <G|R|P> --root <workspaceDir>
 ```
 
-- `--task`：任务 ID（`sample-tasks.json` 中的 `id`）
-- `--group`：三组之一 `G | R | P`
-- `--root`：工作目录（driver 在此 checkout 仓库、跑测试）
+* `--task`：任务 ID（`sample-tasks.json` 中的 `id`）
+
+* `--group`：三组之一 `G | R | P`
+
+* `--root`：工作目录（driver 在此 checkout 仓库、跑测试）
 
 输出契约（stdout 单行 JSON，exit 0）：
 
@@ -20,20 +22,23 @@ node <driver> --task <taskId> --group <G|R|P> --root <workspaceDir>
 { "passed": true, "tokens": 12345, "toolCalls": 18, "durationMs": 94000 }
 ```
 
-- `passed`：bool，必填
-- `tokens` / `toolCalls`：int；宿主不暴露时输出 `null`，报告会如实标注
-- `durationMs`：int，agent 运行耗时
-- stderr 仅用于日志，不参与解析（`run-agent.mjs` 忽略 stderr）
+* `passed`：bool，必填
+
+* `tokens` / `toolCalls`：int；宿主不暴露时输出 `null`，报告会如实标注
+
+* `durationMs`：int，agent 运行耗时
+
+* stderr 仅用于日志，不参与解析（`run-agent.mjs` 忽略 stderr）
 
 ## 2. 三组检索策略 → DSH 运行配置
 
 唯一变量是「检索引擎」，其余（LLM、温度、system prompt、任务）三组完全一致。
 
-| 组 | DSH 插件配置 | 检索方式 |
-|---|---|---|
-| **G** | 不加载 `dsh-context-milvus`（或工具未注册） | DSH 宿主默认 grep 搜索 |
-| **R** | `hybridMode: false` | 纯向量 dense-only（最接近朴素 RAG） |
-| **P** | `hybridMode: true`（默认） | BM25 + 向量 RRF（插件完整能力） |
+| 组     | DSH 插件配置                         | 检索方式                      |
+| ----- | -------------------------------- | ------------------------- |
+| **G** | 不加载 `dsh-context-milvus`（或工具未注册） | DSH 宿主默认 grep 搜索          |
+| **R** | `hybridMode: false`              | 纯向量 dense-only（最接近朴素 RAG） |
+| **P** | `hybridMode: true`（默认）           | BM25 + 向量 RRF（插件完整能力）     |
 
 诚实性标注：Plan 1（离线检索）的 R 组是「固定 256 token 窗口 + cosine」；Agent 层的 R 组用插件 `hybridMode=false`，仍走 **AST 分块**，与 Plan 1 的 R 不完全等价。报告结论应避免把两层 R 混为一谈，Agent 层的减法归因是 `P − R` = BM25/RRF 增量（分块能力被抵消）。
 
@@ -105,6 +110,7 @@ await rm(ws, { recursive: true, force: true }).catch(() => {})
 DSH 宿主如何以 headless 方式启动一个 agent 会话、如何取 token/工具调用计数，**在不同宿主版本间无统一 API**（仓库内仅能确认 `exec.agent.session.header.cwd` 可访问）。按可用性从高到低给三个落地选项：
 
 **选项 A — DSH CLI（若宿主提供 headless 命令）**
+
 ```js
 async function runDshAgent({ task, group, ws, pluginConfig, issue }) {
   const cmd = process.env.DSH_AGENT_CMD ?? 'dsh'
@@ -113,18 +119,20 @@ async function runDshAgent({ task, group, ws, pluginConfig, issue }) {
   return { passed: parsed.passed, tokens: parsed.tokens ?? null, toolCalls: parsed.toolCalls ?? null }
 }
 ```
+
 验收标准：`parsed.tokens/toolCalls` 与宿主会话页数值一致；无则输出 `null`。
 
 **选项 B — DSH SDK（`@deepseek-ai/*`）**
 若宿主提供 agent 运行时 SDK（如 `@deepseek-ai/dsh-llm` 之上的 session 编排），在 `runDshAgent` 内以编程方式建会话、注入工具集（G 不注入插件、R/P 注入对应 hybridMode 的插件工具）、结束后从 session 对象读 token 统计。代码结构与选项 A 相同，只是 `pexec` 换成 SDK 调用。
 
 **选项 C — 手工编排（兜底，最诚实）**
+
 1. 在 DSH App 里按第 2 节配置分别加载插件（G 不加载）；
 2. 逐个任务手动发起会话；
 3. `tokens/toolCalls` 从 DSH 会话用量页面记录，或开启插件遥测（`telemetryEnabled: true`）用 `npm run eval:telemetry` 取 `search_code` 侧的用量作近似；
 4. driver 只负责 checkout 与 `testCommand` 判定，`runDshAgent` 直接从环境变量读 `EVAL_PASSED` / `EVAL_TOKENS` 注入结果。
 
-无论哪个选项：**报告中的 tokens/toolCalls 缺失时必须输出 `null`，不得伪造**；统计层已对 NaN p 值兜底（Holm 按 p=1 处理）。
+无论哪个选项：**报告中的 tokens/toolCalls 缺失时必须输出** **`null`，不得伪造**；统计层已对 NaN p 值兜底（Holm 按 p=1 处理）。
 
 ## 5. 运行方式
 
@@ -160,11 +168,15 @@ node scripts/eval/agent/drivers/dsh.mjs --task task-001 --group P --root /tmp/ev
 }
 ```
 
-- `baseCommit` 必须可 checkout；`testCommand` 必须在 base 上失败、在 gold 修复后通过（否则该任务不可判定，应剔除）。
-- 数量建议 30–60 个；每组每任务 k=3 时总运行数 = 任务数 × 3 × 3，预算内取舍。
+* `baseCommit` 必须可 checkout；`testCommand` 必须在 base 上失败、在 gold 修复后通过（否则该任务不可判定，应剔除）。
+
+* 数量建议 30–60 个；每组每任务 k=3 时总运行数 = 任务数 × 3 × 3，预算内取舍。
 
 ## 7. 与既有代码的关系
 
-- 复用 `run-agent.mjs` 的 spawn 契约，driver 只需满足第 1 节 CLI/输出格式。
-- `simulated.mjs` 保留作 CI/无宿主环境的回归 driver；`dsh.mjs` 是产物 driver。
-- 指标口径（pass@k 定义、Friedman/Nemenyi/McNemar/Holm、Bootstrap CI）与 [Plan 2](file:///workspace/docs/superpowers/plans/2026-09-05-agent-eval.md) 完全一致，无需改动 harness。
+* 复用 `run-agent.mjs` 的 spawn 契约，driver 只需满足第 1 节 CLI/输出格式。
+
+* `simulated.mjs` 保留作 CI/无宿主环境的回归 driver；`dsh.mjs` 是产物 driver。
+
+* 指标口径（pass@k 定义、Friedman/Nemenyi/McNemar/Holm、Bootstrap CI）与 [Plan 2](file:///workspace/docs/superpowers/plans/2026-09-05-agent-eval.md) 完全一致，无需改动 harness。
+
