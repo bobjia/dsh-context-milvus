@@ -21,6 +21,7 @@ import type { AdrService } from './adr-service.js'
 import type { AdrAnchorIndex } from './adr-anchor-index.js'
 import { findCallers, traceChain } from './code-relations.js'
 import type { FindBySymbol } from './code-relations.js'
+import { createTelemetry, sanitizeQuery } from './telemetry.js'
 
 /** Format search results for model consumption */
 function formatSearchResults(value: any[]): string {
@@ -114,6 +115,12 @@ export function registerTools(
     adrTracker: HashTracker
   },
 ): void {
+  // 本地遥测（opt-in）：每次调用实时解析配置
+  const telemetry = createTelemetry(() => {
+    const c = resolveConfig()
+    return { telemetryEnabled: c.telemetryEnabled, telemetryFile: c.telemetryFile }
+  })
+
   // ── search_code ───────────────────────────────────────────────────────
 
   ctx.tools.register(
@@ -165,6 +172,7 @@ export function registerTools(
       },
 
       async execute(params: any, exec?: any) {
+        const started = Date.now()
         const query = params.query
         const topK = params.topK ?? 5
         // Use explicit path, or the current session's workspace directory
@@ -172,7 +180,18 @@ export function registerTools(
         const path = params.path ?? sessionCwd ?? undefined
 
         await milvus.ensureCollection()
-        return milvus.search(query, topK, path)
+        const results = await milvus.search(query, topK, path)
+        telemetry.log({
+          ts: new Date().toISOString(),
+          tool: 'search_code',
+          query: sanitizeQuery(query),
+          topK,
+          path: path ?? '',
+          resultCount: results.length,
+          topScore: results.length > 0 ? results[0].score : null,
+          durationMs: Date.now() - started,
+        })
+        return results
       },
     }),
   )
@@ -280,6 +299,17 @@ export function registerTools(
           progress(`  ADR 索引: ${adrResult.filesIndexed} 个文件, ${adrResult.chunksIndexed} 个代码块`)
         }
 
+        telemetry.log({
+          ts: new Date().toISOString(),
+          tool: 'index_code',
+          mode,
+          path: effectiveConfig.indexRoot,
+          filesIndexed: codeResult.filesIndexed,
+          chunksIndexed: codeResult.chunksIndexed,
+          filesSkipped: codeResult.filesSkipped,
+          durationMs: codeResult.durationMs,
+        })
+
         return {
           ...codeResult,
           adrFilesIndexed,
@@ -369,6 +399,15 @@ export function registerTools(
           v.adrActiveAdrs = adrStatus.activeAdrs
           v.adrLastIndexed = adrStatus.lastIndexed
         }
+
+        telemetry.log({
+          ts: new Date().toISOString(),
+          tool: 'index_status',
+          path: effectiveConfig.indexRoot,
+          totalFiles: v.totalFiles,
+          totalChunks: v.totalChunks,
+          lastIndexed: v.lastIndexed ?? '',
+        })
 
         return v
       },
