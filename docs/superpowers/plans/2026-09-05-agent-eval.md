@@ -433,7 +433,7 @@ git commit -m "feat(eval-agent): run aggregation helpers"
 ```js
 // 确定性参考 driver：按 (task, group) 种子决定通过率/指标，不依赖真实 DSH。
 // 真实 DSH driver 遵循同一 CLI 契约：--task <id> --group <G|R|P> --root <dir>，stdout 输出一行 JSON。
-import { mulberry32 } from '../retrieval/lib/stats.mjs'
+import { mulberry32 } from '../../retrieval/lib/stats.mjs'
 
 function djb2(s) {
   let h = 5381
