@@ -4,3 +4,4 @@ coverage/
 *.log
 .npm-cache
 .worktrees/
+scripts/eval/retrieval/output/

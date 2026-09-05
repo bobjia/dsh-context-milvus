@@ -39,7 +39,8 @@
     "build": "tsc",
     "prepare": "tsc",
     "test": "node --experimental-vm-modules node_modules/.bin/jest",
-    "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage"
+    "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage",
+    "test:eval": "node --test scripts/eval/retrieval/lib/*.test.mjs"
   },
   "dependencies": {
     "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
