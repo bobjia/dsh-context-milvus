@@ -557,7 +557,7 @@ const config = getConfig({
   hybridMode: true,
 })
 const embeddingClient = new EmbeddingClient(config.embedding)
-const milvus = new MilvusService({ address: config.milvusAddress, token: config.milvusToken, collection: config.milvusCollection, dim: config.milvusDim, embeddingClient })
+const milvus = new MilvusService({ address: config.milvusAddress, token: config.milvusToken, collection: config.milvusCollection, dim: config.milvusDim, embeddingClient, hybridMode: config.hybridMode, bm25RrfK: config.bm25RrfK })
 const tracker = new HashTracker(config.merkleFilePath)
 await runIndex(config, milvus, tracker, { mode: 'full' })
 
