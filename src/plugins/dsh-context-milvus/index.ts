@@ -124,6 +124,18 @@ export const Config = z.object({
     .default(true)
     .description('用代码同义词扩充查询后再 embedding（可提升语义检索命中率）'),
 
+  /** 启用两阶段重排序 */
+  rerankEnabled: z.boolean()
+    .default(true)
+    .description('对检索结果做第二阶段重排序（提升 precision 和 hit@1）'),
+
+  /** 重排序 pool 倍数 */
+  rerankMultiplier: z.number()
+    .default(3)
+    .description('检索时取 topK × multiplier 个结果再重排序（默认 3）')
+    .min(1)
+    .max(10),
+
   /** 跳过索引的目录名 (逗号分隔) */
   indexIgnoreDirs: z.string()
     .default('')
@@ -247,6 +259,7 @@ export async function apply(ctx: Context, config?: CordisConfig) {
     hybridMode: resolved.hybridMode,
     bm25RrfK: resolved.bm25RrfK,
     queryExpansion: resolved.queryExpansion,
+    rerankConfig: { enabled: resolved.rerankEnabled, multiplier: resolved.rerankMultiplier },
   })
 
   const tracker = new HashTracker(resolved.merkleFilePath)

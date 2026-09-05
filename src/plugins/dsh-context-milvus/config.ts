@@ -41,6 +41,10 @@ export interface CordisConfig {
   chunkContextLines?: number
   /** 启用查询扩展（用代码同义词扩充查询后再 embedding，默认 true） */
   queryExpansion?: boolean
+  /** 启用两阶段重排序（默认 true） */
+  rerankEnabled?: boolean
+  /** 重排序 pool 倍数（topK × multiplier，默认 3） */
+  rerankMultiplier?: number
   /** Directory names to ignore during indexing (comma-separated) */
   indexIgnoreDirs?: string
   /** Custom ignore patterns (gitignore-style, comma-separated) */
@@ -84,6 +88,8 @@ export interface PluginConfig {
   bm25RrfK: number
   chunkContextLines: number
   queryExpansion: boolean
+  rerankEnabled: boolean
+  rerankMultiplier: number
   indexIgnoreDirs: string[]
   ignorePatterns: string[]
   merkleFilePath: string
@@ -245,6 +251,10 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
     queryExpansion: overrides?.queryExpansion !== undefined
       ? overrides.queryExpansion
       : process.env.QUERY_EXPANSION !== 'false',
+    rerankEnabled: overrides?.rerankEnabled !== undefined
+      ? overrides.rerankEnabled
+      : process.env.RERANK_ENABLED !== 'false',
+    rerankMultiplier: overrides?.rerankMultiplier ?? 3,
 
     merkleFilePath: overrides?.merkleFilePath ?? process.env.MERKLE_FILE_PATH ?? deriveMerkleFilePath(indexRoot),
 

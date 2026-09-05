@@ -618,7 +618,7 @@ describe('MilvusService', () => {
       expect(mockSearch).toHaveBeenCalledWith(
         expect.objectContaining({
           collection_name: 'test_collection',
-          limit: 5,
+          limit: 15,  // topK(5) × rerankMultiplier(3)
         }),
       )
       expect(results).toHaveLength(1)
@@ -645,7 +645,7 @@ describe('MilvusService', () => {
       expect(mockHybridSearch).toHaveBeenCalledWith(
         expect.objectContaining({
           collection_name: 'test_collection',
-          limit: 5,
+          limit: 15,  // topK(5) × rerankMultiplier(3)
           output_fields: ['file_path', 'code_content', 'start_line', 'end_line', 'language', 'chunk_type', 'name'],
           data: [
             { anns_field: 'vector', data: [0.1, 0.2, 0.3], params: { metric_type: 'COSINE' } },

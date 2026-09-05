@@ -10,6 +10,7 @@ import type { SearchResultData, SearchSimpleReq } from '@zilliz/milvus2-sdk-node
 import type { SearchResult, CodeChunk, AdrChunk, AdrSearchResult } from './types.js'
 import { EmbeddingClient } from './embedding.js'
 import { expandQuery } from './query-expansion.js'
+import { rerankResults, type RerankConfig } from './reranker.js'
 
 export class MilvusService {
   private client: MilvusClient | null = null
@@ -27,6 +28,7 @@ export class MilvusService {
   private adrCollectionReady = false
   private adrInitPromise: Promise<void> | null = null
   private readonly queryExpansion: boolean
+  private readonly rerankConfig: RerankConfig
 
   constructor(config: {
     address: string
@@ -38,6 +40,7 @@ export class MilvusService {
     bm25RrfK?: number
     adrCollection?: string
     queryExpansion?: boolean
+    rerankConfig?: Partial<RerankConfig>
   }) {
     this.address = config.address
     this.token = config.token
@@ -49,6 +52,10 @@ export class MilvusService {
     this.effectiveHybridMode = this.hybridMode
     this.adrCollection = config.adrCollection ?? 'adr_embeddings'
     this.queryExpansion = config.queryExpansion ?? true
+    this.rerankConfig = {
+      enabled: config.rerankConfig?.enabled ?? true,
+      multiplier: config.rerankConfig?.multiplier ?? 3,
+    }
   }
 
   // ── Client lazy init ──────────────────────────────────────────────────
@@ -261,6 +268,11 @@ export class MilvusService {
       'language', 'chunk_type', 'name',
     ]
 
+    // Stage 1: fetch a larger pool (topK × multiplier) for reranking
+    const fetchLimit = this.rerankConfig.enabled
+      ? Math.min(topK * this.rerankConfig.multiplier, 100)
+      : topK
+
     let response: any
     if (this.effectiveHybridMode) {
       response = await client.hybridSearch({
@@ -270,7 +282,7 @@ export class MilvusService {
           { anns_field: 'sparse_vector', data: effectiveQuery, params: { metric_type: 'BM25' } },
         ],
         rerank: { strategy: RANKER_TYPE.RRF, params: { k: this.bm25RrfK } },
-        limit: topK,
+        limit: fetchLimit,
         output_fields: outputFields,
         ...(pathPrefix ? { filter: `file_path like "${pathPrefix}%"` } : {}),
       } as any)
@@ -278,7 +290,7 @@ export class MilvusService {
       const searchParams: SearchSimpleReq = {
         collection_name: collection,
         vector: vector,
-        limit: topK,
+        limit: fetchLimit,
         output_fields: outputFields,
       }
       if (pathPrefix) {
@@ -294,7 +306,7 @@ export class MilvusService {
       ? (raw as any[][]).flat()
       : (raw as any[])
 
-    return items.map((item: any) => ({
+    const results = items.map((item: any) => ({
       filePath: item.file_path ?? '',
       content: item.code_content ?? '',
       score: item.score,
@@ -304,6 +316,12 @@ export class MilvusService {
       name: item.name ?? '',
       chunkType: item.chunk_type ?? '',
     }))
+
+    // Stage 2: rerank the pool down to topK
+    if (this.rerankConfig.enabled && results.length > topK) {
+      return rerankResults(query, results, topK)
+    }
+    return results.slice(0, topK)
   }
 
   // ── Bulk insert (for indexing) ────────────────────────────────────────
