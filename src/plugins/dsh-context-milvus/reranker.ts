@@ -4,12 +4,11 @@
  * Stage 1: Retrieve topK × multiplier results from Milvus hybrid search.
  * Stage 2: Rerank using a composite score that combines:
  *   - Original RRF/vector score (primary signal)
- *   - Proportional query-term overlap boost (max +50%)
- *   - Proportional name match boost (max +25%)
- *   - Soft per-file penalty (15% discount per extra chunk from same file)
+ *   - Proportional query-term overlap boost (max +30%)
+ *   - Proportional name match boost (max +15%)
  *
  * All bonuses are PROPORTIONAL to the base score, not absolute, because
- * RRF scores are typically tiny (~0.01–0.05). An absolute bonus would
+ * RRF scores are typically tiny (~0.01-0.05). An absolute bonus would
  * dominate the base signal and reorder purely by keyword overlap.
  *
  * No additional model calls — pure heuristic reranking on top of Milvus scores.
@@ -19,7 +18,7 @@ import type { SearchResult } from './types.js'
 
 export interface RerankConfig {
   enabled: boolean
-  /** How many times topK to fetch before reranking (e.g., 3 → fetch 30 for a topK=10 query) */
+  /** How many times topK to fetch before reranking (e.g., 3 -> fetch 30 for a topK=10 query) */
   multiplier: number
 }
 
@@ -27,8 +26,6 @@ export interface RerankConfig {
 const OVERLAP_BOOST = 0.3
 /** Maximum fractional boost from name match (max +15%) */
 const NAME_BOOST = 0.15
-/** Fractional score discount per extra chunk from the same file (0 = no penalty) */
-const FILE_PENALTY_RATIO = 0
 
 /**
  * Rerank search results by combining the original score with heuristic signals.
@@ -71,23 +68,13 @@ export function rerankResults(query: string, results: SearchResult[], topK: numb
       }
     }
 
-    // Proportional composite: base × (1 + overlap boost + name boost)
+    // Proportional composite: base x (1 + overlap boost + name boost)
     const rerankScore = baseScore * (1 + overlapRatio * OVERLAP_BOOST + nameMatch * NAME_BOOST)
 
-    return { result: r, rerankScore, baseScore, filePath: r.filePath }
+    return { result: r, rerankScore }
   })
 
-  // 3. Soft per-file penalty: each extra chunk from the same file gets a
-  //    proportional discount. No hard cutoff — the Milvus score decides.
-  scored.sort((a, b) => b.rerankScore - a.rerankScore)
-  const fileCount = new Map<string, number>()
-  for (const item of scored) {
-    const count = fileCount.get(item.filePath) ?? 0
-    fileCount.set(item.filePath, count + 1)
-    item.rerankScore -= item.baseScore * count * FILE_PENALTY_RATIO
-  }
-
-  // Re-sort after penalty
+  // Sort by rerank score descending
   scored.sort((a, b) => b.rerankScore - a.rerankScore)
 
   // Return top-K, strip internal score fields
@@ -110,7 +97,7 @@ const STOP_WORDS = new Set([
   'his', 'her', 'my', 'your', 'our', 'its', 'me', 'you', 'us',
   'what', 'which', 'who', 'whom', 'whose',
   'about', 'up', 'down',
-  // Generic programming noise words — appear in nearly every chunk
+  // Generic programming noise words - appear in nearly every chunk
   'function', 'class', 'method', 'code', 'file', 'return', 'public',
   'private', 'protected', 'static', 'void', 'string', 'number', 'int',
   'boolean', 'const', 'let', 'var', 'import', 'export', 'default',

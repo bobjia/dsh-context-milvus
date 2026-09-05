@@ -28,6 +28,15 @@ export function precisionAtK(retrieved, relevant, k = 10) {
   return top.length === 0 ? 0 : top.filter((f) => rel.has(f)).length / top.length
 }
 
+/** Chunk-level precision@K: no file-level de-duplication.
+ *  Each retrieved item is independently judged — the Agent sees K entries,
+ *  and this counts how many of those entries are from relevant files. */
+export function precisionAtKChunk(retrieved, relevant, k = 10) {
+  const rel = new Set(relevant)
+  const top = retrieved.slice(0, k)
+  return top.length === 0 ? 0 : top.filter((f) => rel.has(f)).length / top.length
+}
+
 export function mrr(retrieved, relevant) {
   const rel = new Set(relevant)
   const seen = new Set()

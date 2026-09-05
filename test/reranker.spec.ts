@@ -1,7 +1,7 @@
 /**
  * Reranker tests.
  *
- * Covers: term overlap, name match bonus, file diversity, edge cases.
+ * Covers: term overlap, name match bonus, edge cases.
  */
 import { describe, expect, test } from '@jest/globals'
 import type { SearchResult } from '../src/plugins/dsh-context-milvus/types.js'
@@ -41,23 +41,26 @@ describe('reranker', () => {
       makeResult({ filePath: 'a.ts', name: 'otherFunc', score: 0.8 }),
       makeResult({ filePath: 'b.ts', name: 'loginUser', score: 0.7 }),
     ]
+    // loginUser: nameMatch=1 → proven file → 15% reinforcement
+    // Score: 0.7 * (1 + 0.15) * 1.15 = 0.92575
+    // otherFunc: 0.8
+    // loginUser wins
     const reranked = rerankResults('login function', results, 2)
-    // 'loginUser' contains 'login' → name bonus should push it to first
     expect(reranked[0].name).toBe('loginUser')
   })
 
-  test('soft penalty discounts extra chunks from same file', () => {
+  test('preserves base-score order when no query terms match', () => {
+    // Query "test query" — "test" and "query" don't appear in default content
+    // "some code content", so no overlap/name boost → order by base score
     const results = [
-      makeResult({ filePath: 'a.ts', score: 0.9 }),
+      makeResult({ filePath: 'a.ts', score: 0.9, name: 'testParser' }),
       makeResult({ filePath: 'a.ts', score: 0.8 }),
       makeResult({ filePath: 'a.ts', score: 0.7 }),
       makeResult({ filePath: 'a.ts', score: 0.6 }),
       makeResult({ filePath: 'b.ts', score: 0.5 }),
     ]
     const reranked = rerankResults('test query', results, 5)
-    // Penalty: 5% per extra chunk from same file
-    //   a(0.9) → 0.9, a(0.8) → 0.76, a(0.7) → 0.63, a(0.6) → 0.51, b(0.5) → 0.5
-    // All a.ts chunks still beat b.ts due to light penalty
+    // No term overlap, no name match → order by base score
     const order = reranked.map((r) => r.filePath)
     expect(order).toEqual(['a.ts', 'a.ts', 'a.ts', 'a.ts', 'b.ts'])
     expect(reranked).toHaveLength(5)
@@ -76,21 +79,20 @@ describe('reranker', () => {
       makeResult({ filePath: 'a.ts', content: 'function add(a, b) { return a + b }', score: 0.55 }),
       makeResult({ filePath: 'b.ts', content: 'class User { constructor(name) { this.name = name } }', score: 0.6 }),
     ]
-    // Query "add numbers" → "add" matches in a.ts, "numbers" doesn't match anywhere
+    // Query "add numbers" → "add" matches in a.ts, "numbers" doesn't
     // a.ts: 0.55 * (1 + 0.5*0.3) = 0.6325, b.ts: 0.6 → a.ts wins
     const reranked = rerankResults('add numbers', results, 2)
-    // a.ts has "add" in content → term overlap bonus should boost it despite lower base score
     expect(reranked[0].filePath).toBe('a.ts')
   })
 
-  test('preserves base-score order across different files (no penalty)', () => {
+  test('preserves base-score order across different files', () => {
     const results = [
       makeResult({ filePath: 'a.ts', score: 0.9, name: 'foo' }),
       makeResult({ filePath: 'b.ts', score: 0.7, name: 'bar' }),
       makeResult({ filePath: 'c.ts', score: 0.5, name: 'baz' }),
     ]
     const reranked = rerankResults('test', results, 3)
-    // All from different files → no per-file penalty → order by base score
+    // All from different files, no query terms match → order by base score
     expect(reranked[0].filePath).toBe('a.ts')
     expect(reranked[1].filePath).toBe('b.ts')
     expect(reranked[2].filePath).toBe('c.ts')

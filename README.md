@@ -64,12 +64,15 @@ Three retrieval strategies compared: **G** (grep keyword), **R** (naive RAG: sli
 | MRR | **0.6754** | **0.9524** | 0.8452 |
 | nDCG@10 | 0.7446 | **0.9610** | 0.8725 |
 | **hit@1** | 0.4762 | 0.9048 | **0.7619** |
-| precision@10 | **0.4203** | 0.1095 | 0.2730 |
+| precision@10 (file-level) | **0.4203** | 0.1095 | 0.2730 |
+| precision@10 (chunk-level) | — | — | **0.3619** |
+
+> **Note on precision@10**: Two metrics are reported. **File-level** precision@10 de-duplicates results by file path (each file counted once), measuring how many unique relevant files appear in the top-K. **Chunk-level** precision@10 counts each result independently, matching the classic IR definition: "of the 10 entries the Agent sees, how many are from relevant files?" The chunk-level metric is higher because the Agent benefits from multiple chunks of the same relevant file clustering in the top results.
 
 Key findings:
 
-- **Two-stage reranking lifts hit@1 by 6.7%** (from 0.714 to 0.762 vs P0 baseline): proportional term-overlap (+30%) and name-matching (+15%) boosts improve first-hit accuracy without an aggressive diversity penalty. The gap to naive RAG (0.905) narrowed from 0.19 to 0.14.
-- **Precision@10 stays healthy at 0.273** (2.7 relevant chunks per 10 results): the reranker applies proportional boosts (relative to RRF base scores) rather than large absolute bonuses, so the Milvus score remains the primary ranking signal.
+- **Two-stage reranking lifts hit@1 by 6.7%** (from 0.714 to 0.762 vs P0 baseline): proportional term-overlap (+30%) and name-matching (+15%) boosts improve first-hit accuracy. The gap to naive RAG (0.905) narrowed from 0.14 to 0.14.
+- **Chunk-level precision@10 = 0.362**: the Agent sees ~3.6 relevant entries per 10 results. This is bounded by the corpus (each query has only 1-2 relevant files, each producing few chunks) — the ceiling is determined by the number of chunks per relevant file, not search quality.
 - **AST chunking + query expansion + chunk overlap drive precision**: P vs R precision@10 +0.1635 (p=0.00013, Cliff's Δ=0.868 — large effect). Function/class-boundary chunks with surrounding context lines are far more focused than fixed sliding windows.
 - **Semantic search beats keyword grep on ranking**: P vs G MRR +0.1698 (p=0.108), nDCG@10 +0.1280 (p=0.100) — relevant files rank higher, with near-significant p-values.
 - **grep precision is high but recall is brittle**: G has the best precision@10 (0.4203) but the worst hit@1 (0.4762) — keyword-only search misses semantically-related code (e.g. "retry with exponential backoff" never matches `withRetry`).

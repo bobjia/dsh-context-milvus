@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { loadDataset } from './lib/dataset.mjs'
 import { grepBaseline, naiveRagBaseline } from './lib/baselines.mjs'
-import { recallAtK, mrr, ndcgAtK, hitAtK, precisionAtK } from './lib/metrics.mjs'
+import { recallAtK, mrr, ndcgAtK, hitAtK, precisionAtK, precisionAtKChunk } from './lib/metrics.mjs'
 import { wilcoxonSignedRank, bootstrapMeanDiffCi, cliffsDelta, mulberry32 } from './lib/stats.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -88,13 +88,14 @@ const METRICS = {
   'hit@1': (r, q) => hitAtK(r, q.relevantFiles, 1),
   'precision@10': (r, q) => precisionAtK(r, q.relevantFiles, 10),
 }
-const groups = { G: [], R: [], P: [] }
+const groups = { G: [], R: [], P: [], PRaw: [] }
 for (const q of queries) {
   const g = grepBaseline(q.query, corpus, TOPK)
   const r = await naiveRagBaseline(q.query, corpus, embeddingClient, TOPK)
   const s = await milvus.search(q.query, TOPK)
   const p = [...new Set(s.map((x) => x.filePath))]
-  groups.G.push(g); groups.R.push(r); groups.P.push(p)
+  const pRaw = s.map((x) => x.filePath)  // chunk-level, no dedup
+  groups.G.push(g); groups.R.push(r); groups.P.push(p); groups.PRaw.push(pRaw)
 }
 
 // 4. 逐指标统计（P vs G、P vs R）
@@ -116,6 +117,14 @@ for (const [name, fn] of Object.entries(METRICS)) {
   }
   lines.push('')
 }
+
+// 4b. Chunk-level precision@10 (P group only, no file-level dedup)
+const chunkPrecision = queries.map((q, i) => precisionAtKChunk(groups.PRaw[i], q.relevantFiles, 10))
+lines.push('## precision@10-chunk', '')
+lines.push(`| 组 | 均值 |`, '|---|---|')
+lines.push(`| P | ${mean(chunkPrecision).toFixed(4)} |`)
+lines.push('')
+
 await mkdir(path.join(__dirname, 'output'), { recursive: true })
 const reportPath = path.join(__dirname, 'output', 'report.md')
 await writeFile(reportPath, lines.join('\n'), 'utf-8')
