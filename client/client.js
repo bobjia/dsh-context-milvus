@@ -62,6 +62,22 @@ window.__ModuleLoader__.load({
       adrConstraintReinjectEveryHint: "每 N 步自动重注入约束（0=禁用）",
       adrSystemPrompt: "自定义 ADR 规则提示",
       adrSystemPromptHint: "系统提示词中 ADR 规则的定制内容（留空使用默认）",
+      chunkContextLines: "分块上下文行数",
+      chunkContextLinesHint: "AST 分块时每个 chunk 前后附加的行数（默认 2，增加可提升检索召回率）",
+      queryExpansion: "查询扩展",
+      queryExpansionHint: "用代码同义词扩充查询后再 embedding（可提升语义检索命中率）",
+      rerankEnabled: "两阶段重排序",
+      rerankEnabledHint: "对检索结果做第二阶段重排序（提升 precision 和 hit@1）",
+      rerankMultiplier: "重排序 pool 倍数",
+      rerankMultiplierHint: "检索时取 topK × multiplier 个结果再重排序（默认 3）",
+      specRoot: "规格文档目录",
+      specRootHint: "Brainstorming 规格文档目录（相对 indexRoot）",
+      planRoot: "实现计划目录",
+      planRootHint: "实现计划文档目录（相对 indexRoot）",
+      telemetryEnabled: "遥测统计",
+      telemetryEnabledHint: "启用本地遥测统计（search_code/index_code/index_status 写入 JSONL）",
+      telemetryFile: "遥测 JSONL 文件路径",
+      telemetryFileHint: "遥测 JSONL 文件路径（留空使用默认 ~/.milvus-index/telemetry.jsonl）",
       save: "保存",
       discard: "撤销",
       overridden: "已覆盖",
@@ -110,6 +126,22 @@ window.__ModuleLoader__.load({
       adrConstraintReinjectEveryHint: "Auto re-inject constraints every N steps (0=disabled)",
       adrSystemPrompt: "Custom ADR Rules Prompt",
       adrSystemPromptHint: "Custom section for ADR rules in system prompt (empty=default)",
+      chunkContextLines: "Chunk Context Lines",
+      chunkContextLinesHint: "Extra lines before/after each AST chunk (default 2, increase to improve recall)",
+      queryExpansion: "Query Expansion",
+      queryExpansionHint: "Expand query with code synonyms before embedding (improves semantic recall)",
+      rerankEnabled: "Two-Stage Reranking",
+      rerankEnabledHint: "Re-rank retrieval results in a second stage (improves precision and hit@1)",
+      rerankMultiplier: "Rerank Pool Multiplier",
+      rerankMultiplierHint: "Retrieve topK × multiplier results then re-rank (default 3)",
+      specRoot: "Spec Directory",
+      specRootHint: "Brainstorming spec directory (relative to indexRoot)",
+      planRoot: "Plan Directory",
+      planRootHint: "Implementation plan directory (relative to indexRoot)",
+      telemetryEnabled: "Telemetry",
+      telemetryEnabledHint: "Enable local telemetry stats (search_code/index_code/index_status writes to JSONL)",
+      telemetryFile: "Telemetry JSONL Path",
+      telemetryFileHint: "Telemetry JSONL file path (empty = ~/.milvus-index/telemetry.jsonl)",
       save: "Save",
       discard: "Discard",
       overridden: "Overridden",
@@ -515,6 +547,15 @@ window.__ModuleLoader__.load({
         { id: "merkleFilePath", label: t("merkleFilePath"), hint: t("merkleFilePathHint"), numeric: false, secret: false },
         { id: "indexIgnoreDirs", label: t("indexIgnoreDirs"), hint: t("indexIgnoreDirsHint"), numeric: false, secret: false },
         { id: "bm25RrfK", label: t("bm25RrfK"), hint: t("bm25RrfKHint"), numeric: true, secret: false },
+        { id: "chunkContextLines", label: t("chunkContextLines"), hint: t("chunkContextLinesHint"), numeric: true, secret: false },
+        { id: "queryExpansion", label: t("queryExpansion"), hint: t("queryExpansionHint"), numeric: false, secret: false, boolean: true },
+        { id: "rerankEnabled", label: t("rerankEnabled"), hint: t("rerankEnabledHint"), numeric: false, secret: false, boolean: true },
+        { id: "rerankMultiplier", label: t("rerankMultiplier"), hint: t("rerankMultiplierHint"), numeric: true, secret: false },
+        { id: "ignorePatterns", label: t("ignorePatterns"), hint: t("ignorePatternsHint"), numeric: false, secret: false, textarea: true },
+        { id: "specRoot", label: t("specRoot"), hint: t("specRootHint"), numeric: false, secret: false },
+        { id: "planRoot", label: t("planRoot"), hint: t("planRootHint"), numeric: false, secret: false },
+        { id: "telemetryEnabled", label: t("telemetryEnabled"), hint: t("telemetryEnabledHint"), numeric: false, secret: false, boolean: true },
+        { id: "telemetryFile", label: t("telemetryFile"), hint: t("telemetryFileHint"), numeric: false, secret: false },
         { id: "adrEnabled", label: t("adrEnabled"), hint: t("adrEnabledHint"), numeric: false, secret: false, boolean: true },
         { id: "adrRoot", label: t("adrRoot"), hint: t("adrRootHint"), numeric: false, secret: false },
         { id: "adrCollection", label: t("adrCollection"), hint: t("adrCollectionHint"), numeric: false, secret: false },
@@ -800,11 +841,14 @@ window.__ModuleLoader__.load({
 
     // --- 应用入口 ---
     function apply(ctx) {
+      console.log("[dsh-context-milvus] apply() called — plugin activated");
+
       // 注册本地化字典
       ctx.effect(function () { return ctx.locale.register(NS, { zh: zh, en: en }); });
 
       // 绑定 settings namespace 作用域
       var scope = ctx.settingsScope.bind({ namespace: NS });
+      console.log("[dsh-context-milvus] scope bound, initial snapshot:", scope.getSnapshot());
 
       // 表单状态管理
       var staged = {};        // 暂存编辑值: { field: text }
@@ -827,6 +871,14 @@ window.__ModuleLoader__.load({
         ignorePatterns: "string",
         hybridMode: "boolean",
         bm25RrfK: "number",
+        chunkContextLines: "number",
+        queryExpansion: "boolean",
+        rerankEnabled: "boolean",
+        rerankMultiplier: "number",
+        specRoot: "string",
+        planRoot: "string",
+        telemetryEnabled: "boolean",
+        telemetryFile: "string",
         adrEnabled: "boolean",
         adrRoot: "string",
         adrCollection: "string",
@@ -858,6 +910,8 @@ window.__ModuleLoader__.load({
           "embeddingEndpoint", "embeddingApiKey", "embeddingModel",
           "indexRoot", "indexExtensions", "merkleFilePath",
           "indexIgnoreDirs", "ignorePatterns", "hybridMode", "bm25RrfK",
+          "chunkContextLines", "queryExpansion", "rerankEnabled", "rerankMultiplier",
+          "specRoot", "planRoot", "telemetryEnabled", "telemetryFile",
           "adrEnabled", "adrRoot", "adrCollection",
           "adrConstraintReinjectEvery", "adrSystemPrompt",
         ];
@@ -954,6 +1008,7 @@ window.__ModuleLoader__.load({
 
       // 注册 settings.plugin.item 插槽
       ctx.slots.inject("settings.plugin.item", function* () {
+        console.log("[dsh-context-milvus] slots.inject callback running — registering slot entry");
         yield ctx.slots.register(
           {
             name: "settings.plugin.item",
@@ -971,7 +1026,25 @@ window.__ModuleLoader__.load({
           },
           MilvusConfigCard
         );
+        console.log("[dsh-context-milvus] slot entry registered, checking entries...");
+        try {
+          var entries = ctx.slots.entries("settings.plugin.item");
+          console.log("[dsh-context-milvus] settings.plugin.item entries:", entries.map(function(e) { return e.options.key; }));
+        } catch(e) {
+          console.log("[dsh-context-milvus] error checking entries:", e);
+        }
       });
+
+      // 延迟诊断：检查 scope 状态和 mirror 状态
+      setTimeout(function() {
+        console.log("[dsh-context-milvus] [delayed] scope snapshot:", scope.getSnapshot());
+        try {
+          var entries = ctx.slots.entries("settings.plugin.item");
+          console.log("[dsh-context-milvus] [delayed] settings.plugin.item entries:", entries.map(function(e) { return e.options.key; }));
+        } catch(e) {
+          console.log("[dsh-context-milvus] [delayed] error checking entries:", e);
+        }
+      }, 5000);
     }
 
     exports.apply = apply;
