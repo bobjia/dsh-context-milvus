@@ -25,7 +25,8 @@
 import * as path from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+// Loads dsh-settings' `Context.settings` service augmentation (types only, erased at runtime).
+import type {} from '@deepseek-ai/dsh-settings'
 import { getConfig, deriveMerkleFilePath, deriveImportMapFilePath, type CordisConfig } from './config.js'
 import { MilvusService } from './milvus-service.js'
 import { HashTracker } from './merkle.js'
@@ -42,7 +43,7 @@ export const name = 'dsh-context-milvus'
 export const inject = ['tools']
 
 /** Settings namespace for dsh-context-milvus configuration */
-const SETTINGS_NAMESPACE = settingsNamespace('dsh-context-milvus')
+const SETTINGS_NAMESPACE = 'dsh-context-milvus'
 
 /**
  * Config schema for dsh-context-milvus.
@@ -236,15 +237,20 @@ export async function apply(ctx: Context, config?: CordisConfig) {
     prevAdrEnabled = enable
   }
 
-  installSettingsSection(ctx, SETTINGS_NAMESPACE, Config, config ?? {}, {
-    setSource: (source) => {
-      current = source
-    },
-    onChange: () => {
-      const newConfig = getConfig(current())
-      toggleAdr(newConfig.adrEnabled)
-      console.log('[dsh-context-milvus] Configuration updated via settings')
-    },
+  // dsh-settings ≥0.1.5: the settings section API moved onto the `ctx.settings`
+  // service (installSection). It is optional — when no provider is mounted the
+  // plugin keeps working off its composition entry config.
+  ctx.inject(['settings'], (sctx) => {
+    sctx.settings.installSection(ctx, SETTINGS_NAMESPACE, Config, config ?? {}, {
+      setSource: (source) => {
+        current = source
+      },
+      onChange: () => {
+        const newConfig = getConfig(current())
+        toggleAdr(newConfig.adrEnabled)
+        console.log('[dsh-context-milvus] Configuration updated via settings')
+      },
+    })
   })
 
   // Resolve initial config for startup services
