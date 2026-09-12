@@ -5,7 +5,7 @@ import { parseFrontmatter } from './adr-frontmatter.js'
 import type {
   AdrFrontmatter, AdrDocument, AdrListItem, ConstraintSummary,
   CreateAdrParams, UpdateAdrParams, AdrFilter,
-} from 'dsh-context-milvus-core'
+} from './types.js'
 
 const ADR_FILENAME_RE = /^ADR-(\d{4})-(.+)\.md$/
 const ADR_STATUSES: ReadonlySet<string> = new Set(['active', 'superseded', 'deprecated'])

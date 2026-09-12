@@ -4,7 +4,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 
-const { parseFrontmatter } = await import('../src/plugins/dsh-context-milvus/adr-frontmatter.js')
+const { parseFrontmatter } = await import('../src/adr-frontmatter.js')
 
 describe('parseFrontmatter', () => {
   const sampleAdr = `---

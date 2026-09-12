@@ -29,7 +29,7 @@ jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
 // so we use paths relative to test/ that point to the source modules.
 const mockRunAdrIndex = jest.fn()
 const mockGetAdrIndexStatus = jest.fn()
-jest.unstable_mockModule('../src/plugins/dsh-context-milvus/adr-indexer.js', () => ({
+jest.unstable_mockModule('../../core/src/adr-indexer.js', () => ({
   runAdrIndex: mockRunAdrIndex,
   getAdrIndexStatus: mockGetAdrIndexStatus,
 }))

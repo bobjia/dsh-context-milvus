@@ -3,7 +3,7 @@ import { mkdtemp, writeFile, readFile, mkdir } from 'node:fs/promises'
 import * as path from 'node:path'
 import { tmpdir } from 'node:os'
 
-const { AdrService } = await import('../src/plugins/dsh-context-milvus/adr-service.js')
+const { AdrService } = await import('../src/adr-service.js')
 
 describe('AdrService', () => {
   let tempDir: string

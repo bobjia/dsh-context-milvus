@@ -21,3 +21,14 @@ export type { RerankConfig } from './reranker.js'
 export { createTelemetry, sanitizeQuery } from './telemetry.js'
 export type { Logger } from './logger.js'
 export { consoleLogger, silentLogger } from './logger.js'
+export { parseFrontmatter } from './adr-frontmatter.js'
+export { chunkAdrFile } from './adr-chunker.js'
+export { AdrAnchorIndex } from './adr-anchor-index.js'
+export { AdrService } from './adr-service.js'
+export { runAdrIndex, getAdrIndexStatus } from './adr-indexer.js'
+export type { ScanRoot, AdrIndexResult } from './adr-indexer.js'
+export {
+  findCandidateFiles, detectCodeReferences,
+  generateSpecFrontmatter, previewFrontmatter,
+} from './adr-anchor-generator.js'
+export type { DetectedRef, GenerateResult } from './adr-anchor-generator.js'
