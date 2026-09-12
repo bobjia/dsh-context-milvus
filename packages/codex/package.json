@@ -1,0 +1,20 @@
+{
+  "name": "codex-context-milvus",
+  "version": "0.1.0",
+  "description": "Semantic code search for OpenAI Codex via Milvus (MCP server)",
+  "type": "module",
+  "bin": {
+    "codex-context-milvus": "bin/cli.js",
+    "codex-context-milvus-mcp": "bin/mcp.js"
+  },
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "files": ["dist", "bin", ".codex-plugin", ".mcp.json", "skills", "README.md"],
+  "license": "MIT",
+  "scripts": { "build": "tsc" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "zod": "^3.25.0",
+    "dsh-context-milvus-core": "^0.1.0"
+  }
+}
