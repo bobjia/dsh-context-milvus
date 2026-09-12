@@ -35,3 +35,32 @@ export const traceCallChainSchema = {
   resolve: z.boolean().optional(),
   path: z.string().optional(),
 }
+
+const adrStatus = z.enum(['active', 'superseded', 'deprecated', 'all']).optional()
+
+export const searchAdrSchema = {
+  query: z.string().describe('自然语言查询，如"为什么用了重试队列"'),
+  status: adrStatus.describe('过滤状态，默认不过滤'),
+  topK: z.number().int().positive().optional().describe('返回结果数，默认 5'),
+  pathPrefix: z.string().optional().describe('限定 ADR 子目录（相对工作区根）'),
+  path: z.string().optional().describe('工作区根目录，省略则自动发现'),
+}
+
+export const searchAdrByFileSchema = {
+  filePath: z.string().describe('代码文件路径，相对或绝对'),
+  status: adrStatus.describe('过滤状态'),
+  path: z.string().optional(),
+}
+
+export const listAdrsSchema = {
+  status: adrStatus.describe('默认 active'),
+  changeType: z.enum(['new_feature', 'refactor', 'bugfix', 'optimization', 'architecture']).optional(),
+  limit: z.number().int().positive().optional().describe('默认 100'),
+  path: z.string().optional(),
+}
+
+export const loadConstraintsSchema = {
+  format: z.enum(['summary', 'full']).optional().describe('full 含隐性约束详情，默认 summary'),
+  adrIds: z.string().optional().describe('逗号分隔的 ADR id，默认全部 active'),
+  path: z.string().optional(),
+}

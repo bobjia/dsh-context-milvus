@@ -4,12 +4,16 @@ import {
   type SearchResult, type PluginConfig, type HashTracker, type ImportResolver,
   type IndexResult, type IndexStatus, type Logger,
   type CallersResult, type TraceResult, type FindBySymbol, type RelationChunk,
+  type AdrBundle, type AdrSearchResult,
 } from 'dsh-context-milvus-core'
 import { resolveWorkspaceRoot, type WorkspaceSource } from './workspace-resolver.js'
 
 export interface MilvusPort {
   ensureCollection(): Promise<void>
   search(query: string, topK: number, pathPrefix?: string): Promise<SearchResult[]>
+  /** Only needed by the ADR tools. */
+  ensureAdrCollection?(): Promise<void>
+  searchAdr?(query: string, topK: number, filters?: { status?: string; pathPrefix?: string }): Promise<AdrSearchResult[]>
 }
 
 export interface HandlerServices {
@@ -18,7 +22,11 @@ export interface HandlerServices {
   milvus: MilvusPort
   tracker: HashTracker
   importResolver: ImportResolver
+  adr?: AdrPort
 }
+
+/** Structural alias so ADR handlers stay unit-testable with a literal object. */
+export type AdrPort = AdrBundle
 
 export type ServiceProvider = (root: string) => Promise<HandlerServices>
 

@@ -1,5 +1,6 @@
 import type {
   SearchResult, IndexResult, IndexStatus, CallersResult, TraceResult,
+  AdrSearchResult, AdrListItem,
 } from 'dsh-context-milvus-core'
 
 export type ErrorCode =
@@ -95,4 +96,53 @@ export function formatChain(result: TraceResult): string {
     return `${indent}${n.symbol} (${n.filePath}:${n.startLine}-${n.endLine})${callers}`
   })
   return `调用链 (${result.chain.length} 层):\n\n${lines.join('\n')}`
+}
+
+export function formatAdrSearch(results: AdrSearchResult[]): string {
+  if (results.length === 0) return '未找到匹配的 ADR 决策记录。'
+  return results.map((item, i) => {
+    const typeLabel = item.docType === 'spec' ? ', spec' : item.docType === 'plan' ? ', plan' : ''
+    return [
+      `[结果 ${i + 1}] ADR: ${item.adrId} (${item.status}${typeLabel}), 章节: ${item.section}`,
+      `文件: ${item.filePath}`,
+      `相关度: ${item.score.toFixed(4)}`,
+      '内容:',
+      item.content,
+    ].join('\n')
+  }).join('\n---\n')
+}
+
+export function formatAdrByFile(adrs: Array<{ adrId: string; status: string; summary: string }>): string {
+  if (adrs.length === 0) return '未找到关联的 ADR 决策记录。'
+  const body = adrs.map((v) => `- ${v.adrId} (${v.status}): ${v.summary.slice(0, 100)}`).join('\n')
+  return `关联的 ADR 决策记录:\n${body}`
+}
+
+export function formatAdrList(adrs: AdrListItem[]): string {
+  if (adrs.length === 0) return '没有找到匹配的 ADR。'
+  const body = adrs.map((v) => `${v.id} [${v.status}] ${v.changeType} — ${v.summary.slice(0, 60)}`).join('\n')
+  return `共 ${adrs.length} 条 ADR 记录\n${body}`
+}
+
+export function formatConstraints(items: Array<{
+  adrId: string; adrTitle: string; constraints: string[]
+  rejectedPatterns: string[]; hiddenConstraints?: Array<{ name: string; content: string; consequence: string }>
+}>): string {
+  if (items.length === 0) return '没有 active 的约束。'
+  return items.map((v) => {
+    const lines = [`## ${v.adrId}: ${v.adrTitle}`]
+    if (v.constraints.length) lines.push('约束:', ...v.constraints.map((c) => `  - ${c}`))
+    if (v.hiddenConstraints?.length) {
+      lines.push('隐性约束:')
+      for (const h of v.hiddenConstraints) {
+        lines.push(`  - ${h.name}`)
+        if (h.content) lines.push(`    内容: ${h.content}`)
+        if (h.consequence) lines.push(`    后果: ${h.consequence}`)
+      }
+    }
+    if (v.rejectedPatterns.length) {
+      lines.push('被否决的反模式:', ...v.rejectedPatterns.map((p) => `  ❌ ${p}`))
+    }
+    return lines.join('\n')
+  }).join('\n\n')
 }

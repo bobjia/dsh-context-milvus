@@ -1,7 +1,7 @@
 import {
   getConfig, deriveMerkleFilePath, deriveImportMapFilePath,
-  EmbeddingClient, MilvusService, HashTracker, ImportResolver,
-  type Logger, type PluginConfig,
+  EmbeddingClient, MilvusService, HashTracker, ImportResolver, createAdrBundle,
+  type Logger, type PluginConfig, type AdrBundle,
 } from 'dsh-context-milvus-core'
 
 export interface WorkspaceServices {
@@ -10,6 +10,8 @@ export interface WorkspaceServices {
   milvus: MilvusService
   tracker: HashTracker
   importResolver: ImportResolver
+  /** Present only when ADR_ENABLED is on. Never connects to Milvus. */
+  adr?: AdrBundle
 }
 
 export class WorkspaceServiceCache {
@@ -44,7 +46,14 @@ export class WorkspaceServiceCache {
     const importResolver = new ImportResolver(deriveImportMapFilePath(root))
     await importResolver.load().catch(() => {})
 
-    const services: WorkspaceServices = { root, config, milvus, tracker, importResolver }
+    // ADR is opt-in per server process. Assembly reads local state files only,
+    // so a missing Milvus never breaks tool discovery. createWhenMissing stays
+    // at its default: the MCP server must not grow directories in a repo.
+    const adr = config.adrEnabled
+      ? await createAdrBundle(config, { logger: this.logger })
+      : undefined
+
+    const services: WorkspaceServices = { root, config, milvus, tracker, importResolver, adr }
     this.cache.set(root, services)
     this.logger.debug('workspace services ready', { root })
     return services

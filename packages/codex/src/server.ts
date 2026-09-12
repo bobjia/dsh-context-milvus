@@ -7,13 +7,19 @@ import {
   handleFindCallers, handleTraceCallChain, type ServiceProvider,
 } from './handlers.js'
 import {
+  handleSearchAdr, handleSearchAdrByFile, handleListAdrs, handleLoadConstraints,
+} from './adr-handlers.js'
+import {
   okResult, errorResult, formatSearchResults, formatIndexResult, formatStatus,
   formatCallers, formatChain,
+  formatAdrSearch, formatAdrByFile, formatAdrList, formatConstraints,
 } from './result-format.js'
 import {
   searchCodeSchema, indexCodeSchema, indexStatusSchema,
   findCallersSchema, traceCallChainSchema,
+  searchAdrSchema, searchAdrByFileSchema, listAdrsSchema, loadConstraintsSchema,
 } from './schemas.js'
+import { getConfig } from 'dsh-context-milvus-core'
 
 export const VERSION = '0.1.0'
 
@@ -82,6 +88,45 @@ export function createServer(provider?: ServiceProvider): McpServer {
     const out = await handleTraceCallChain(resolveServices, logger, args)
     return { payload: { root: out.root, ...out.result }, text: formatChain(out.result) }
   }))
+
+  // ADR tools only appear when the server is started with ADR_ENABLED. MCP has
+  // no way to grow its tool list mid-session, so this is decided once at boot.
+  const adrEnabled = getConfig().adrEnabled
+  logger.debug('ADR tools', { enabled: adrEnabled })
+
+  if (adrEnabled) {
+    server.registerTool('search_adr', {
+      description: '在 ADR 决策记录中做语义搜索。需要知道一段代码"为什么这样写"时使用。',
+      inputSchema: searchAdrSchema,
+    }, async (args: any) => wrap(async () => {
+      const out = await handleSearchAdr(resolveServices, logger, args)
+      return { payload: { root: out.root, results: out.results }, text: formatAdrSearch(out.results) }
+    }))
+
+    server.registerTool('search_adr_by_file', {
+      description: '按代码文件路径查关联的 ADR 决策记录（基于 code_anchors 的确定性关联）。',
+      inputSchema: searchAdrByFileSchema,
+    }, async (args: any) => wrap(async () => {
+      const out = await handleSearchAdrByFile(resolveServices, logger, args)
+      return { payload: { root: out.root, adrs: out.adrs }, text: formatAdrByFile(out.adrs) }
+    }))
+
+    server.registerTool('list_adrs', {
+      description: '列出 ADR 决策记录，可按状态与变更类型过滤。',
+      inputSchema: listAdrsSchema,
+    }, async (args: any) => wrap(async () => {
+      const out = await handleListAdrs(resolveServices, logger, args)
+      return { payload: { root: out.root, adrs: out.adrs }, text: formatAdrList(out.adrs) }
+    }))
+
+    server.registerTool('load_constraints', {
+      description: '加载 active ADR 的约束、隐性约束与被否决的反模式。',
+      inputSchema: loadConstraintsSchema,
+    }, async (args: any) => wrap(async () => {
+      const out = await handleLoadConstraints(resolveServices, logger, args)
+      return { payload: { root: out.root, constraints: out.constraints }, text: formatConstraints(out.constraints) }
+    }))
+  }
 
   return server
 }
