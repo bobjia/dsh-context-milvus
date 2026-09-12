@@ -193,6 +193,27 @@ export function deriveImportMapFilePath(rootPath: string): string {
 }
 
 /**
+ * Derive the ADR anchor-index file path for an ADR root.
+ *
+ * Byte-identical to the historical expression
+ * `deriveMerkleFilePath(adrRoot).replace('merkle', 'anchors')` that the DSH
+ * plugin used inline. Users already have these files on disk, so a different
+ * result would silently orphan every existing anchor index and force a full
+ * ADR re-index. Pinned by packages/core/test/adr-path-derivation.spec.ts.
+ */
+export function deriveAnchorIndexPath(adrRoot: string): string {
+  return deriveMerkleFilePath(adrRoot).replace('merkle', 'anchors')
+}
+
+/**
+ * Derive the ADR hash-tracker state file path for an ADR root.
+ * Byte-identical to `deriveMerkleFilePath(adrRoot).replace('merkle', 'adr-merkle')`.
+ */
+export function deriveAdrTrackerPath(adrRoot: string): string {
+  return deriveMerkleFilePath(adrRoot).replace('merkle', 'adr-merkle')
+}
+
+/**
  * Build runtime config from env vars and Cordis config.
  * Cordis config values take precedence over env vars.
  */
