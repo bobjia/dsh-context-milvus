@@ -14,7 +14,7 @@ import {
   okResult, errorResult, formatSearchResults, formatIndexResult, formatStatus,
   formatCallers, formatChain,
   formatAdrSearch, formatAdrByFile, formatAdrList, formatConstraints,
-  formatAdrConsistency,
+  formatAdrConsistency, appendAdrHints,
 } from './result-format.js'
 import {
   searchCodeSchema, indexCodeSchema, indexStatusSchema,
@@ -63,8 +63,8 @@ export function createServer(provider?: ServiceProvider): McpServer {
     inputSchema: searchCodeSchema,
   }, async (args: any) => wrap(async () => {
     const out = await handleSearchCode(resolveServices, logger, args)
-    return { payload: { root: out.root, source: out.source, results: out.results },
-             text: formatSearchResults(out.results) }
+    return { payload: { root: out.root, source: out.source, results: out.results, relatedAdrs: out.relatedAdrs },
+             text: appendAdrHints(formatSearchResults(out.results), out.relatedAdrs) }
   }))
 
   server.registerTool('index_code', {

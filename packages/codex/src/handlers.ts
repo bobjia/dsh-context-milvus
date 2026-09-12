@@ -46,11 +46,17 @@ export interface IndexStatusArgs {
   path?: string
 }
 
+export interface RelatedAdr {
+  adrId: string
+  title: string
+  status: string
+}
+
 export async function handleSearchCode(
   provider: ServiceProvider,
   logger: Logger,
   args: SearchCodeArgs,
-): Promise<{ root: string; source: WorkspaceSource; results: SearchResult[] }> {
+): Promise<{ root: string; source: WorkspaceSource; results: SearchResult[]; relatedAdrs: RelatedAdr[] }> {
   const { root, source } = resolveWorkspaceRoot(args.path)
   const services = await provider(root)
   await services.milvus.ensureCollection()
@@ -58,8 +64,44 @@ export async function handleSearchCode(
   const scope = args.pathPrefix ? path.join(root, args.pathPrefix) : root
   const topK = args.topK ?? 5
   const results = await services.milvus.search(args.query, topK, scope)
-  logger.debug('search_code done', { root, topK, count: results.length })
-  return { root, source, results }
+  const relatedAdrs = await relatedAdrsFor(services, root, results, logger)
+  logger.debug('search_code done', { root, topK, count: results.length, adrs: relatedAdrs.length })
+  return { root, source, results, relatedAdrs }
+}
+
+/**
+ * Codex has no hook for injecting ADR constraints into a conversation, so the
+ * reminder rides along with search results — and only for files an ADR actually
+ * covers, so ordinary searches stay byte-identical to the pre-ADR output.
+ */
+async function relatedAdrsFor(
+  services: HandlerServices,
+  root: string,
+  results: SearchResult[],
+  logger: Logger,
+): Promise<RelatedAdr[]> {
+  const adr = services.adr
+  if (!adr) return []
+
+  const ids: string[] = []
+  for (const hit of results) {
+    const relative = path.isAbsolute(hit.filePath) ? path.relative(root, hit.filePath) : hit.filePath
+    // Anchor keys are stored relative to the workspace root, but an index built
+    // by another adapter may hold absolute paths; try both.
+    for (const key of [relative, hit.filePath]) {
+      for (const id of adr.anchorIndex.getAdrsForFile(key)) {
+        if (!ids.includes(id)) ids.push(id)
+      }
+    }
+  }
+  if (ids.length === 0) return []
+
+  const titles = await adr.titles()
+  return ids.map((id) => ({
+    adrId: id,
+    title: titles.get(id)?.title ?? '',
+    status: titles.get(id)?.status ?? 'unknown',
+  }))
 }
 
 export async function handleIndexCode(

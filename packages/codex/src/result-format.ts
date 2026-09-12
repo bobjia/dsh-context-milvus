@@ -171,3 +171,19 @@ export function formatAdrConsistency(r: {
   }
   return parts.join('\n')
 }
+
+/**
+ * Append the ADR reminder. Returns the input untouched when no hit is covered,
+ * which is what keeps the default search output stable.
+ */
+export function appendAdrHints(
+  text: string,
+  related: Array<{ adrId: string; title: string; status: string }>,
+): string {
+  if (related.length === 0) return text
+  const body = related.map((a) => {
+    const title = a.title.length > 60 ? `${a.title.slice(0, 60)}…` : a.title
+    return [a.adrId, title, `(${a.status})`].filter(Boolean).join(' ')
+  })
+  return `${text}\n相关决策: ${body.join(' · ')}`
+}
