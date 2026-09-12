@@ -75,9 +75,20 @@ function sectionKey(section: string, sub: string): string {
 }
 
 export class AdrService {
-  constructor(private adrRoot: string) {
-    if (!existsSync(adrRoot)) {
-      mkdirSync(adrRoot, { recursive: true })
+  /**
+   * Historically the constructor always created the ADR directory, and
+   * `createAdr` relies on it existing (it only does a tmp + rename). That is
+   * kept as the default so existing callers behave byte-for-byte the same.
+   *
+   * `createWhenMissing: false` is for hosts that must not grow directories in a
+   * user's repository as a side effect of loading — the MCP server does this and
+   * reports a missing ADR root instead.
+   */
+  constructor(private adrRoot: string, options?: { createWhenMissing?: boolean }) {
+    if (options?.createWhenMissing ?? true) {
+      if (!existsSync(adrRoot)) {
+        mkdirSync(adrRoot, { recursive: true })
+      }
     }
   }
 

@@ -32,3 +32,5 @@ export {
   generateSpecFrontmatter, previewFrontmatter,
 } from './adr-anchor-generator.js'
 export type { DetectedRef, GenerateResult } from './adr-anchor-generator.js'
+export { createAdrBundle } from './adr-bundle.js'
+export type { AdrBundle, AdrTitle } from './adr-bundle.js'

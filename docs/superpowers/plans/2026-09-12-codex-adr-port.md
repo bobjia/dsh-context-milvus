@@ -483,9 +483,15 @@ export interface AdrBundle {
   titles(): Promise<Map<string, AdrTitle>>
 }
 export async function createAdrBundle(
-  config: PluginConfig, logger?: Logger,
+  config: PluginConfig,
+  options?: { logger?: Logger; createWhenMissing?: boolean },
 ): Promise<AdrBundle>
 ```
+
+`createWhenMissing` **默认 false**：装配 bundle 不许在用户仓库里长目录。`AdrService` 的构造函数历史上总是
+`mkdirSync` 建 ADR 目录（`createAdr` 依赖它存在，自己只做 tmp+rename），因此给它加同名开关并**默认 true**，
+保持既有调用方逐字节不变；DSH 经 `createAdrBundle(..., { createWhenMissing: true })` 显式延续该行为。
+执行期修订，原因为 spec §5.5 与 `AdrService` 构造函数现状冲突（见 Task 4 Step 3 的实际实现）。
 
 `runAdrIndex` 的 options 变为 `{ mode?: 'full' | 'incremental'; progress?: (msg: string) => void; logger?: Logger }`。
 
@@ -641,14 +647,15 @@ export interface AdrBundle {
  */
 export async function createAdrBundle(
   config: PluginConfig,
-  logger?: Logger,
+  options?: { logger?: Logger; createWhenMissing?: boolean },
 ): Promise<AdrBundle> {
+  const logger = options?.logger
   const adrRoot = path.resolve(config.indexRoot, config.adrRoot || 'docs/decisions')
 
   const anchorIndex = new AdrAnchorIndex(deriveAnchorIndexPath(adrRoot))
   await anchorIndex.load().catch(() => {})
 
-  const service = new AdrService(adrRoot)
+  const service = new AdrService(adrRoot, { createWhenMissing: options?.createWhenMissing ?? false })
 
   const tracker = new HashTracker(deriveAdrTrackerPath(adrRoot))
   await tracker.load().catch(() => {})
@@ -751,7 +758,7 @@ DSH 与 Codex 因此共用同一份 ADR 索引状态。
 - Modify: `packages/dsh/src/plugins/dsh-context-milvus/index.ts:36-37`（import）、`:293-310`（装配段）
 
 **Interfaces:**
-- Consumes: `createAdrBundle(config, logger?) → AdrBundle`（Task 4），形状 `{ adrRoot, exists, service, anchorIndex, tracker, titles }`
+- Consumes: `createAdrBundle(config, { logger?, createWhenMissing? }) → AdrBundle`（Task 4），形状 `{ adrRoot, exists, service, anchorIndex, tracker, titles }`
 - Produces: 对下游一字不变的 `adrOptions = { service, anchorIndex, adrTracker }`
 
 - [ ] **Step 1: 记下当前装配段**
@@ -784,7 +791,8 @@ Expected: 看到 `const adrRoot = path.resolve(...)` 开头、`const adrOptions 
 替换为：
 
 ```ts
-  const adr = await createAdrBundle(resolved)
+  // createWhenMissing: true 延续 DSH 历史上「加载插件即建出 ADR 目录」的行为，缺了它就是行为变化
+  const adr = await createAdrBundle(resolved, { createWhenMissing: true })
   const { service: adrService, anchorIndex, tracker: adrTracker } = adr
   const adrOptions = { service: adrService, anchorIndex, adrTracker }
 ```
@@ -875,7 +883,10 @@ export interface WorkspaceServices {
 ```ts
     // ADR is opt-in per server process. Assembly reads local state files only,
     // so a missing Milvus never breaks tool discovery.
-    const adr = config.adrEnabled ? await createAdrBundle(config, this.logger) : undefined
+    // createWhenMissing 省略 = false：MCP 端永远不在用户仓库里建目录
+    const adr = config.adrEnabled
+      ? await createAdrBundle(config, { logger: this.logger })
+      : undefined
 
     const services: WorkspaceServices = { root, config, milvus, tracker, importResolver, adr }
 ```

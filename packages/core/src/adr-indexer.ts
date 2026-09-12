@@ -7,6 +7,7 @@ import { chunkAdrFile } from './adr-chunker.js'
 import { AdrAnchorIndex } from './adr-anchor-index.js'
 import type { MilvusService } from './milvus-service.js'
 import type { PluginConfig } from './config.js'
+import type { Logger } from './logger.js'
 import type { AdrIndexStatus } from './types.js'
 import type { AdrService } from './adr-service.js'
 
@@ -71,10 +72,11 @@ export async function runAdrIndex(
   milvus: MilvusService,
   tracker: HashTracker,
   anchorIndex: AdrAnchorIndex,
-  options?: { mode?: 'full' | 'incremental'; progress?: (msg: string) => void },
+  options?: { mode?: 'full' | 'incremental'; progress?: (msg: string) => void; logger?: Logger },
 ): Promise<AdrIndexResult> {
   const mode = options?.mode ?? 'incremental'
-  const progress = options?.progress ?? (() => {})
+  const log = options?.logger
+  const progress = options?.progress ?? ((msg: string) => { if (log) log.info(msg) })
   const startTime = Date.now()
 
   if (!config.adrEnabled) {
