@@ -52,7 +52,7 @@ A DSH plugin that provides semantic code search over a **Milvus** vector databas
 
 ## Codex CLI support
 
-The retrieval engine behind this plugin is published separately as `dsh-context-milvus-core`, so the same code also runs as a stdio **MCP server** for [OpenAI Codex CLI](https://github.com/openai/codex) (and any other MCP client) from the `codex-context-milvus` package. It exposes the five retrieval tools — `search_code`, `index_code`, `index_status`, `find_callers`, `trace_call_chain` — and shares the same Milvus collection and per-workspace index state as the DSH plugin.
+The retrieval engine behind this plugin is published separately as `dsh-context-milvus-core`, so the same code also runs as a stdio **MCP server** for [OpenAI Codex CLI](https://github.com/openai/codex) (and any other MCP client) from the `codex-context-milvus` package. It exposes the five retrieval tools — `search_code`, `index_code`, `index_status`, `find_callers`, `trace_call_chain` — and shares the same Milvus collection and per-workspace index state as the DSH plugin. Start it with `ADR_ENABLED=true` and the 8 ADR decision-memory tools are registered as well; the four that write to disk stay gated behind `CONTEXT_MILVUS_ADR_WRITE`.
 
 Shortest setup:
 
@@ -60,7 +60,7 @@ Shortest setup:
 codex mcp add context-milvus -- npx -y codex-context-milvus mcp
 ```
 
-See [`packages/codex/README.md`](packages/codex/README.md) for the `init` wizard, the environment variable reference, the error-code table, and current limitations (no ADR tools, no runtime config hot-reload).
+See [`packages/codex/README.md`](packages/codex/README.md) for the `init` wizard, the environment variable reference, the error-code table, and current limitations (ADR tools are off by default, no runtime config hot-reload).
 
 ---
 
@@ -649,7 +649,7 @@ After installation, go to the DSH Web interface (http://127.0.0.1:3080) **Settin
 │      DSH Agent / Web UI (13 tools)       │  │   OpenAI Codex CLI / any MCP client  │
 │  search_code │ index_code │ index_status │  │        (5 tools, MCP stdio)          │
 │  find_callers │ trace_call_chain         │  │  search_code │ index_code │ ...      │
-│  8 × ADR tools (decision memory)         │  │   no ADR tools in v1 by design       │
+│  8 × ADR tools (decision memory)         │  │   ADR tools need ADR_ENABLED         │
 └────────────────────┬─────────────────────┘  └───────────────────┬──────────────────┘
                      │                                            │
        packages/dsh (Cordis adapter)              packages/codex (MCP adapter + CLI)
@@ -664,7 +664,7 @@ After installation, go to the DSH Web interface (http://127.0.0.1:3080) **Settin
    │  code-relations (BFS findCallers/traceChain)             import-resolver     │
    │  query-expansion → reranker                              ignore-matcher (3层) │
    │  telemetry (JSONL, opt-in)                               logger port         │
-   │  ADR types only — ADR logic lives in the DSH adapter                         │
+   │  ADR engine: frontmatter/chunker/anchors/service/indexer/bundle              │
    └──────────────────────────────────────────────────────────────────────────────┘
                                           │
                           ┌───────────────┴───────────────┐

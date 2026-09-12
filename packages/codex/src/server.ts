@@ -25,7 +25,7 @@ import {
 import { getConfig } from 'dsh-context-milvus-core'
 import { ADR_WRITE_ENV } from './adr-gate.js'
 
-export const VERSION = '0.1.0'
+export const VERSION = '0.2.0'
 
 function classify(err: unknown): ReturnType<typeof errorResult> {
   const message = err instanceof Error ? err.message : String(err)

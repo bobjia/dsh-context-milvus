@@ -38,7 +38,7 @@ This is a **private npm workspace** (`packages/*`) holding one retrieval engine 
 ```
 packages/core     dsh-context-milvus-core     framework-agnostic engine
 packages/dsh      dsh-context-milvus          DSH (Cordis) plugin adapter, 13 tools
-packages/codex    codex-context-milvus        MCP stdio server for OpenAI Codex, 5 tools
+packages/codex    codex-context-milvus        MCP stdio server for OpenAI Codex, 5 tools (+8 ADR tools when ADR_ENABLED)
 ```
 
 Dependency direction is one-way: `dsh` → `core` and `codex` → `core`. Adapters never import each other.
@@ -66,24 +66,29 @@ packages/core/src/
   code-relations.ts    — findCallers / traceChain (BFS) over the relation data
   telemetry.ts         — opt-in JSONL telemetry
   logger.ts            — Logger port (consoleLogger / silentLogger)
+
+  adr-frontmatter.ts       — YAML frontmatter parsing
+  adr-chunker.ts           — Markdown section chunking
+  adr-anchor-index.ts      — code_anchors reverse index
+  adr-anchor-generator.ts  — anchor generation for spec documents
+  adr-service.ts           — ADR CRUD, status management, anchor stripping
+  adr-indexer.ts           — ADR indexing pipeline
+  adr-bundle.ts            — createAdrBundle(): one assembly point for both adapters
 ```
+
+The ADR engine lives here too, so both adapters read and write the *same* decision
+records: `createAdrBundle()` resolves the ADR root and the two state files (anchor index,
+ADR hash tracker) identically for DSH and MCP. It performs no network call and never
+creates a missing ADR directory — only DSH opts into that (`createWhenMissing: true`),
+preserving its historical behaviour.
 
 ### The DSH adapter (`packages/dsh/src/plugins/dsh-context-milvus/`)
 
 `index.ts` is the Cordis entry: `apply()` bootstraps services, installs the settings section, and registers **13 tools** — `search_code`, `index_code`, `index_status`, `find_callers`, `trace_call_chain` plus the 8 ADR tools (`search_adr`, `search_adr_by_file`, `create_adr`, `update_adr`, `list_adrs`, `load_constraints`, `check_adr_consistency`, `index_specs`). `tools.ts` and `adr-tools.ts` hold the tool definitions; every engine import goes through `dsh-context-milvus-core`.
 
-ADR decision memory lives here (not in core, except its types in `core/src/types.ts`):
-
-```
-adr-frontmatter.ts       — YAML frontmatter parsing
-adr-chunker.ts           — Markdown section chunking
-adr-anchor-index.ts      — code_anchors reverse index
-adr-anchor-generator.ts  — anchor generation for spec documents
-adr-service.ts           — ADR CRUD + status management
-adr-indexer.ts           — ADR indexing pipeline
-adr-tools.ts             — the 8 ADR tools
-constraint-injector.ts   — system prompt injection + per-step constraint re-injection
-```
+Only the DSH-facing wrappers stay here: `adr-tools.ts` (the 8 tool definitions) and
+`constraint-injector.ts` (system prompt injection + per-step constraint re-injection).
+The engine behind them is in core.
 
 ADR is off by default (`adrEnabled: false`); enable it in the DSH settings panel. Milvus keeps ADR data in a separate `adr_embeddings` collection.
 
@@ -98,14 +103,16 @@ workspace-resolver.ts  — explicit path → nearest ancestor .git → cwd
 context.ts             — createStderrLogger(): stdout is reserved for JSON-RPC
 workspace-services.ts  — per-workspace service cache (config, Milvus, tracker, import resolver)
 result-format.ts       — text + structuredContent envelope, ErrorCode table, formatters
-handlers.ts            — the 5 tool handlers, framework-free and unit-testable
+handlers.ts            — the 5 code tool handlers, framework-free and unit-testable
+adr-handlers.ts        — the 8 ADR tool handlers (4 read-only, 4 write-capable)
+adr-gate.ts            — AdrError + the CONTEXT_MILVUS_ADR_WRITE write gate
 schemas.ts             — zod input schemas
 server.ts              — McpServer wiring + error classification
 init-wizard.ts         — upsert [mcp_servers.context-milvus] into <repo>/.codex/config.toml
 doctor.ts              — connectivity probes for embedding + Milvus
 ```
 
-The Codex surface is deliberately 5 tools: no ADR tools, no runtime config hot-reload, no constraint injection (Codex has no hook that can write into a conversation).
+The 8 ADR tools are registered **at startup only when `ADR_ENABLED` is set** — MCP cannot grow its tool list mid-session, so there is no runtime config hot-reload and no settings panel. There is likewise no constraint injection: Codex has no hook that can write into a conversation, so the reminder is a single `相关决策:` line appended to `search_code` results (byte-identical output when no hit is ADR-covered). The four write-capable ADR tools are refused unless `CONTEXT_MILVUS_ADR_WRITE=true`, checked against the actual write intent, with both guards running before any disk or network access.
 
 ## Key design decisions
 
@@ -143,4 +150,4 @@ Two things catch people working here:
 
 Core specs mock modules (`jest.unstable_mockModule`) rather than any framework, and `EmbeddingClient` tests override `globalThis.fetch`. `packages/codex/test/mcp-smoke.spec.ts` is the exception that proves the integration: it spawns the built `bin/mcp.js` and speaks real JSON-RPC over stdio, so `npm run build` must precede it.
 
-`docs/codex-mcp-manual-verification.md` records what automated checks cover and which steps still need a real Milvus + Codex session.
+`docs/codex-mcp-manual-verification.md` and `docs/codex-adr-port-verification.md` record what automated checks cover and which steps still need a real Milvus + Codex session.

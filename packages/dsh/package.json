@@ -1,6 +1,6 @@
 {
   "name": "dsh-context-milvus",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "description": "DSH plugin for semantic code search via Milvus vector database",
   "type": "module",
   "files": [
@@ -44,7 +44,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
     "@zilliz/milvus2-sdk-node": "^3.0.4",
-    "dsh-context-milvus-core": "^0.1.0",
+    "dsh-context-milvus-core": "^0.2.0",
     "ignore": "^7.0.6",
     "js-yaml": "^5.4.1",
     "tree-sitter": "^0.25.1",
