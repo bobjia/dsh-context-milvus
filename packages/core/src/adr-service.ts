@@ -1,6 +1,7 @@
 import { readFile, writeFile, readdir, mkdir, rename } from 'node:fs/promises'
 import * as path from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
+import { dump as yamlDump, load as yamlLoad } from 'js-yaml'
 import { parseFrontmatter } from './adr-frontmatter.js'
 import type {
   AdrFrontmatter, AdrDocument, AdrListItem, ConstraintSummary,
@@ -341,6 +342,40 @@ export class AdrService {
     } catch {
       return []
     }
+  }
+
+  /**
+   * Remove every code anchor pointing at `file`. Returns false when nothing
+   * changed. Written atomically (tmp + rename) because these are hand-maintained
+   * documents. Shared by both adapters so a fix in DSH and a fix from the MCP
+   * server rewrite the frontmatter identically.
+   */
+  async removeAnchorsForFile(adrId: string, file: string): Promise<boolean> {
+    const filePath = await this.findAdrFile(adrId)
+    if (!filePath) return false
+
+    const content = await readFile(filePath, 'utf-8')
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/)
+    if (!fmMatch) return false
+
+    let parsed: Record<string, unknown>
+    try {
+      parsed = (yamlLoad(fmMatch[1]) ?? {}) as Record<string, unknown>
+    } catch {
+      return false
+    }
+    if (!Array.isArray(parsed.code_anchors)) return false
+
+    const anchors = parsed.code_anchors as Array<Record<string, unknown>>
+    const kept = anchors.filter(a => a?.file !== file)
+    if (kept.length === anchors.length) return false
+    parsed.code_anchors = kept
+
+    const yaml = yamlDump(parsed, { lineWidth: 120, noRefs: true, sortKeys: false })
+    const tmpPath = `${filePath}.tmp`
+    await writeFile(tmpPath, `---\n${yaml}---\n` + content.slice(fmMatch[0].length), 'utf-8')
+    await rename(tmpPath, filePath)
+    return true
   }
 
   /** Find an ADR file by id (exact match first, then partial/serial fallback) */

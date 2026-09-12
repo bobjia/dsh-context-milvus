@@ -8,18 +8,22 @@ import {
 } from './handlers.js'
 import {
   handleSearchAdr, handleSearchAdrByFile, handleListAdrs, handleLoadConstraints,
+  handleCreateAdr, handleUpdateAdr, handleCheckAdrConsistency, handleIndexSpecs,
 } from './adr-handlers.js'
 import {
   okResult, errorResult, formatSearchResults, formatIndexResult, formatStatus,
   formatCallers, formatChain,
   formatAdrSearch, formatAdrByFile, formatAdrList, formatConstraints,
+  formatAdrConsistency,
 } from './result-format.js'
 import {
   searchCodeSchema, indexCodeSchema, indexStatusSchema,
   findCallersSchema, traceCallChainSchema,
   searchAdrSchema, searchAdrByFileSchema, listAdrsSchema, loadConstraintsSchema,
+  createAdrSchema, updateAdrSchema, checkAdrConsistencySchema, indexSpecsSchema,
 } from './schemas.js'
 import { getConfig } from 'dsh-context-milvus-core'
+import { ADR_WRITE_ENV } from './adr-gate.js'
 
 export const VERSION = '0.1.0'
 
@@ -27,6 +31,14 @@ function classify(err: unknown): ReturnType<typeof errorResult> {
   const message = err instanceof Error ? err.message : String(err)
   if (err && typeof err === 'object' && (err as any).code === 'E_WORKSPACE_NOT_FOUND') {
     return errorResult('E_WORKSPACE_NOT_FOUND', message, '检查 path 参数，或省略它让工具自动发现工作区')
+  }
+  // ADR 的两个错误靠 AdrError.code 判定：必须在下面的正则兜底之前，
+  // 否则 "ADR ... 写盘" 这类消息会被 E_INTERNAL 吞掉，agent 拿不到开关名。
+  if (err && typeof err === 'object' && (err as any).code === 'E_ADR_WRITE_DISABLED') {
+    return errorResult('E_ADR_WRITE_DISABLED', message, `设 ${ADR_WRITE_ENV}=true 后重启 Codex`)
+  }
+  if (err && typeof err === 'object' && (err as any).code === 'E_ADR_NOT_INITIALIZED') {
+    return errorResult('E_ADR_NOT_INITIALIZED', message, '检查 ADR_ROOT 指向的目录是否存在')
   }
   if (/ECONNREFUSED|UNAVAILABLE|connect/i.test(message)) {
     return errorResult('E_MILVUS_UNREACHABLE', message, '确认 Milvus 已启动，并检查 MILVUS_ADDRESS')
@@ -125,6 +137,57 @@ export function createServer(provider?: ServiceProvider): McpServer {
     }, async (args: any) => wrap(async () => {
       const out = await handleLoadConstraints(resolveServices, logger, args)
       return { payload: { root: out.root, constraints: out.constraints }, text: formatConstraints(out.constraints) }
+    }))
+
+    // 以下四个会写盘（index_specs/check_adr_consistency 仅在显式要求时），
+    // 因此另外受 CONTEXT_MILVUS_ADR_WRITE 保护。
+    server.registerTool('create_adr', {
+      description: '创建 ADR 决策记录。做出新设计决策、引入新依赖或架构变更时使用。写盘操作，需 CONTEXT_MILVUS_ADR_WRITE=true。',
+      inputSchema: createAdrSchema,
+    }, async (args: any) => wrap(async () => {
+      const out = await handleCreateAdr(resolveServices, logger, args)
+      return { payload: { root: out.root, ...out.adr },
+               text: `✅ ADR 已创建: ${out.adr.adrId}\n路径: ${out.adr.filePath}` }
+    }))
+
+    server.registerTool('update_adr', {
+      description: '更新已有 ADR：改约束、换状态、补内容。写盘操作，需 CONTEXT_MILVUS_ADR_WRITE=true。',
+      inputSchema: updateAdrSchema,
+    }, async (args: any) => wrap(async () => {
+      const out = await handleUpdateAdr(resolveServices, logger, args)
+      return { payload: { root: out.root, ...out.adr }, text: `✅ ADR 已更新: ${out.adr.adrId}` }
+    }))
+
+    server.registerTool('check_adr_consistency', {
+      description: '检查 ADR 的 code_anchors 是否仍有效、变更是否未被覆盖。默认只报告，fix 才写盘。',
+      inputSchema: checkAdrConsistencySchema,
+    }, async (args: any) => wrap(async () => {
+      const out = await handleCheckAdrConsistency(resolveServices, logger, args)
+      return { payload: { root: out.root, ...out.report }, text: formatAdrConsistency(out.report) }
+    }))
+
+    server.registerTool('index_specs', {
+      description: '扫描规格文档、生成 code_anchors 并索引。默认 dryRun 只预览；真正落盘需 CONTEXT_MILVUS_ADR_WRITE=true。',
+      inputSchema: indexSpecsSchema,
+    }, async (args: any) => wrap(async () => {
+      const out = await handleIndexSpecs(resolveServices, logger, args)
+      const r = out.result
+      const lines = [
+        `文件处理: ${r.filesProcessed}`,
+        `锚点生成: ${r.anchorsGenerated}`,
+        r.dryRun ? '模式: 预览（未写入文件）'
+                 : `文件索引: ${r.filesIndexed}\n分块索引: ${r.chunksIndexed}`,
+      ]
+      if (r.preview.length) {
+        lines.push('')
+        for (const p of r.preview) {
+          lines.push(`  ${p.adrId}: ${p.filePath}`)
+          for (const ref of p.detectedRefs) {
+            lines.push(`    引用: ${ref.file}${ref.symbols.length ? ` (${ref.symbols.join(', ')})` : ''}`)
+          }
+        }
+      }
+      return { payload: { root: out.root, ...r }, text: lines.join('\n') }
     }))
   }
 

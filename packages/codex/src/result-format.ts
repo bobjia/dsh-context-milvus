@@ -6,7 +6,8 @@ import type {
 export type ErrorCode =
   | 'E_WORKSPACE_NOT_FOUND' | 'E_MILVUS_UNREACHABLE' | 'E_COLLECTION_INIT'
   | 'E_EMBEDDING_FAILED' | 'E_EMBEDDING_DIM_MISMATCH' | 'E_INDEX_ROOT_UNREADABLE'
-  | 'E_IMPORT_MAP_MISSING' | 'E_INTERNAL'
+  | 'E_IMPORT_MAP_MISSING'
+  | 'E_ADR_WRITE_DISABLED' | 'E_ADR_NOT_INITIALIZED' | 'E_INTERNAL'
 
 // These are type aliases rather than interfaces on purpose: the MCP SDK's
 // CallToolResult carries a string index signature, and TypeScript only gives
@@ -145,4 +146,28 @@ export function formatConstraints(items: Array<{
     }
     return lines.join('\n')
   }).join('\n\n')
+}
+
+export function formatAdrConsistency(r: {
+  staleAnchors: Array<{ adrId: string; file: string; issue: string }>
+  uncoveredChanges: Array<{ adrId: string; file: string; status: string }>
+  fixedAnchors: Array<{ adrId: string; file: string }>
+}): string {
+  const parts: string[] = ['## ADR 一致性检查结果']
+  if (r.staleAnchors.length) {
+    parts.push(`\n### 失效锚点 (${r.staleAnchors.length})`,
+      ...r.staleAnchors.map((a) => `  - ${a.adrId}: ${a.file} — ${a.issue}`))
+  }
+  if (r.fixedAnchors.length) {
+    parts.push(`\n### 已修复锚点 (${r.fixedAnchors.length})`,
+      ...r.fixedAnchors.map((a) => `  - ${a.adrId}: ${a.file} — 已从 ADR frontmatter 中移除`))
+  }
+  if (r.uncoveredChanges.length) {
+    parts.push(`\n### 未覆盖变更 (${r.uncoveredChanges.length})`,
+      ...r.uncoveredChanges.map((a) => `  - ${a.adrId}: ${a.file} — ${a.status}`))
+  }
+  if (!r.staleAnchors.length && !r.uncoveredChanges.length) {
+    parts.push('\n✅ 未发现问题，所有 ADR 与代码一致。')
+  }
+  return parts.join('\n')
 }

@@ -64,3 +64,33 @@ export const loadConstraintsSchema = {
   adrIds: z.string().optional().describe('逗号分隔的 ADR id，默认全部 active'),
   path: z.string().optional(),
 }
+
+export const createAdrSchema = {
+  title: z.string().describe('kebab-case 简短描述，如 webhook-dead-letter-queue'),
+  requirement: z.string().optional().describe('触发需求/变更描述'),
+  changeType: z.enum(['new_feature', 'refactor', 'bugfix', 'optimization', 'architecture']).optional(),
+  supersedes: z.string().optional().describe('被替代的 ADR id'),
+  content: z.string().optional().describe('自定义正文，留空则用模板生成'),
+  path: z.string().optional(),
+}
+
+export const updateAdrSchema = {
+  adrId: z.string().describe('ADR id，如 ADR-0001-test'),
+  content: z.string().optional().describe('替换正文'),
+  status: z.enum(['active', 'superseded', 'deprecated']).optional(),
+  supersededBy: z.string().optional().describe('标记被谁替代'),
+  merge: z.boolean().optional().describe('true 则合并，保留未传字段'),
+  path: z.string().optional(),
+}
+
+export const checkAdrConsistencySchema = {
+  filePath: z.string().optional().describe('只查这一个文件（相对工作区根）'),
+  fix: z.boolean().optional().describe('从 ADR frontmatter 移除失效锚点；默认只报告'),
+  path: z.string().optional(),
+}
+
+export const indexSpecsSchema = {
+  scanPath: z.string().optional().describe('只扫这个目录（相对工作区根）'),
+  dryRun: z.boolean().optional().describe('默认 true，只预览不落盘'),
+  path: z.string().optional(),
+}

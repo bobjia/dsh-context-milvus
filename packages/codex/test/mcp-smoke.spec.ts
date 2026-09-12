@@ -51,9 +51,13 @@ describe('mcp stdio smoke', () => {
 
   // The ADR branch also proves bundle assembly needs no live Milvus: with
   // ADR_ENABLED on, tools/list still answers.
-  it('lists the ADR tools once ADR_ENABLED is set', async () => {
+  // Write tools are registered too: the write gate refuses at call time rather
+  // than hiding a tool the user has switched on.
+  it('lists all thirteen tools once ADR_ENABLED is set', async () => {
     expect(await listToolNames({ ADR_ENABLED: 'true' })).toEqual([
-      ...CORE_TOOLS, 'list_adrs', 'load_constraints', 'search_adr', 'search_adr_by_file',
+      ...CORE_TOOLS,
+      'check_adr_consistency', 'create_adr', 'index_specs', 'list_adrs',
+      'load_constraints', 'search_adr', 'search_adr_by_file', 'update_adr',
     ].sort())
   }, 20000)
 })
