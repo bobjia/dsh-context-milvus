@@ -50,6 +50,27 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 
 ---
 
+## Codex CLI 支持
+
+本插件的检索引擎已抽成独立包 `dsh-context-milvus-core`，同一份代码也可以 stdio **MCP server** 形态运行：`codex-context-milvus` 面向 [OpenAI Codex CLI](https://github.com/openai/codex)（以及任何 MCP 客户端），暴露 5 个检索工具 —— `search_code`、`index_code`、`index_status`、`find_callers`、`trace_call_chain`，并与 DSH 插件共用同一份 Milvus 集合和按工作区隔离的索引状态。
+
+最短接入：
+
+```bash
+codex mcp add context-milvus -- npx -y codex-context-milvus mcp
+```
+
+或在目标仓库里用向导写项目级配置：
+
+```bash
+npx -y codex-context-milvus init --yes    # 生成 / 更新 .codex/config.toml，默认不写密钥
+npx -y codex-context-milvus doctor        # 探测 Embedding 与 Milvus 连通性
+```
+
+环境变量参考、错误码表与当前限制（无 ADR 工具、无运行时热更新、未接入 MCP Roots）见 [`packages/codex/README.md`](packages/codex/README.md)。
+
+---
+
 ## 效果评测
 
 一套可复现的统计评测体系（见 `scripts/eval/`）用量化数据证明 `dsh-context-milvus` 的检索质量和端到端 Agent 效率提升。覆盖离线检索质量、端到端 Agent 评测和原生遥测三个层面，使用非参数统计（Wilcoxon、Bootstrap CI、Cliff's Δ），以文件级相关性为统一口径。评测报告见 `scripts/eval/*/output/report.md`。
@@ -631,91 +652,109 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 ## 架构
 
 ```
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                    DSH Agent / Web UI                                              │
-│  search_code  │  index_code  │  index_status │  find_callers  │  trace_call_chain │
-│  search_adr   │  create_adr  │  list_adrs    │  load_constraints                │
-│  check_adr_consistency                                                           │
-└───────────────────────────────────────────────────────────────────────────────────┘
-                        │
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                  dsh-context-milvus                                                │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  ┌──────────────────┐  │
-│  │ chunker  │→ │embedding │→ │  milvus  │  │  merkle    │  │  ADR 模块集      │  │
-│  │(AST+regex)│  │  client  │  │ service  │  │  tracker   │  │ frontmatter/     │  │
-│  └────┬─────┘  └──────────┘  └────┬─────┘  └────────────┘  │ chunker/anchor/  │  │
-│       │                           │                        │ service/indexer/  │  │
-│  ┌────▼───────────────────────────▼───┐                    │ tools/constraint  │  │
-│  │  code-relations.ts (BFS engine)    │                    └──────────────────┘  │
-│  │  findCallers / traceChain          │                                          │
-│  └────────────────────────────────────┘                                          │
-│  ┌──────────────────────────────┐  ┌──────────────────────────────────────────┐  │
-│  │  import-resolver.ts          │  │  ignore-matcher (gitignore-style 三层忽略) │  │
-│  │  Import Map (持久化双向解析)  │  │  ① DEFAULT_IGNORE_PATTERNS → ② 代码库忽略   │  │
-│  └──────────────────────────────┘  │  ③ ~/.context/.contextignore             │  │
-│                                    └──────────────────────────────────────────┘  │
-└───────────────────────────────────────────────────────────────────────────────────┘
-                        │
-              ┌─────────┴─────────┐
-              │                   │
-        ┌──────────┐       ┌──────────┐
-        │  Milvus  │       │Embedding │
-        │ (向量库) │       │   API    │
-        └──────────┘       └──────────┘
+┌──────────────────────────────────────────┐  ┌──────────────────────────────────────┐
+│      DSH Agent / Web UI（13 个工具）      │  │   OpenAI Codex CLI / 任意 MCP 客户端  │
+│  search_code │ index_code │ index_status │  │      5 个工具（MCP stdio）            │
+│  find_callers │ trace_call_chain         │  │  search_code │ index_code │ ...      │
+│  8 个 ADR 工具（决策记忆）                │  │   第一版有意不含 ADR 工具              │
+└────────────────────┬─────────────────────┘  └───────────────────┬──────────────────┘
+                     │                                            │
+        packages/dsh（Cordis 适配器）              packages/codex（MCP 适配器 + CLI）
+        tools.ts / adr-tools.ts /                  server.ts / handlers.ts /
+        constraint-injector.ts                     init-wizard.ts / doctor.ts
+                     │                                            │
+                     └────────────────────┬───────────────────────┘
+                                          ▼
+                packages/core — dsh-context-milvus-core（框架无关引擎）
+   ┌──────────────────────────────────────────────────────────────────────────────┐
+   │  chunker(AST+regex) → embedding → milvus-service        merkle（SHA-256 Δ）  │
+   │  code-relations（BFS findCallers/traceChain）           import-resolver      │
+   │  query-expansion → reranker                            ignore-matcher（三层） │
+   │  telemetry（JSONL，opt-in）                             logger 端口           │
+   │  ADR 只共享类型，ADR 逻辑留在 DSH 适配器内                                    │
+   └──────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                          ┌───────────────┴───────────────┐
+                     ┌──────────┐                   ┌──────────┐
+                     │  Milvus  │                   │Embedding │
+                     │ (向量库) │                   │   API    │
+                     └──────────┘                   └──────────┘
 ```
+
+两个适配器都只依赖 core 包，彼此不互相依赖。core 的边界由测试强制：不得 import `@deepseek-ai/*`、`@modelcontextprotocol/*`、`zod`，也不得直接调用 `console.*`（日志走注入的 `Logger`）。
 
 ### 模块依赖关系
 
+core（`packages/core/src/`，适配器只通过 `index.ts` barrel 使用）：
+
 ```
-index.ts (entry point)
-  ├── config.ts     — 配置解析（Cordis config > 环境变量 > 默认值）
+index.ts (barrel)
+  ├── config.ts     — 配置解析（适配器配置 > 环境变量 > 默认值）
   │     └── DEFAULT_IGNORE_PATTERNS — 内置 gitignore 风格忽略规则
-  ├── milvus-service.ts — Milvus 向量数据库客户端封装（CRUD、搜索）
-  │     └── embedding.ts — OpenAI 兼容 Embedding API 客户端
+  ├── milvus-service.ts — Milvus 向量数据库客户端封装（CRUD、搜索、ADR 集合）
+  │     ├── embedding.ts — OpenAI 兼容 Embedding API 客户端
+  │     ├── query-expansion.ts / reranker.ts — 检索质量阶段
+  │     └── logger.ts — Logger 端口（consoleLogger / silentLogger）
   ├── merkle.ts     — SHA-256 哈希追踪器（增量索引，持久化到 JSON）
-  ├── tools.ts      — DSH 工具定义、格式化、工作区感知的追踪器创建
-  │     └── code-relations.ts — 代码关系分析引擎（BFS 调用链 + 去噪）
-  │           └── import-resolver.ts — 跨文件 Import Map（tree-sitter AST 扫描 import/export）
+  ├── code-relations.ts — 代码关系分析引擎（BFS 调用链 + 去噪）
+  │     └── import-resolver.ts — 跨文件 Import Map（tree-sitter AST 扫描 import/export）
   ├── ignore-matcher.ts — gitignore 风格模式匹配（文件排除）
   └── indexer.ts    — 索引管线编排
         └── chunker.ts — tree-sitter AST 分块 + regex 回退 (含 references 提取 + 语言 import/export 配置)
-  └── adr-frontmatter.ts — YAML frontmatter 解析
-  └── adr-chunker.ts     — Markdown 章节分块
-  └── adr-anchor-index.ts — code_anchors 反向索引
-  └── adr-service.ts     — ADR CRUD + 状态管理
-  └── adr-indexer.ts     — ADR 索引管道
-  └── adr-tools.ts       — 8 个 ADR 工具
-  └── constraint-injector.ts — 系统提示注入 + 约束重注入
 ```
+
+DSH 适配器（`packages/dsh/src/plugins/dsh-context-milvus/`）：
+
+```
+index.ts        — Cordis 入口：服务装配、设置面板、注册 13 个工具
+tools.ts        — DSH 工具定义、格式化、工作区感知的追踪器创建
+adr-frontmatter.ts — YAML frontmatter 解析
+adr-chunker.ts     — Markdown 章节分块
+adr-anchor-index.ts / adr-anchor-generator.ts — code_anchors 索引与锚点生成
+adr-service.ts     — ADR CRUD + 状态管理
+adr-indexer.ts     — ADR 索引管道
+adr-tools.ts       — 8 个 ADR 工具
+constraint-injector.ts — 系统提示注入 + 约束重注入
+```
+
+Codex 适配器（`packages/codex/src/`）：`workspace-resolver.ts` → `context.ts`（stderr 日志）→ `workspace-services.ts`（按工作区缓存服务）→ `handlers.ts`（5 个工具）→ `server.ts`（MCP 装配），外加 `result-format.ts` / `schemas.ts`，CLI 侧是 `init-wizard.ts` 与 `doctor.ts`。
 
 ---
 
 ## 测试
 
 ```bash
-# 运行测试
+# 运行测试（根目录单份 Jest 配置，覆盖三个包）
 npm test
 
 # 测试覆盖率
 npm run test:coverage
 
-# 单个测试文件
-npx jest test/dsh-context-remdb.spec.ts
+# 单个测试文件（本仓库 ESM，必须带 --experimental-vm-modules，
+# 直接 `npx jest <file>` 会报 "Cannot use import statement outside a module"）
+node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts
 
 # 代码关系分析测试
-npx jest test/code-relations.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/core/test/code-relations.spec.ts
 
 # 跨文件 Import 解析测试
-npx jest test/import-resolver.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/core/test/import-resolver.spec.ts
+
+# core 边界守护 + DSH 对外契约冻结
+node --experimental-vm-modules node_modules/.bin/jest packages/core/test/core-boundary.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/public-surface.spec.ts
 
 # ADR 模块测试
-npx jest test/adr-frontmatter.spec.ts
-npx jest test/adr-chunker.spec.ts
-npx jest test/adr-anchor-index.spec.ts
-npx jest test/adr-service.spec.ts
-npx jest test/adr-indexer.spec.ts
-npx jest test/adr-tools.spec.ts
-npx jest test/constraint-injector.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-frontmatter.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-chunker.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-anchor-index.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-service.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-indexer.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-tools.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/constraint-injector.spec.ts
+
+# MCP server 冒烟测试（会拉起构建产物走真实 stdio，需先构建）
+npm run build && node --experimental-vm-modules node_modules/.bin/jest packages/codex/test/mcp-smoke.spec.ts
 ```
 
 ---
@@ -723,19 +762,26 @@ npx jest test/constraint-injector.spec.ts
 ## 开发
 
 ```bash
-# 编译
+# 安装（peer 冲突说明见下）
+npm install --legacy-peer-deps
+
+# 按依赖顺序构建三个包：core → dsh → codex
 npm run build
 
-# 类型检查（不输出）
-npx tsc --noEmit
+# 类型检查（先构建 core：适配器通过 core 的 dist/*.d.ts 解析类型）
+npm run typecheck
 
 # 运行测试（带详细输出）
 node --experimental-vm-modules node_modules/.bin/jest --no-cache --verbose
 ```
 
+`@deepseek-ai/dsh-llm` 与 `@deepseek-ai/dsh-settings` 对 `@deepseek-ai/dsh-brand` 的版本要求互斥，所以 npm 必须带 `--legacy-peer-deps`（或 `npm ci --legacy-peer-deps`）。这问题在拆分 workspace 之前就存在，与拆分无关。
+
 ---
 
 ## 依赖
+
+core（`packages/core` → `dsh-context-milvus-core`）：
 
 - [@zilliz/milvus2-sdk-node](https://github.com/milvus-io/milvus-sdk-node) — Milvus Node.js SDK
 - `ignore` — gitignore 风格模式匹配
@@ -748,9 +794,19 @@ node --experimental-vm-modules node_modules/.bin/jest --no-cache --verbose
 - `tree-sitter-cpp` — C++ 语法
 - `tree-sitter-c-sharp` — C# 语法
 - `tree-sitter-scala` — Scala 语法
-- `@deepseek-ai/cordis` — DSH 框架（由 DSH 运行时提供）
-- `@deepseek-ai/dsh-tools` — DSH 工具注册 API（由 DSH 运行时提供）
-- `@deepseek-ai/schemastery` — 配置 schema 定义（由 DSH 运行时提供）
+
+DSH 适配器（`packages/dsh`，均由 DSH 运行时提供）：
+
+- `@deepseek-ai/cordis` — DSH 框架
+- `@deepseek-ai/dsh-tools` — DSH 工具注册 API
+- `@deepseek-ai/schemastery` — 配置 schema 定义
+- `@deepseek-ai/dsh-settings` — 设置面板（`installSection`）
+- `@deepseek-ai/dsh-llm` — 约束重注入使用的 agent 入口
+
+Codex 适配器（`packages/codex`）：
+
+- `@modelcontextprotocol/sdk` — MCP server + stdio 传输
+- `zod` — MCP 工具入参 schema（刻意不进 core）
 
 ---
 

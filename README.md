@@ -645,91 +645,109 @@ After installation, go to the DSH Web interface (http://127.0.0.1:3080) **Settin
 ## Architecture
 
 ```
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                    DSH Agent / Web UI                                              │
-│  search_code  │  index_code  │  index_status │  find_callers  │  trace_call_chain │
-│  search_adr   │  create_adr  │  list_adrs    │  load_constraints                │
-│  check_adr_consistency                                                           │
-└───────────────────────────────────────────────────────────────────────────────────┘
-                        │
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                  dsh-context-milvus                                                │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  ┌──────────────────┐  │
-│  │ chunker  │→ │embedding │→ │  milvus  │  │  merkle    │  │  ADR module set  │  │
-│  │(AST+regex)│  │  client  │  │ service  │  │  tracker   │  │ frontmatter/     │  │
-│  └────┬─────┘  └──────────┘  └────┬─────┘  └────────────┘  │ chunker/anchor/  │  │
-│       │                           │                        │ service/indexer/  │  │
-│  ┌────▼───────────────────────────▼───┐                    │ tools/constraint  │  │
-│  │  code-relations.ts (BFS engine)    │                    └──────────────────┘  │
-│  │  findCallers / traceChain          │                                          │
-│  └────────────────────────────────────┘                                          │
-│  ┌──────────────────────────────┐  ┌──────────────────────────────────────────┐  │
-│  │  import-resolver.ts          │  │  ignore-matcher (gitignore-style 3-layer) │  │
-│  │  Import Map (persistent bi-  │  │  ① DEFAULT_IGNORE_PATTERNS → ② codebase  │  │
-│  │  directional resolution)     │  │  ③ ~/.context/.contextignore             │  │
-│  └──────────────────────────────┘  └──────────────────────────────────────────┘  │
-└───────────────────────────────────────────────────────────────────────────────────┘
-                        │
-              ┌─────────┴─────────┐
-              │                   │
-        ┌──────────┐       ┌──────────┐
-        │  Milvus  │       │Embedding │
-        │ (vector DB)      │   API    │
-        └──────────┘       └──────────┘
+┌──────────────────────────────────────────┐  ┌──────────────────────────────────────┐
+│      DSH Agent / Web UI (13 tools)       │  │   OpenAI Codex CLI / any MCP client  │
+│  search_code │ index_code │ index_status │  │        (5 tools, MCP stdio)          │
+│  find_callers │ trace_call_chain         │  │  search_code │ index_code │ ...      │
+│  8 × ADR tools (decision memory)         │  │   no ADR tools in v1 by design       │
+└────────────────────┬─────────────────────┘  └───────────────────┬──────────────────┘
+                     │                                            │
+       packages/dsh (Cordis adapter)              packages/codex (MCP adapter + CLI)
+       tools.ts / adr-tools.ts /                   server.ts / handlers.ts /
+       constraint-injector.ts                      init-wizard.ts / doctor.ts
+                     │                                            │
+                     └────────────────────┬───────────────────────┘
+                                          ▼
+                    packages/core — dsh-context-milvus-core (framework-agnostic)
+   ┌──────────────────────────────────────────────────────────────────────────────┐
+   │  chunker (AST+regex) → embedding → milvus-service        merkle (SHA-256 Δ)  │
+   │  code-relations (BFS findCallers/traceChain)             import-resolver     │
+   │  query-expansion → reranker                              ignore-matcher (3层) │
+   │  telemetry (JSONL, opt-in)                               logger port         │
+   │  ADR types only — ADR logic lives in the DSH adapter                         │
+   └──────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                          ┌───────────────┴───────────────┐
+                     ┌──────────┐                   ┌──────────┐
+                     │  Milvus  │                   │Embedding │
+                     │(vector DB)│                  │   API    │
+                     └──────────┘                   └──────────┘
 ```
+
+Both adapters depend on the core package; they never depend on each other. The core boundary is machine-enforced: it may not import `@deepseek-ai/*`, `@modelcontextprotocol/*` or `zod`, and may not call `console.*` directly (logging goes through the injected `Logger`).
 
 ### Module dependency graph
 
+Core (`packages/core/src/`, imported by adapters only through the `index.ts` barrel):
+
 ```
-index.ts (entry point)
-  ├── config.ts     — Config resolution (Cordis config > env vars > defaults)
+index.ts (barrel)
+  ├── config.ts     — Config resolution (adapter config > env vars > defaults)
   │     └── DEFAULT_IGNORE_PATTERNS — Built-in gitignore-style ignore rules
-  ├── milvus-service.ts — Milvus vector DB client wrapper (CRUD, search)
-  │     └── embedding.ts — OpenAI-compatible Embedding API client
+  ├── milvus-service.ts — Milvus vector DB client wrapper (CRUD, search, ADR collection)
+  │     ├── embedding.ts — OpenAI-compatible Embedding API client
+  │     ├── query-expansion.ts / reranker.ts — retrieval quality stages
+  │     └── logger.ts — Logger port (consoleLogger / silentLogger)
   ├── merkle.ts     — SHA-256 hash tracker (incremental indexing, persisted to JSON)
-  ├── tools.ts      — DSH tool definitions, formatting, workspace-aware tracker creation
-  │     └── code-relations.ts — Code relationship analysis engine (BFS call chain + dedup)
-  │           └── import-resolver.ts — Cross-file Import Map (tree-sitter AST import/export scan)
+  ├── code-relations.ts — Code relationship analysis engine (BFS call chain + dedup)
+  │     └── import-resolver.ts — Cross-file Import Map (tree-sitter AST import/export scan)
   ├── ignore-matcher.ts — gitignore-style pattern matching (file exclusion)
   └── indexer.ts    — Indexing pipeline orchestration
-        └── chunker.ts — tree-sitter AST chunking + regex fallback (includes references extraction + language import/export config)
-  └── adr-frontmatter.ts — YAML frontmatter parsing
-  └── adr-chunker.ts     — Markdown section chunking
-  └── adr-anchor-index.ts — code_anchors reverse index
-  └── adr-service.ts     — ADR CRUD + state management
-  └── adr-indexer.ts     — ADR indexing pipeline
-  └── adr-tools.ts       — 8 ADR tools
-  └── constraint-injector.ts — System prompt injection + re-injection
+        └── chunker.ts — tree-sitter AST chunking + regex fallback (references extraction + language import/export config)
 ```
+
+DSH adapter (`packages/dsh/src/plugins/dsh-context-milvus/`):
+
+```
+index.ts        — Cordis entry: bootstrap, settings panel, register 13 tools
+tools.ts        — DSH tool definitions, formatting, workspace-aware tracker creation
+adr-frontmatter.ts — YAML frontmatter parsing
+adr-chunker.ts     — Markdown section chunking
+adr-anchor-index.ts / adr-anchor-generator.ts — code_anchors index + generation
+adr-service.ts     — ADR CRUD + state management
+adr-indexer.ts     — ADR indexing pipeline
+adr-tools.ts       — 8 ADR tools
+constraint-injector.ts — System prompt injection + re-injection
+```
+
+Codex adapter (`packages/codex/src/`): `workspace-resolver.ts` → `context.ts` (stderr logger) → `workspace-services.ts` (per-root cache) → `handlers.ts` (5 tools) → `server.ts` (MCP wiring) + `result-format.ts` / `schemas.ts`, plus `init-wizard.ts` and `doctor.ts` for the CLI.
 
 ---
 
 ## Testing
 
 ```bash
-# Run all tests
+# Run all tests (single root Jest project across the three packages)
 npm test
 
 # Test coverage
 npm run test:coverage
 
-# Single test file
-npx jest test/dsh-context-remdb.spec.ts
+# Single test file — Jest must run under --experimental-vm-modules here,
+# so plain `npx jest <file>` fails with "Cannot use import statement outside a module"
+node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts
 
 # Code relationship analysis tests
-npx jest test/code-relations.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/core/test/code-relations.spec.ts
 
 # Cross-file Import Resolution tests
-npx jest test/import-resolver.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/core/test/import-resolver.spec.ts
+
+# core boundary guard + DSH contract freeze
+node --experimental-vm-modules node_modules/.bin/jest packages/core/test/core-boundary.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/public-surface.spec.ts
 
 # ADR module tests
-npx jest test/adr-frontmatter.spec.ts
-npx jest test/adr-chunker.spec.ts
-npx jest test/adr-anchor-index.spec.ts
-npx jest test/adr-service.spec.ts
-npx jest test/adr-indexer.spec.ts
-npx jest test/adr-tools.spec.ts
-npx jest test/constraint-injector.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-frontmatter.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-chunker.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-anchor-index.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-service.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-indexer.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/adr-tools.spec.ts
+node --experimental-vm-modules node_modules/.bin/jest packages/dsh/test/constraint-injector.spec.ts
+
+# MCP server smoke test (spawns the built bin over real stdio — build first)
+npm run build && node --experimental-vm-modules node_modules/.bin/jest packages/codex/test/mcp-smoke.spec.ts
 ```
 
 ---
@@ -737,19 +755,26 @@ npx jest test/constraint-injector.spec.ts
 ## Development
 
 ```bash
-# Build
+# Install (see the note below about the peer conflict)
+npm install --legacy-peer-deps
+
+# Build all packages in order: core → dsh → codex
 npm run build
 
-# Type check (no output)
-npx tsc --noEmit
+# Type check all packages (builds core first, since adapters resolve its .d.ts)
+npm run typecheck
 
 # Run tests (verbose)
 node --experimental-vm-modules node_modules/.bin/jest --no-cache --verbose
 ```
 
+`@deepseek-ai/dsh-llm` and `@deepseek-ai/dsh-settings` require incompatible `@deepseek-ai/dsh-brand` versions, so npm needs `--legacy-peer-deps` (or `npm ci --legacy-peer-deps`). This predates the workspace split and is unrelated to it.
+
 ---
 
 ## Dependencies
+
+Core (`packages/core` → `dsh-context-milvus-core`):
 
 - [@zilliz/milvus2-sdk-node](https://github.com/milvus-io/milvus-sdk-node) — Milvus Node.js SDK
 - `ignore` — gitignore-style pattern matching
@@ -762,9 +787,19 @@ node --experimental-vm-modules node_modules/.bin/jest --no-cache --verbose
 - `tree-sitter-cpp` — C++ grammar
 - `tree-sitter-c-sharp` — C# grammar
 - `tree-sitter-scala` — Scala grammar
-- `@deepseek-ai/cordis` — DSH framework (provided by DSH runtime)
-- `@deepseek-ai/dsh-tools` — DSH tool registration API (provided by DSH runtime)
-- `@deepseek-ai/schemastery` — Config schema definition (provided by DSH runtime)
+
+DSH adapter (`packages/dsh`), all provided by the DSH runtime:
+
+- `@deepseek-ai/cordis` — DSH framework
+- `@deepseek-ai/dsh-tools` — DSH tool registration API
+- `@deepseek-ai/schemastery` — Config schema definition
+- `@deepseek-ai/dsh-settings` — settings panel (`installSection`)
+- `@deepseek-ai/dsh-llm` — agent access used by constraint re-injection
+
+Codex adapter (`packages/codex`):
+
+- `@modelcontextprotocol/sdk` — MCP server + stdio transport
+- `zod` — MCP tool input schemas (kept out of core on purpose)
 
 ---
 
