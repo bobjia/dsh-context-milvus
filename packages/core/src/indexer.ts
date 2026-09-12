@@ -18,6 +18,7 @@ import { type PluginConfig, DEFAULT_IGNORE_PATTERNS } from './config.js'
 import { IgnoreMatcher } from './ignore-matcher.js'
 import { ImportResolver } from './import-resolver.js'
 import type { CodeChunk, IndexStatus } from './types.js'
+import { consoleLogger, type Logger } from './logger.js'
 
 /** Result of a single indexing run */
 export interface IndexResult {
@@ -147,10 +148,14 @@ export async function runIndex(
     progress?: (msg: string) => void
     onFileProgress?: (filePath: string) => void
     importResolver?: ImportResolver  // Optional, for import map building
+    logger?: Logger  // Used for progress output when no progress callback is given
   },
 ): Promise<IndexResult> {
   const mode = options?.mode ?? 'incremental'
-  const progress = options?.progress ?? (() => {})
+  const log = options?.logger ?? consoleLogger
+  // An explicit progress callback always wins; otherwise fall back to the
+  // injected logger so adapters (e.g. the MCP server) keep stdout clean.
+  const progress = options?.progress ?? ((msg: string) => log.info(msg))
   const onFileProgress = options?.onFileProgress
 
   const startTime = Date.now()

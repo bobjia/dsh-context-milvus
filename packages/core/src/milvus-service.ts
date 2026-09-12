@@ -11,6 +11,7 @@ import type { SearchResult, CodeChunk, AdrChunk, AdrSearchResult } from './types
 import { EmbeddingClient } from './embedding.js'
 import { expandQuery } from './query-expansion.js'
 import { rerankResults, type RerankConfig } from './reranker.js'
+import { consoleLogger, type Logger } from './logger.js'
 
 /** Search metadata captured during each search() call */
 export interface SearchMeta {
@@ -47,6 +48,7 @@ export class MilvusService {
   private adrInitPromise: Promise<void> | null = null
   private readonly queryExpansion: boolean
   private readonly rerankConfig: RerankConfig
+  private readonly logger: Logger
   /** Metadata from the most recent search() call (used by telemetry) */
   lastSearchMeta: SearchMeta | null = null
 
@@ -61,6 +63,7 @@ export class MilvusService {
     adrCollection?: string
     queryExpansion?: boolean
     rerankConfig?: Partial<RerankConfig>
+    logger?: Logger
   }) {
     this.address = config.address
     this.token = config.token
@@ -76,6 +79,7 @@ export class MilvusService {
       enabled: config.rerankConfig?.enabled ?? true,
       multiplier: config.rerankConfig?.multiplier ?? 3,
     }
+    this.logger = config.logger ?? consoleLogger
   }
 
   // ── Client lazy init ──────────────────────────────────────────────────
@@ -123,8 +127,8 @@ export class MilvusService {
         const hasSparse = fields.some((f) => f.name === 'sparse_vector')
         if (!hasSparse) {
           const legacyName = `${collection}_legacy_${Date.now()}`
-          console.log(
-            `[dsh-context-milvus] 检测到旧版纯向量集合 "${collection}"，` +
+          this.logger.info(
+            `检测到旧版纯向量集合 "${collection}"，` +
               `已重命名为 "${legacyName}" 并重建混合索引。` +
               `请运行 index_code(mode=full) 重新索引。`,
           )
@@ -152,8 +156,8 @@ export class MilvusService {
     try {
       await this.createCollectionWithSchema()
     } catch (err) {
-      console.warn(
-        `[dsh-context-milvus] 服务器不支持 BM25 function 字段，已降级为纯向量检索: ` +
+      this.logger.warn(
+        `服务器不支持 BM25 function 字段，已降级为纯向量检索: ` +
           `${(err as Error).message}`,
       )
       this.effectiveHybridMode = false
@@ -546,8 +550,8 @@ export class MilvusService {
     try {
       await this.createAdrCollectionWithSchema()
     } catch (err) {
-      console.warn(
-        `[dsh-context-milvus] 服务器不支持 BM25 function 字段，已降级为纯向量检索: ` +
+      this.logger.warn(
+        `服务器不支持 BM25 function 字段，已降级为纯向量检索: ` +
           `${(err as Error).message}`,
       )
       this.effectiveHybridMode = false
