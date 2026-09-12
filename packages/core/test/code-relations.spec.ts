@@ -22,7 +22,7 @@ describe('code-relations', () => {
   // ── Denoising ──────────────────────────────────────────────────────
 
   test('isNoiseSymbol filters single-character symbols', async () => {
-    const { isNoiseSymbol } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { isNoiseSymbol } = await import('../src/code-relations.js')
     expect(isNoiseSymbol('a')).toBe(true)
     expect(isNoiseSymbol('x')).toBe(true)
     expect(isNoiseSymbol('ab')).toBe(false)
@@ -30,7 +30,7 @@ describe('code-relations', () => {
   })
 
   test('isNoiseSymbol filters stop words', async () => {
-    const { isNoiseSymbol } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { isNoiseSymbol } = await import('../src/code-relations.js')
     expect(isNoiseSymbol('data')).toBe(true)
     expect(isNoiseSymbol('config')).toBe(true)
     expect(isNoiseSymbol('result')).toBe(true)
@@ -40,7 +40,7 @@ describe('code-relations', () => {
   // ── findCallers ────────────────────────────────────────────────────
 
   test('findCallers backward returns chunks that reference the symbol', async () => {
-    const { findCallers } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { findCallers } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async (symbol: string, direction: string) => {
       return [
@@ -56,7 +56,7 @@ describe('code-relations', () => {
   })
 
   test('findCallers returns empty for noise symbols', async () => {
-    const { findCallers } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { findCallers } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async () => [{ filePath: 'x.ts', content: '', startLine: 1, endLine: 1, chunkType: 'function', name: 'x' }]
 
@@ -65,7 +65,7 @@ describe('code-relations', () => {
   })
 
   test('findCallers forward returns definition chunks', async () => {
-    const { findCallers } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { findCallers } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async (symbol: string, direction: string) => {
       return [
@@ -81,7 +81,7 @@ describe('code-relations', () => {
   // ── traceChain BFS ─────────────────────────────────────────────────
 
   test('traceChain BFS traverses backward chain', async () => {
-    const { traceChain } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { traceChain } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async (symbol: string, direction: string, limit: number) => {
       if (symbol === 'main') {
@@ -100,7 +100,7 @@ describe('code-relations', () => {
   })
 
   test('traceChain respects maxDepth', async () => {
-    const { traceChain } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { traceChain } = await import('../src/code-relations.js')
 
     let callCount = 0
     const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
@@ -114,7 +114,7 @@ describe('code-relations', () => {
   })
 
   test('traceChain prevents cycles', async () => {
-    const { traceChain } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { traceChain } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
       // Cycle: funcA → funcB → funcA
@@ -137,7 +137,7 @@ describe('code-relations', () => {
   })
 
   test('traceChain returns empty for noise entry symbol', async () => {
-    const { traceChain } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { traceChain } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async () => [{ filePath: 'f.ts', content: '', startLine: 1, endLine: 1, chunkType: 'function', name: 'x' }]
 
@@ -146,7 +146,7 @@ describe('code-relations', () => {
   })
 
   test('traceChain forward traverses callees via references', async () => {
-    const { traceChain } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { traceChain } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
       if (dir === 'forward') {
@@ -168,7 +168,7 @@ describe('code-relations', () => {
   })
 
   test('traceChain handles empty result mid-chain', async () => {
-    const { traceChain } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { traceChain } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
       if (symbol === 'entry') {
@@ -207,7 +207,7 @@ describe('code-relations', () => {
   }
 
   test('findCallers with resolver groups by definition file', async () => {
-    const { findCallers } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { findCallers } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
       return [
@@ -240,7 +240,7 @@ describe('code-relations', () => {
   })
 
   test('findCallers with sourceFile filters by definition file', async () => {
-    const { findCallers } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { findCallers } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
       return [
@@ -263,7 +263,7 @@ describe('code-relations', () => {
   })
 
   test('findCallers without resolver falls back to V1 behavior', async () => {
-    const { findCallers } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { findCallers } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
       return [
@@ -281,7 +281,7 @@ describe('code-relations', () => {
   })
 
   test('traceChain with resolver uses composite keys', async () => {
-    const { traceChain } = await import('../src/plugins/dsh-context-milvus/code-relations.js')
+    const { traceChain } = await import('../src/code-relations.js')
 
     const mockFindBySymbol = async (symbol: string, dir: string, limit: number) => {
       if (symbol === 'parseConfig') {

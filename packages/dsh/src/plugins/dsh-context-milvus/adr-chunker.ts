@@ -1,5 +1,5 @@
 import { parseFrontmatter } from './adr-frontmatter.js'
-import type { AdrChunk } from './types.js'
+import type { AdrChunk } from 'dsh-context-milvus-core'
 
 /** Section heading → section label mapping */
 const SECTION_MAP: Record<string, string> = {

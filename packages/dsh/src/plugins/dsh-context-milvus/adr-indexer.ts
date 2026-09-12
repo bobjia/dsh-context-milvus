@@ -1,13 +1,13 @@
 // src/plugins/dsh-context-milvus/adr-indexer.ts
 import { readFile, readdir } from 'node:fs/promises'
 import * as path from 'node:path'
-import { HashTracker } from './merkle.js'
-import { EmbeddingClient } from './embedding.js'
+import { HashTracker } from 'dsh-context-milvus-core'
+import { EmbeddingClient } from 'dsh-context-milvus-core'
 import { chunkAdrFile } from './adr-chunker.js'
 import { AdrAnchorIndex } from './adr-anchor-index.js'
-import type { MilvusService } from './milvus-service.js'
-import type { PluginConfig } from './config.js'
-import type { AdrIndexStatus } from './types.js'
+import type { MilvusService } from 'dsh-context-milvus-core'
+import type { PluginConfig } from 'dsh-context-milvus-core'
+import type { AdrIndexStatus } from 'dsh-context-milvus-core'
 import type { AdrService } from './adr-service.js'
 
 const ADR_FILE_RE = /^ADR-\d{4}-.+\.md$/

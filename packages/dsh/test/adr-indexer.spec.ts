@@ -30,8 +30,8 @@ jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
   ErrorCode: { SUCCESS: 'Success' },
 }))
 
-const { MilvusService } = await import('../src/plugins/dsh-context-milvus/milvus-service.js')
-const { HashTracker } = await import('../src/plugins/dsh-context-milvus/merkle.js')
+const { MilvusService } = await import('dsh-context-milvus-core')
+const { HashTracker } = await import('dsh-context-milvus-core')
 const { AdrAnchorIndex } = await import('../src/plugins/dsh-context-milvus/adr-anchor-index.js')
 const { runAdrIndex, getAdrIndexStatus } = await import('../src/plugins/dsh-context-milvus/adr-indexer.js')
 

@@ -86,11 +86,11 @@ function mockEmbeddingClient(vectors: number[][] = [[0.1, 0.2, 0.3]]): any {
 }
 
 // Dynamic imports after mocking
-const { getConfig } = await import('../src/plugins/dsh-context-milvus/config.js')
-const { HashTracker } = await import('../src/plugins/dsh-context-milvus/merkle.js')
-const { MilvusService } = await import('../src/plugins/dsh-context-milvus/milvus-service.js')
-const { EmbeddingClient } = await import('../src/plugins/dsh-context-milvus/embedding.js')
-const { runIndex, getIndexStatus } = await import('../src/plugins/dsh-context-milvus/indexer.js')
+const { getConfig } = await import('../src/config.js')
+const { HashTracker } = await import('../src/merkle.js')
+const { MilvusService } = await import('../src/milvus-service.js')
+const { EmbeddingClient } = await import('../src/embedding.js')
+const { runIndex, getIndexStatus } = await import('../src/indexer.js')
 
 // ═════════════════════════════════════════════════════════════════════════
 // getConfig
@@ -925,7 +925,7 @@ describe('MilvusService ADR collection', () => {
 
 describe('chunkCode (tree-sitter)', () => {
   it('extracts functions from TypeScript code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const code = `
 function hello(name: string): string {
@@ -952,7 +952,7 @@ class Greeter {
   })
 
   it('extracts functions from Python code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const code = `
 def hello(name):
@@ -975,7 +975,7 @@ class Greeter:
   })
 
   it('extracts functions from Rust code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const code = `
 fn main() {
@@ -995,7 +995,7 @@ struct User {
   })
 
   it('extracts classes and methods from Java code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const code = `
 public class Greeter {
@@ -1027,7 +1027,7 @@ interface Logger {
   })
 
   it('extracts functions and types from Go code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const code = `
 package main
@@ -1058,7 +1058,7 @@ func (u *User) Greet() string {
   })
 
   it('extracts functions and classes from C++ code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const code = `
 #include <string>
@@ -1090,7 +1090,7 @@ namespace utils {
   })
 
   it('extracts classes and methods from C# code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const code = `
 using System;
@@ -1131,7 +1131,7 @@ namespace HelloWorld
   })
 
   it('extracts classes and methods from Scala code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const code = `
 class Greeter(name: String) {
@@ -1163,7 +1163,7 @@ object Main {
   })
 
   it('extracts functions, classes, and interfaces from PHP code', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const code = `<?php
 
@@ -1217,14 +1217,14 @@ enum Status {
   })
 
   it('returns empty array for code with no chunkable structures', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const chunks = await chunkCode('/tmp/test.ts', 'const x = 1;', '.ts')
     expect(chunks).toEqual([])
   })
 
   it('throws for unsupported extension', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     await expect(chunkCode('/tmp/test.xyz', 'some content', '.xyz')).rejects.toThrow(
       'Unsupported file extension',
@@ -1232,7 +1232,7 @@ enum Status {
   })
 
   it('includes surrounding context lines when contextLines is set', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const code = `/**
  * Greets a person by name.
@@ -1263,7 +1263,7 @@ function world() {
   })
 
   it('does not include context lines when contextLines is 0', async () => {
-    const { chunkCode } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+    const { chunkCode } = await import('../src/chunker.js')
 
     const code = `/**
  * A doc comment.
@@ -1979,35 +1979,35 @@ function b(): void {}
 
 describe('IgnoreMatcher', () => {
   it('ignores node_modules directory', async () => {
-    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const { IgnoreMatcher } = await import('../src/ignore-matcher.js')
     const m = new IgnoreMatcher(['node_modules/**', 'node_modules'])
     expect(m.ignores('node_modules/some/file.js', false)).toBe(true)
     expect(m.ignores('node_modules', true)).toBe(true)
   })
 
   it('ignores .git directory', async () => {
-    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const { IgnoreMatcher } = await import('../src/ignore-matcher.js')
     const m = new IgnoreMatcher(['.git/**', '.git'])
     expect(m.ignores('.git/HEAD', false)).toBe(true)
     expect(m.ignores('.git', true)).toBe(true)
   })
 
   it('does not ignore source files', async () => {
-    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const { IgnoreMatcher } = await import('../src/ignore-matcher.js')
     const m = new IgnoreMatcher(['node_modules/**', '.git/**'])
     expect(m.ignores('src/index.ts', false)).toBe(false)
     expect(m.ignores('src/utils/helper.ts', false)).toBe(false)
   })
 
   it('ignores hidden segments', async () => {
-    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const { IgnoreMatcher } = await import('../src/ignore-matcher.js')
     const m = new IgnoreMatcher([])
     expect(m.ignores('.vscode/settings.json', false)).toBe(true)
     expect(m.ignores('.github/workflows/ci.yml', false)).toBe(true)
   })
 
   it('supports wildcard patterns', async () => {
-    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const { IgnoreMatcher } = await import('../src/ignore-matcher.js')
     const m = new IgnoreMatcher(['*.log', 'dist/**', '*.min.js'])
     expect(m.ignores('app.log', false)).toBe(true)
     expect(m.ignores('dist/bundle.js', false)).toBe(true)
@@ -2017,7 +2017,7 @@ describe('IgnoreMatcher', () => {
   })
 
   it('supports dynamic addPatterns', async () => {
-    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const { IgnoreMatcher } = await import('../src/ignore-matcher.js')
     const m = new IgnoreMatcher(['node_modules/**'])
     expect(m.ignores('src/file.ts', false)).toBe(false)
     m.addPatterns(['*.log'])
@@ -2025,13 +2025,13 @@ describe('IgnoreMatcher', () => {
   })
 
   it('handles empty patterns', async () => {
-    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const { IgnoreMatcher } = await import('../src/ignore-matcher.js')
     const m = new IgnoreMatcher([])
     expect(m.ignores('src/file.ts', false)).toBe(false)
   })
 
   it('ignores comment lines and empty patterns', async () => {
-    const { IgnoreMatcher } = await import('../src/plugins/dsh-context-milvus/ignore-matcher.js')
+    const { IgnoreMatcher } = await import('../src/ignore-matcher.js')
     const m = new IgnoreMatcher(['# comment', '', 'node_modules/**'])
     expect(m.ignores('node_modules/pkg/index.js', false)).toBe(true)
     expect(m.ignores('src/main.ts', false)).toBe(false)

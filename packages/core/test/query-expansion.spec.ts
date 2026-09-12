@@ -9,7 +9,7 @@ describe('query expansion', () => {
   let expandQuery: (query: string) => string
 
   beforeAll(async () => {
-    const mod = await import('../src/plugins/dsh-context-milvus/query-expansion.js')
+    const mod = await import('../src/query-expansion.js')
     expandQuery = mod.expandQuery
   })
 

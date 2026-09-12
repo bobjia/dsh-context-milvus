@@ -8,8 +8,8 @@
   "scripts": {
     "test": "node --experimental-vm-modules node_modules/.bin/jest",
     "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage",
-    "build": "npm run build -w dsh-context-milvus",
-    "typecheck": "tsc -p packages/dsh/tsconfig.json --noEmit",
+    "build": "npm run build -w dsh-context-milvus-core && npm run build -w dsh-context-milvus",
+    "typecheck": "npm run build -w dsh-context-milvus-core && tsc -p packages/dsh/tsconfig.json --noEmit",
     "test:eval": "node --test scripts/eval/retrieval/lib/*.test.mjs",
     "test:eval-agent": "node --test scripts/eval/agent/lib/*.test.mjs",
     "test:eval-telemetry": "node --test scripts/eval/telemetry/lib/*.test.mjs",

@@ -1,5 +1,5 @@
 import { load as yamlLoad } from 'js-yaml'
-import type { AdrFrontmatter, AdrCodeAnchor, AdrTrigger } from './types.js'
+import type { AdrFrontmatter, AdrCodeAnchor, AdrTrigger } from 'dsh-context-milvus-core'
 
 const FRONTMATTER_PATTERN = /^---\n([\s\S]*?)\n---\n?/
 

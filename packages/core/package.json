@@ -1,0 +1,29 @@
+{
+  "name": "dsh-context-milvus-core",
+  "version": "0.1.0",
+  "description": "Framework-agnostic core for dsh-context-milvus and codex-context-milvus",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist"],
+  "license": "MIT",
+  "scripts": { "build": "tsc" },
+  "dependencies": {
+    "@zilliz/milvus2-sdk-node": "^3.0.4",
+    "ignore": "^7.0.6",
+    "js-yaml": "^5.4.1",
+    "tree-sitter": "^0.25.1",
+    "tree-sitter-c-sharp": "^0.23.5",
+    "tree-sitter-cpp": "^0.23.4",
+    "tree-sitter-go": "^0.25.0",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-python": "^0.25.0",
+    "tree-sitter-rust": "^0.24.0",
+    "tree-sitter-scala": "^0.24.0",
+    "tree-sitter-typescript": "^0.23.2"
+  }
+}

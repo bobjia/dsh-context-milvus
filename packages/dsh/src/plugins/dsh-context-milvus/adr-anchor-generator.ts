@@ -5,7 +5,7 @@ import { dump as yamlDump } from 'js-yaml'
 import { existsSync } from 'node:fs'
 import * as path from 'node:path'
 import { parseFrontmatter } from './adr-frontmatter.js'
-import type { AdrFrontmatter, AdrCodeAnchor } from './types.js'
+import type { AdrFrontmatter, AdrCodeAnchor } from 'dsh-context-milvus-core'
 
 export interface DetectedRef {
   file: string

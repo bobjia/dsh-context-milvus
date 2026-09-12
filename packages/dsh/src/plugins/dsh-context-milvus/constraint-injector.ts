@@ -10,10 +10,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import * as path from 'node:path'
-import type { PluginConfig } from './config.js'
+import type { PluginConfig } from 'dsh-context-milvus-core'
 import { AdrService } from './adr-service.js'
 import type { AdrAnchorIndex } from './adr-anchor-index.js'
-import type { ConstraintSummary } from './types.js'
+import type { ConstraintSummary } from 'dsh-context-milvus-core'
 
 // systemPrompt, agent/pre-step, and tools/result types are declared in DSH
 // framework packages (@deepseek-ai/dsh-system-prompt, @deepseek-ai/dsh-agent)

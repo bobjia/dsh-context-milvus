@@ -12,6 +12,18 @@ jest.unstable_mockModule('@deepseek-ai/dsh-tools', () => ({
   defineTool: mockDefineTool,
 }))
 
+// tools.ts / adr-tools.ts import the core barrel, which re-exports MilvusService;
+// that module loads the Milvus SDK at import time, so stub the SDK here.
+// Both subjects only use MilvusService as a type, so the stub is never exercised.
+jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
+  MilvusClient: jest.fn(() => ({})),
+  DataType: { Int64: 5, FloatVector: 101, VarChar: 21, Int32: 4, SparseFloatVector: 104 },
+  MetricType: { COSINE: 'COSINE', BM25: 'BM25' },
+  FunctionType: { BM25: 'BM25' },
+  RANKER_TYPE: { RRF: 'rrf' },
+  ErrorCode: { SUCCESS: 'Success' },
+}))
+
 // Mock modules for registerTools (tools.ts)
 // Note: jest.unstable_mockModule resolves relative paths from the test file,
 // so we use paths relative to test/ that point to the source modules.
@@ -24,7 +36,7 @@ jest.unstable_mockModule('../src/plugins/dsh-context-milvus/adr-indexer.js', () 
 
 const mockRunIndex = jest.fn()
 const mockGetIndexStatus = jest.fn()
-jest.unstable_mockModule('../src/plugins/dsh-context-milvus/indexer.js', () => ({
+jest.unstable_mockModule('../../core/src/indexer.js', () => ({
   runIndex: mockRunIndex,
   getIndexStatus: mockGetIndexStatus,
 }))
@@ -37,7 +49,7 @@ class MockHashTracker {
   getStats() { return { totalFiles: 0, totalChunks: 0 } }
   getLastIndexedTimestamp() { return null }
 }
-jest.unstable_mockModule('../src/plugins/dsh-context-milvus/merkle.js', () => ({
+jest.unstable_mockModule('../../core/src/merkle.js', () => ({
   HashTracker: MockHashTracker,
 }))
 

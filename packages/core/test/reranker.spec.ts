@@ -4,13 +4,13 @@
  * Covers: term overlap, name match bonus, edge cases.
  */
 import { describe, expect, test } from '@jest/globals'
-import type { SearchResult } from '../src/plugins/dsh-context-milvus/types.js'
+import type { SearchResult } from '../src/types.js'
 
 describe('reranker', () => {
   let rerankResults: (query: string, results: SearchResult[], topK: number) => SearchResult[]
 
   beforeAll(async () => {
-    const mod = await import('../src/plugins/dsh-context-milvus/reranker.js')
+    const mod = await import('../src/reranker.js')
     rerankResults = mod.rerankResults
   })
 

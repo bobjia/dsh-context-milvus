@@ -25,7 +25,7 @@ describe('ImportResolver', () => {
   })
 
   test('starts with empty map', async () => {
-    const { ImportResolver } = await import('../src/plugins/dsh-context-milvus/import-resolver.js')
+    const { ImportResolver } = await import('../src/import-resolver.js')
     const resolver = new ImportResolver(path.join(tempDir, 'import-map.json'))
     await resolver.load()
     const stats = resolver.getStats()
@@ -35,7 +35,7 @@ describe('ImportResolver', () => {
   })
 
   test('persists and reloads', async () => {
-    const { ImportResolver } = await import('../src/plugins/dsh-context-milvus/import-resolver.js')
+    const { ImportResolver } = await import('../src/import-resolver.js')
     const mapPath = path.join(tempDir, 'import-map.json')
 
     // Create and save
@@ -59,14 +59,14 @@ describe('ImportResolver', () => {
   })
 
   test('resolve returns null for unknown symbol', async () => {
-    const { ImportResolver } = await import('../src/plugins/dsh-context-milvus/import-resolver.js')
+    const { ImportResolver } = await import('../src/import-resolver.js')
     const resolver = new ImportResolver(path.join(tempDir, 'map.json'))
     await resolver.load()
     expect(resolver.resolve('src/a.ts', 'nonexistent')).toBeNull()
   })
 
   test('removeFile clears entries', async () => {
-    const { ImportResolver } = await import('../src/plugins/dsh-context-milvus/import-resolver.js')
+    const { ImportResolver } = await import('../src/import-resolver.js')
     const resolver = new ImportResolver(path.join(tempDir, 'map.json'))
     await resolver.load()
     resolver['map'] = {
@@ -80,7 +80,7 @@ describe('ImportResolver', () => {
   })
 
   test('isImportedFrom checks exact import edge', async () => {
-    const { ImportResolver } = await import('../src/plugins/dsh-context-milvus/import-resolver.js')
+    const { ImportResolver } = await import('../src/import-resolver.js')
     const resolver = new ImportResolver(path.join(tempDir, 'map.json'))
     await resolver.load()
     resolver['map'] = {
@@ -93,7 +93,7 @@ describe('ImportResolver', () => {
   })
 
   test('getStats returns correct counts', async () => {
-    const { ImportResolver } = await import('../src/plugins/dsh-context-milvus/import-resolver.js')
+    const { ImportResolver } = await import('../src/import-resolver.js')
     const resolver = new ImportResolver(path.join(tempDir, 'map.json'))
     await resolver.load()
     resolver['map'] = {
@@ -119,7 +119,7 @@ describe('ImportResolver scanFile', () => {
 
   beforeAll(async () => {
     try {
-      const { getParser } = await import('../src/plugins/dsh-context-milvus/chunker.js')
+      const { getParser } = await import('../src/chunker.js')
       const parser = await getParser('.ts')
       const tree = parser.parse('const x = 1')
       tsAvailable = tree && tree.rootNode && tree.rootNode.type === 'program'
@@ -130,7 +130,7 @@ describe('ImportResolver scanFile', () => {
 
   test('extracts TypeScript imports', async () => {
     if (!tsAvailable) return
-    const { ImportResolver } = await import('../src/plugins/dsh-context-milvus/import-resolver.js')
+    const { ImportResolver } = await import('../src/import-resolver.js')
     const resolver = new ImportResolver('/tmp/test-map.json')
     await resolver.load()
 
@@ -154,7 +154,7 @@ describe('ImportResolver scanFile', () => {
 
   test('handles file with no imports', async () => {
     if (!tsAvailable) return
-    const { ImportResolver } = await import('../src/plugins/dsh-context-milvus/import-resolver.js')
+    const { ImportResolver } = await import('../src/import-resolver.js')
     const resolver = new ImportResolver('/tmp/test-map.json')
     await resolver.load()
 
@@ -168,7 +168,7 @@ describe('ImportResolver scanFile', () => {
   })
 
   test('handles files with no tree-sitter parser (PHP)', async () => {
-    const { ImportResolver } = await import('../src/plugins/dsh-context-milvus/import-resolver.js')
+    const { ImportResolver } = await import('../src/import-resolver.js')
     const resolver = new ImportResolver('/tmp/test-map.json')
     await resolver.load()
 
@@ -182,7 +182,7 @@ describe('ImportResolver scanFile', () => {
 
   test('deduplicates on re-scan', async () => {
     if (!tsAvailable) return
-    const { ImportResolver } = await import('../src/plugins/dsh-context-milvus/import-resolver.js')
+    const { ImportResolver } = await import('../src/import-resolver.js')
     const resolver = new ImportResolver('/tmp/test-map.json')
     await resolver.load()
 
