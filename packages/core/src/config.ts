@@ -213,6 +213,12 @@ export function deriveAdrTrackerPath(adrRoot: string): string {
   return deriveMerkleFilePath(adrRoot).replace('merkle', 'adr-merkle')
 }
 
+/** Parse a tri-state env flag: undefined means "not configured". */
+function parseBoolEnv(value: string | undefined): boolean | undefined {
+  if (value === undefined || value.trim() === '') return undefined
+  return /^(1|true|yes|on)$/i.test(value.trim())
+}
+
 /**
  * Build runtime config from env vars and Cordis config.
  * Cordis config values take precedence over env vars.
@@ -282,9 +288,9 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
     telemetryEnabled: overrides?.telemetryEnabled ?? false,
     telemetryFile: overrides?.telemetryFile ?? path.join(os.homedir(), '.milvus-index', 'telemetry.jsonl'),
 
-    adrEnabled: overrides?.adrEnabled ?? false,
-    adrRoot: overrides?.adrRoot ?? 'docs/decisions',
-    adrCollection: overrides?.adrCollection ?? 'adr_embeddings',
+    adrEnabled: overrides?.adrEnabled ?? parseBoolEnv(process.env.ADR_ENABLED) ?? false,
+    adrRoot: overrides?.adrRoot ?? process.env.ADR_ROOT ?? 'docs/decisions',
+    adrCollection: overrides?.adrCollection ?? process.env.ADR_COLLECTION ?? 'adr_embeddings',
     adrConstraintReinjectEvery: overrides?.adrConstraintReinjectEvery ?? 0,
     adrSystemPrompt: overrides?.adrSystemPrompt ?? '',
     specRoot: overrides?.specRoot ?? process.env.SPEC_ROOT ?? 'docs/superpowers/specs',
