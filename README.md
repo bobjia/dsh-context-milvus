@@ -50,6 +50,20 @@ A DSH plugin that provides semantic code search over a **Milvus** vector databas
 
 ---
 
+## Codex CLI support
+
+The retrieval engine behind this plugin is published separately as `dsh-context-milvus-core`, so the same code also runs as a stdio **MCP server** for [OpenAI Codex CLI](https://github.com/openai/codex) (and any other MCP client) from the `codex-context-milvus` package. It exposes the five retrieval tools — `search_code`, `index_code`, `index_status`, `find_callers`, `trace_call_chain` — and shares the same Milvus collection and per-workspace index state as the DSH plugin.
+
+Shortest setup:
+
+```bash
+codex mcp add context-milvus -- npx -y codex-context-milvus mcp
+```
+
+See [`packages/codex/README.md`](packages/codex/README.md) for the `init` wizard, the environment variable reference, the error-code table, and current limitations (no ADR tools, no runtime config hot-reload).
+
+---
+
 ## Effectiveness Evaluation
 
 A reproducible statistical evaluation suite (see `scripts/eval/`) quantifies how `dsh-context-milvus` improves retrieval quality and end-to-end agent efficiency. It covers offline retrieval quality, end-to-end agent evaluation, and native telemetry — using nonparametric statistics (Wilcoxon, Bootstrap CI, Cliff's Δ) with a unified file-level relevance standard. Run instructions and full reports live in `scripts/eval/*/output/report.md`.

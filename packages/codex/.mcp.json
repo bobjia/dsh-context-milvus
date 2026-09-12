@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "context-milvus": {
+      "command": "npx",
+      "args": ["-y", "codex-context-milvus", "mcp"],
+      "env_vars": ["MILVUS_ADDRESS", "MILVUS_TOKEN", "MILVUS_COLLECTION", "MILVUS_EMBEDDING_DIM", "EMBEDDING_ENDPOINT", "EMBEDDING_API_KEY", "EMBEDDING_MODEL", "CONTEXT_MILVUS_WORKSPACE"],
+      "tool_timeout_sec": 1800
+    }
+  }
+}

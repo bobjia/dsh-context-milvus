@@ -1,0 +1,18 @@
+{
+  "name": "context-milvus",
+  "version": "0.1.0",
+  "description": "Semantic code search for Codex backed by a Milvus vector database",
+  "author": { "name": "bobjia" },
+  "license": "MIT",
+  "keywords": ["code-search", "semantic-search", "milvus", "rag", "mcp"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Context Milvus",
+    "shortDescription": "Semantic code search over your repository",
+    "longDescription": "Indexes the repository into Milvus with AST-aware chunking, then answers natural-language code queries. Provides search_code, index_code, index_status, find_callers and trace_call_chain over MCP.",
+    "developerName": "bobjia",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"]
+  }
+}
