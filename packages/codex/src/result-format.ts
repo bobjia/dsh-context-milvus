@@ -7,15 +7,18 @@ export type ErrorCode =
   | 'E_EMBEDDING_FAILED' | 'E_EMBEDDING_DIM_MISMATCH' | 'E_INDEX_ROOT_UNREADABLE'
   | 'E_IMPORT_MAP_MISSING' | 'E_INTERNAL'
 
-export interface TextContent { type: 'text'; text: string }
+// These are type aliases rather than interfaces on purpose: the MCP SDK's
+// CallToolResult carries a string index signature, and TypeScript only gives
+// implicit index signatures to object type literals, not to interfaces.
+export type TextContent = { type: 'text'; text: string }
 
-export interface ToolStructuredResult<T> {
+export type ToolStructuredResult<T> = {
   content: TextContent[]
   structuredContent: T
   isError: false
 }
 
-export interface ToolErrorResult {
+export type ToolErrorResult = {
   content: TextContent[]
   isError: true
 }
