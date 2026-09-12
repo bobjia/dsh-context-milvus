@@ -9,7 +9,8 @@ import { milvusSdkMockExports } from './helpers/milvus-sdk-mock.js'
 jest.unstable_mockModule('@zilliz/milvus2-sdk-node', milvusSdkMockExports)
 
 const { silentLogger, getConfig } = await import('dsh-context-milvus-core')
-const { handleSearchCode, handleIndexCode, handleIndexStatus } = await import('../src/handlers.js')
+const { handleSearchCode, handleIndexCode, handleIndexStatus,
+        handleFindCallers, handleTraceCallChain } = await import('../src/handlers.js')
 type HandlerServices = import('../src/handlers.js').HandlerServices
 
 let root: string
@@ -76,5 +77,43 @@ describe('handleIndexCode', () => {
     const services = makeServices()
     const out = await handleIndexCode(async () => services, silentLogger, { path: root })
     expect(out.result.filesSkipped).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe('handleFindCallers', () => {
+  it('warns and degrades when the import map is not loaded', async () => {
+    const services = makeServices()
+    services.importResolver = { isLoaded: () => false } as any
+    services.milvus = {
+      ensureCollection: jest.fn(async () => {}),
+      search: jest.fn(),
+      queryByReference: jest.fn(async () => ([{
+        filePath: path.join(root, 'a.ts'), content: 'c', startLine: 1, endLine: 2,
+        chunkType: 'function', name: 'caller',
+      }])),
+      queryByName: jest.fn(async () => []),
+    } as any
+    const out = await handleFindCallers(async () => services, silentLogger, { symbol: 'parseConfig' })
+    expect(out.result.chunks).toHaveLength(1)
+    expect(out.result.warning).toContain('import map')
+  })
+})
+
+describe('handleTraceCallChain', () => {
+  it('returns a chain payload', async () => {
+    const services = makeServices()
+    services.importResolver = { isLoaded: () => false } as any
+    services.milvus = {
+      ensureCollection: jest.fn(async () => {}),
+      search: jest.fn(),
+      queryByReference: jest.fn(async () => []),
+      queryByName: jest.fn(async () => []),
+    } as any
+    const out = await handleTraceCallChain(async () => services, silentLogger, { entry: 'run' })
+    // core's traceChain always seeds a depth-0 node for the entry symbol, even
+    // when nothing references it; only its callers list stays empty.
+    expect(out.result.chain).toEqual([
+      { depth: 0, symbol: 'run', filePath: '', startLine: 0, endLine: 0, callers: [] },
+    ])
   })
 })
