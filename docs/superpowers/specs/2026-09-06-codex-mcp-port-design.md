@@ -152,12 +152,12 @@ DSH 适配器注入普通 console logger；Codex MCP 适配器注入 **stderr-on
 
 ### 构建与发布
 
-- `packages/core` 是**构建期 workspace 依赖**，不单独发布到 npm，避免为它申请公开 scope。
-- 两个适配器包各自用 esbuild/tsup **打包成自包含 dist**：core 的代码与 tree-sitter 之外的依赖被内联，`zilliz/milvus2-sdk-node`、`tree-sitter*` 等原生/大体积依赖保留为运行时 `dependencies`。
-- `tree-sitter*` 保持为两个适配器各自的 `dependencies`，不内联，确保原生二进制由包管理器按平台解析。
-- 发布两个 npm 包：`dsh-context-milvus`（既有包名，从 `packages/dsh` 发布）与 `codex-context-milvus`（新包，从 `packages/codex` 发布）。
-- `packages/codex` 的 `bin` 指向打包后的 `dist/mcp.js` 与 `dist/cli.js`，保证 `npx -y codex-context-milvus mcp` 可用。
-- 根 workspace 版本与两个包版本独立；`dsh-context-milvus` 的历史版本号继续递增。
+- `packages/core` 发布为**无 scope 的公开 npm 包** `dsh-context-milvus-core`，避免申请 org scope，也避免用打包内联时 `.d.ts` 指向不存在模块的问题。
+- `packages/dsh` 的构建**保持 `tsc` 不变**（`main: dist/plugins/dsh-context-milvus/index.js`、`types: dist/.../index.d.ts`），只把本地相对引用改为依赖 `dsh-context-milvus-core`。发布形态与加载方式零回归。
+- `packages/codex` 同样用 `tsc` 构建，`bin` 指向 `dist/mcp.js` 与 `dist/cli.js`，保证 `npx -y codex-context-milvus mcp` 可用。
+- 依赖关系：`packages/{dsh,codex}` 的 `dependencies` 含 `dsh-context-milvus-core`（版本用 `^` 范围）；仓库内 Jest 通过 `moduleNameMapper` 把该包名映射到 `packages/core/src/index.ts`，测试无需先构建 core。
+- `tree-sitter*`、`@zilliz/milvus2-sdk-node` 等原生/大体积依赖保留在两个适配器包各自的 `dependencies`，由包管理器按平台解析原生二进制。
+- 发布三个 npm 包：`dsh-context-milvus`（既有）、`codex-context-milvus`（新）、`dsh-context-milvus-core`（新）；三包版本独立，`dsh-context-milvus` 历史版本号继续递增。
 
 ## 工作区解析
 
