@@ -73,6 +73,12 @@ CONTEXT_MILVUS_WORKSPACE = "/absolute/path/to/repo"
 | `IGNORE_PATTERNS` | built-in | Extra gitignore-style patterns |
 | `MERKLE_FILE_PATH` | derived per workspace | Incremental-index state file |
 | `CONTEXT_MILVUS_WORKSPACE` | *(unset)* | Pins the workspace root for `doctor` |
+| `ADR_ENABLED` | `false` | Registers the 8 ADR decision-memory tools (see below) |
+| `ADR_ROOT` | `docs/decisions` | ADR directory, relative to the workspace root |
+| `ADR_COLLECTION` | `adr_embeddings` | Milvus collection holding ADR vectors |
+| `CONTEXT_MILVUS_ADR_WRITE` | `false` | Allows the ADR tools that write to disk |
+| `SPEC_ROOT` | `docs/superpowers/specs` | Directory `index_specs` scans for spec documents |
+| `PLAN_ROOT` | `docs/superpowers/plans` | Directory `index_specs` scans for plan documents |
 
 ## Tools
 
@@ -85,6 +91,27 @@ CONTEXT_MILVUS_WORKSPACE = "/absolute/path/to/repo"
 | `trace_call_chain` | `entry`, `direction?`, `maxDepth?`, `maxResults?`, `resolve?`, `path?` | BFS call chain from an entry symbol (`backward` = impact, `forward` = dependencies) |
 
 Every result comes back as both human-readable text and `structuredContent`, so you can consume the JSON directly instead of parsing markdown.
+
+### ADR decision-memory tools
+
+These eight tools are **not registered** unless the server starts with `ADR_ENABLED=true`; MCP has no way to grow the tool list mid-session, so the choice is made once at launch and requires a Codex restart.
+
+| Tool | Arguments | Purpose |
+|---|---|---|
+| `search_adr` | `query`, `status?`, `topK?`, `pathPrefix?`, `path?` | Semantic search over ADR records — answers *why* the code is the way it is |
+| `search_adr_by_file` | `filePath`, `status?`, `path?` | Deterministic lookup of the ADRs that anchor a given code file |
+| `list_adrs` | `status?`, `changeType?`, `limit?`, `path?` | List ADR records, filtered by status and change type |
+| `load_constraints` | `format?` (`summary`\|`full`), `adrIds?`, `path?` | Active constraints, hidden constraints and rejected anti-patterns |
+| `create_adr` | `title`, `requirement?`, `changeType?`, `supersedes?`, `content?`, `path?` | Create an ADR record ⚠️ write |
+| `update_adr` | `adrId`, `content?`, `status?`, `supersededBy?`, `merge?`, `path?` | Update constraints, status or body of an existing ADR ⚠️ write |
+| `check_adr_consistency` | `filePath?`, `fix?`, `path?` | Report stale `code_anchors` and uncovered changes; only `fix: true` writes |
+| `index_specs` | `scanPath?`, `dryRun?`, `path?` | Generate anchors from spec documents and index them; `dryRun` defaults to `true` |
+
+⚠️ **The four tools marked *write* are refused by default.** An autonomous agent must not create documents in your repository by surprise, so they return `E_ADR_WRITE_DISABLED` unless the server was started with `CONTEXT_MILVUS_ADR_WRITE=true`. The gate is checked against the *actual* write intent: `index_specs` with `dryRun: true` and `check_adr_consistency` with `fix: false` (the defaults) stay available without the switch.
+
+An index built by the DSH plugin is reused here unchanged: both adapters resolve the ADR root the same way and share one anchor index and hash tracker under `~/.milvus-index/`.
+
+`search_code` additionally appends a single `相关决策:` line listing the ADRs that cover the returned files — Codex has no hook for injecting constraints, so this is the lightweight reminder instead. When no returned file is covered by an ADR, `search_code` output is byte-identical to a server without ADR support.
 
 ### Workspace resolution
 
@@ -127,14 +154,16 @@ npx -y codex-context-milvus doctor      # exit 0 when both probes succeed
 | `E_WORKSPACE_NOT_FOUND` | `path` points at something that is not a directory | Pass an absolute path, or omit it to auto-detect |
 | `E_MILVUS_UNREACHABLE` | Connection refused / gRPC `UNAVAILABLE` | Start Milvus, check `MILVUS_ADDRESS` |
 | `E_EMBEDDING_FAILED` | Embedding endpoint unreachable or rejected the request | Check `EMBEDDING_ENDPOINT`, `EMBEDDING_MODEL`, `EMBEDDING_API_KEY` |
+| `E_ADR_WRITE_DISABLED` | A write-capable ADR tool was called with writes switched off | Start the server with `CONTEXT_MILVUS_ADR_WRITE=true`; do not retry |
+| `E_ADR_NOT_INITIALIZED` | `ADR_ROOT` points at a directory that does not exist | Create it (or fix `ADR_ROOT`) — the server never creates it for you |
 | `E_INTERNAL` | Anything else | Read the server's stderr output |
 | `E_COLLECTION_INIT`, `E_EMBEDDING_DIM_MISMATCH`, `E_INDEX_ROOT_UNREADABLE`, `E_IMPORT_MAP_MISSING` | Reserved codes — surfaced today as `E_INTERNAL` with the original message | Planned finer classification |
 
 ## Known limitations
 
-- **No ADR decision-memory tools.** The 8 ADR tools exist only in the DSH plugin; the MCP surface is deliberately limited to the 5 retrieval tools.
-- **No runtime dynamic tool registration.** Toggling features means editing `config.toml` and restarting Codex; there is no settings panel and no hot reload, because the MCP process environment is fixed at launch.
-- **No constraint / system-prompt injection.** Codex has no hook that can inject into a conversation, so ADR-style guidance can only be static (`AGENTS.md`).
+- **ADR tools are off by default.** Set `ADR_ENABLED=true` to register them; the server assembles the ADR bundle without touching Milvus, so `tools/list` still works with no database running.
+- **No runtime dynamic tool registration.** Toggling features means editing `config.toml` and restarting Codex; there is no settings panel and no hot reload, because the MCP process environment is fixed at launch. This is also why ADR tools appear or disappear at startup rather than at runtime.
+- **No constraint / system-prompt injection.** Codex has no hook that can inject into a conversation, so ADR guidance is only a one-line `相关决策:` reminder appended to `search_code` results, plus whatever you put in `AGENTS.md`.
 - **Windows is unverified.** `tree-sitter` ships prebuilds for the mainstream platforms; on others the native install may compile from source, and chunking falls back to the regex chunker only for languages that have one.
 - **Long indexing calls block the tool call.** A full index of a large repository can take minutes; prefer `mode: "incremental"` inside a session and check progress with `index_status`.
 - **MCP Roots are not implemented** — workspace discovery uses the cwd/`.git` rules above instead.

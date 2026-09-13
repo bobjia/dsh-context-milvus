@@ -11,6 +11,20 @@ jest.unstable_mockModule('@deepseek-ai/dsh-llm', () => ({
   createUserMessage: mockCreateUserMessage,
 }))
 
+// constraint-injector.ts takes AdrService / AdrAnchorIndex from the core package
+// now that the ADR engine lives there. Importing that barrel loads the Milvus
+// SDK, which Jest's ESM runtime cannot require (uuid inside it is ESM-only), so
+// stub the SDK. This subject only uses those modules as types and never calls
+// into them, so the stub is never exercised.
+jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
+  MilvusClient: jest.fn(() => ({})),
+  DataType: { Int64: 5, FloatVector: 101, VarChar: 21, Int32: 4, SparseFloatVector: 104 },
+  MetricType: { COSINE: 'COSINE', BM25: 'BM25' },
+  FunctionType: { BM25: 'BM25' },
+  RANKER_TYPE: { RRF: 'rrf' },
+  ErrorCode: { SUCCESS: 'Success' },
+}))
+
 const { setupConstraintInjection } = await import('../src/plugins/dsh-context-milvus/constraint-injector.js')
 
 describe('setupConstraintInjection', () => {

@@ -32,11 +32,10 @@ import { MilvusService } from 'dsh-context-milvus-core'
 import { HashTracker } from 'dsh-context-milvus-core'
 import { EmbeddingClient } from 'dsh-context-milvus-core'
 import { ImportResolver } from 'dsh-context-milvus-core'
+import { createAdrBundle } from 'dsh-context-milvus-core'
 import { registerTools } from './tools.js'
-import { AdrAnchorIndex } from './adr-anchor-index.js'
-import { AdrService } from './adr-service.js'
 import { registerAdrTools } from './adr-tools.js'
-import { runAdrIndex } from './adr-indexer.js'
+import { runAdrIndex } from 'dsh-context-milvus-core'
 import { setupConstraintInjection } from './constraint-injector.js'
 
 export const name = 'dsh-context-milvus'
@@ -293,20 +292,10 @@ export async function apply(ctx: Context, config?: CordisConfig) {
   // Always create ADR services at startup so they are available for the
   // main tools (index_code, index_status). ADR tools and constraint
   // injection hooks are registered/unregistered dynamically via toggleAdr().
-  const adrRoot = path.resolve(resolved.indexRoot, resolved.adrRoot)
-
-  const anchorIndex = new AdrAnchorIndex(
-    deriveMerkleFilePath(adrRoot).replace('merkle', 'anchors'),
-  )
-  await anchorIndex.load().catch(() => {})
-
-  const adrService = new AdrService(adrRoot)
-
-  const adrTracker = new HashTracker(
-    deriveMerkleFilePath(adrRoot).replace('merkle', 'adr-merkle'),
-  )
-  await adrTracker.load().catch(() => {})
-
+  // createWhenMissing: true 延续 DSH 的历史行为 —— 加载插件即建出 ADR 目录。
+  // 缺了这个参数就会变成行为变化，因为 core 的 bundle 默认不在用户仓库里建目录。
+  const adr = await createAdrBundle(resolved, { createWhenMissing: true })
+  const { adrRoot, service: adrService, anchorIndex, tracker: adrTracker } = adr
   const adrOptions = { service: adrService, anchorIndex, adrTracker }
 
   // Initial ADR setup — register tools and hooks if enabled at startup

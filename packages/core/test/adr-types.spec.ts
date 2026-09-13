@@ -2,7 +2,7 @@
 import { jest } from '@jest/globals'
 // Runtime import goes straight to the core module: this spec only exercises
 // getConfig(), and pulling the whole core barrel would drag in the Milvus SDK.
-const { getConfig } = await import('../../core/src/config.js')
+const { getConfig } = await import('../src/config.js')
 import type { AdrChunk, AdrSearchResult } from 'dsh-context-milvus-core'
 
 describe('ADR config', () => {

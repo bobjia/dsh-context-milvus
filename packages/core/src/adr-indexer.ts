@@ -1,13 +1,14 @@
 // src/plugins/dsh-context-milvus/adr-indexer.ts
 import { readFile, readdir } from 'node:fs/promises'
 import * as path from 'node:path'
-import { HashTracker } from 'dsh-context-milvus-core'
-import { EmbeddingClient } from 'dsh-context-milvus-core'
+import { HashTracker } from './merkle.js'
+import { EmbeddingClient } from './embedding.js'
 import { chunkAdrFile } from './adr-chunker.js'
 import { AdrAnchorIndex } from './adr-anchor-index.js'
-import type { MilvusService } from 'dsh-context-milvus-core'
-import type { PluginConfig } from 'dsh-context-milvus-core'
-import type { AdrIndexStatus } from 'dsh-context-milvus-core'
+import type { MilvusService } from './milvus-service.js'
+import type { PluginConfig } from './config.js'
+import type { Logger } from './logger.js'
+import type { AdrIndexStatus } from './types.js'
 import type { AdrService } from './adr-service.js'
 
 const ADR_FILE_RE = /^ADR-\d{4}-.+\.md$/
@@ -71,10 +72,11 @@ export async function runAdrIndex(
   milvus: MilvusService,
   tracker: HashTracker,
   anchorIndex: AdrAnchorIndex,
-  options?: { mode?: 'full' | 'incremental'; progress?: (msg: string) => void },
+  options?: { mode?: 'full' | 'incremental'; progress?: (msg: string) => void; logger?: Logger },
 ): Promise<AdrIndexResult> {
   const mode = options?.mode ?? 'incremental'
-  const progress = options?.progress ?? (() => {})
+  const log = options?.logger
+  const progress = options?.progress ?? ((msg: string) => { if (log) log.info(msg) })
   const startTime = Date.now()
 
   if (!config.adrEnabled) {

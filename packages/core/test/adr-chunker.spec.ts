@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals'
-const { chunkAdrFile } = await import('../src/plugins/dsh-context-milvus/adr-chunker.js')
+const { chunkAdrFile } = await import('../src/adr-chunker.js')
 
 describe('chunkAdrFile', () => {
   const sampleAdr = `---

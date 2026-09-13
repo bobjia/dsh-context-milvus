@@ -32,8 +32,8 @@ jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
 
 const { MilvusService } = await import('dsh-context-milvus-core')
 const { HashTracker } = await import('dsh-context-milvus-core')
-const { AdrAnchorIndex } = await import('../src/plugins/dsh-context-milvus/adr-anchor-index.js')
-const { runAdrIndex, getAdrIndexStatus } = await import('../src/plugins/dsh-context-milvus/adr-indexer.js')
+const { AdrAnchorIndex } = await import('../src/adr-anchor-index.js')
+const { runAdrIndex, getAdrIndexStatus } = await import('../src/adr-indexer.js')
 
 describe('runAdrIndex', () => {
   let tempDir: string
@@ -168,7 +168,7 @@ Test
   })
 
   it('returns index status', async () => {
-    const { AdrService } = await import('../src/plugins/dsh-context-milvus/adr-service.js')
+    const { AdrService } = await import('../src/adr-service.js')
     const status = await getAdrIndexStatus(tracker, new AdrService(adrDir))
     expect(status).toHaveProperty('totalAdrs')
     expect(status).toHaveProperty('totalChunks')

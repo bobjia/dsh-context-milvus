@@ -18,12 +18,12 @@ import { dump as yamlDump, load as yamlLoad } from 'js-yaml'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { MilvusService } from 'dsh-context-milvus-core'
-import { AdrService } from './adr-service.js'
-import type { AdrAnchorIndex } from './adr-anchor-index.js'
+import { AdrService } from 'dsh-context-milvus-core'
+import type { AdrAnchorIndex } from 'dsh-context-milvus-core'
 import type { PluginConfig } from 'dsh-context-milvus-core'
 import type { HashTracker } from 'dsh-context-milvus-core'
-import { runAdrIndex } from './adr-indexer.js'
-import { findCandidateFiles, previewFrontmatter, generateSpecFrontmatter } from './adr-anchor-generator.js'
+import { runAdrIndex } from 'dsh-context-milvus-core'
+import { findCandidateFiles, previewFrontmatter, generateSpecFrontmatter } from 'dsh-context-milvus-core'
 
 /** Format ADR search results for model consumption */
 function formatAdrSearchResults(value: any[]): string {

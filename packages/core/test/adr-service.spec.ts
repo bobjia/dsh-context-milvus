@@ -1,9 +1,10 @@
 import { jest } from '@jest/globals'
 import { mkdtemp, writeFile, readFile, mkdir } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import * as path from 'node:path'
 import { tmpdir } from 'node:os'
 
-const { AdrService } = await import('../src/plugins/dsh-context-milvus/adr-service.js')
+const { AdrService } = await import('../src/adr-service.js')
 
 describe('AdrService', () => {
   let tempDir: string
@@ -124,5 +125,69 @@ describe('AdrService', () => {
     it('rejects update for non-existent ADR', async () => {
       await expect(service.updateAdr('ADR-9999-nope', { status: 'superseded' })).rejects.toThrow(/ADR not found/)
     })
+  })
+})
+describe('AdrService.removeAnchorsForFile', () => {
+  async function svcWithAnchors(name: string, anchors: string[]) {
+    const dir = await mkdtemp(path.join(tmpdir(), `${name}-`))
+    const service = new AdrService(dir)
+    const { id, filePath } = await service.createAdr({ title: name, requirement: 'r' })
+    const doc = await service.loadAdr(id)
+    const list = anchors.map(f => `  - file: ${f}\n    symbols: [x]`).join('\n')
+    const body = `---
+id: ${id}
+type: adr
+status: active
+created: 2026-09-01
+updated: 2026-09-01
+author: t
+supersedes: null
+superseded_by: null
+code_anchors:
+${list}
+trigger:
+  change_type: refactor
+related_decisions: []
+auto_generated: false
+---
+
+# 标题
+
+正文
+`
+    await writeFile(doc!.filePath, body, 'utf-8')
+    return { service, id, filePath: doc!.filePath }
+  }
+
+  it('drops only the anchors for the given file and keeps the rest', async () => {
+    const { service, id } = await svcWithAnchors('strip-me', ['src/keep.ts', 'src/gone.ts'])
+
+    expect(await service.removeAnchorsForFile(id, 'src/gone.ts')).toBe(true)
+
+    const after = await readFile((await service.loadAdr(id))!.filePath, 'utf-8')
+    expect(after).toContain('src/keep.ts')
+    expect(after).not.toContain('src/gone.ts')
+    expect(after.startsWith('---\n')).toBe(true)
+    expect(after).toContain('# 标题')
+    expect(after).toContain('正文')
+  })
+
+  it('returns false when no anchor matches', async () => {
+    const { service, id, filePath } = await svcWithAnchors('no-match', ['src/keep.ts'])
+    const before = await readFile(filePath, 'utf-8')
+    expect(await service.removeAnchorsForFile(id, 'src/never-indexed.ts')).toBe(false)
+    expect(await readFile(filePath, 'utf-8')).toBe(before)
+  })
+
+  it('returns false for an unknown id', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'strip-unknown-'))
+    const service = new AdrService(dir)
+    expect(await service.removeAnchorsForFile('ADR-9999-nope', 'src/x.ts')).toBe(false)
+  })
+
+  it('leaves no .tmp file behind', async () => {
+    const { service, id, filePath } = await svcWithAnchors('tmp-check', ['src/gone.ts'])
+    await service.removeAnchorsForFile(id, 'src/gone.ts')
+    expect(existsSync(`${filePath}.tmp`)).toBe(false)
   })
 })

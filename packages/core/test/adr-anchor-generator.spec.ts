@@ -10,7 +10,7 @@ const {
   detectCodeReferences,
   generateSpecFrontmatter,
   previewFrontmatter,
-} = await import('../src/plugins/dsh-context-milvus/adr-anchor-generator.js')
+} = await import('../src/adr-anchor-generator.js')
 
 describe('findCandidateFiles', () => {
   let tempDir: string
@@ -285,7 +285,7 @@ describe('generateSpecFrontmatter', () => {
 
     // Verify file was written with frontmatter
     const content = await readFile(specPath, 'utf-8')
-    const { parseFrontmatter } = await import('../src/plugins/dsh-context-milvus/adr-frontmatter.js')
+    const { parseFrontmatter } = await import('../src/adr-frontmatter.js')
     const fm = parseFrontmatter(content)
     expect(fm).not.toBeNull()
     expect(fm!.id).toBe(result!.adrId)
@@ -373,7 +373,7 @@ describe('previewFrontmatter', () => {
 
     // File should NOT have frontmatter
     const content = await readFile(specPath, 'utf-8')
-    const { parseFrontmatter } = await import('../src/plugins/dsh-context-milvus/adr-frontmatter.js')
+    const { parseFrontmatter } = await import('../src/adr-frontmatter.js')
     expect(parseFrontmatter(content)).toBeNull()
   })
 

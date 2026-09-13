@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, readFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { tmpdir } from 'node:os'
 
-const { AdrAnchorIndex } = await import('../src/plugins/dsh-context-milvus/adr-anchor-index.js')
+const { AdrAnchorIndex } = await import('../src/adr-anchor-index.js')
 
 describe('AdrAnchorIndex', () => {
   let tempDir: string

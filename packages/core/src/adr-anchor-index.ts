@@ -1,7 +1,7 @@
 // src/plugins/dsh-context-milvus/adr-anchor-index.ts
 import { readFile, rename, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import type { AnchorIndexStats } from 'dsh-context-milvus-core'
+import type { AnchorIndexStats } from './types.js'
 
 /** Reverse index: file path → ADR ids, persisted as JSON sidecar */
 export class AdrAnchorIndex {

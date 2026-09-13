@@ -52,7 +52,7 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 
 ## Codex CLI 支持
 
-本插件的检索引擎已抽成独立包 `dsh-context-milvus-core`，同一份代码也可以 stdio **MCP server** 形态运行：`codex-context-milvus` 面向 [OpenAI Codex CLI](https://github.com/openai/codex)（以及任何 MCP 客户端），暴露 5 个检索工具 —— `search_code`、`index_code`、`index_status`、`find_callers`、`trace_call_chain`，并与 DSH 插件共用同一份 Milvus 集合和按工作区隔离的索引状态。
+本插件的检索引擎已抽成独立包 `dsh-context-milvus-core`，同一份代码也可以 stdio **MCP server** 形态运行：`codex-context-milvus` 面向 [OpenAI Codex CLI](https://github.com/openai/codex)（以及任何 MCP 客户端），暴露 5 个检索工具 —— `search_code`、`index_code`、`index_status`、`find_callers`、`trace_call_chain`，并与 DSH 插件共用同一份 Milvus 集合和按工作区隔离的索引状态。以 `ADR_ENABLED=true` 启动时，另外注册 8 个 ADR 决策记忆工具；其中 4 个写盘工具仍受 `CONTEXT_MILVUS_ADR_WRITE` 保护，默认拒绝。
 
 最短接入：
 
@@ -67,7 +67,7 @@ npx -y codex-context-milvus init --yes    # 生成 / 更新 .codex/config.toml�
 npx -y codex-context-milvus doctor        # 探测 Embedding 与 Milvus 连通性
 ```
 
-环境变量参考、错误码表与当前限制（无 ADR 工具、无运行时热更新、未接入 MCP Roots）见 [`packages/codex/README.md`](packages/codex/README.md)。
+环境变量参考、错误码表与当前限制（ADR 工具默认关闭、无运行时热更新、未接入 MCP Roots）见 [`packages/codex/README.md`](packages/codex/README.md)。
 
 ---
 
@@ -656,7 +656,7 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 │      DSH Agent / Web UI（13 个工具）      │  │   OpenAI Codex CLI / 任意 MCP 客户端  │
 │  search_code │ index_code │ index_status │  │      5 个工具（MCP stdio）            │
 │  find_callers │ trace_call_chain         │  │  search_code │ index_code │ ...      │
-│  8 个 ADR 工具（决策记忆）                │  │   第一版有意不含 ADR 工具              │
+│  8 个 ADR 工具（决策记忆）                │  │   ADR 工具需 ADR_ENABLED               │
 └────────────────────┬─────────────────────┘  └───────────────────┬──────────────────┘
                      │                                            │
         packages/dsh（Cordis 适配器）              packages/codex（MCP 适配器 + CLI）
@@ -671,7 +671,7 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
    │  code-relations（BFS findCallers/traceChain）           import-resolver      │
    │  query-expansion → reranker                            ignore-matcher（三层） │
    │  telemetry（JSONL，opt-in）                             logger 端口           │
-   │  ADR 只共享类型，ADR 逻辑留在 DSH 适配器内                                    │
+   │  ADR 引擎：frontmatter/chunker/anchors/service/indexer/bundle                 │
    └──────────────────────────────────────────────────────────────────────────────┘
                                           │
                           ┌───────────────┴───────────────┐
