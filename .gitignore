@@ -7,3 +7,7 @@ coverage/
 scripts/eval/retrieval/output/
 scripts/eval/agent/output/
 scripts/eval/telemetry/output/
+
+# 本地 npm 凭证（含 token，禁止提交）
+.npmrc
+*.tgz
