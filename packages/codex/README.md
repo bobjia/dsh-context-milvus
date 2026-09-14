@@ -16,6 +16,68 @@ npx -y codex-context-milvus mcp
 
 Requires Node.js ≥ 18 and Codex CLI 0.147+.
 
+## Offline install (air-gapped target)
+
+The production closure is ~230 packages, so an air-gapped machine needs the whole tree carried over — `npm pack` of this package alone is not enough. Prepare the payload on any machine that can reach the registry; both methods below start from the same scratch install:
+
+```bash
+mkdir ctxmilvus-offline && cd ctxmilvus-offline
+npm init -y
+npm pkg set dependencies.codex-context-milvus=0.2.0   # pin the version you are deploying
+npm install --omit=dev --cache ./npm-cache            # resolve + download the full closure
+```
+
+**A. Carry the npm cache** — the target still installs with npm, so bin links and install-time wiring stay npm's job:
+
+```bash
+tar czf ctxmilvus-offline.tgz npm-cache package.json package-lock.json
+
+# on the target
+tar xzf ctxmilvus-offline.tgz
+npm ci --omit=dev --offline --cache ./npm-cache                           # into ./node_modules
+npm i -g codex-context-milvus@0.2.0 --offline --cache "$PWD/npm-cache"     # or globally
+```
+
+Keep the `--offline` flag: it makes npm fail with `ENOTCACHED` on a tarball it does not have, instead of hanging on a network that is not there. The cache must come from the scratch install above — it holds the tarballs *and* the version metadata `--offline` resolves against.
+
+**B. Carry `node_modules` verbatim** — for targets where npm cannot run at all:
+
+```bash
+tar czf ctxmilvus-tree.tgz node_modules package.json
+
+# on the target
+mkdir -p /opt/ctxmilvus && tar xzf ctxmilvus-tree.tgz -C /opt/ctxmilvus
+/opt/ctxmilvus/node_modules/.bin/codex-context-milvus doctor
+```
+
+Use `tar`, not a ZIP tool: the `node_modules/.bin/*` entries are symlinks.
+
+**Repoint Codex at the local copy.** Both methods ship the server, but the config the wizard generates starts it with `npx -y`, which contacts the registry on every Codex launch:
+
+```toml
+# <repo>/.codex/config.toml
+[mcp_servers.context-milvus]
+command = "node"
+args = ["/opt/ctxmilvus/node_modules/codex-context-milvus/bin/mcp.js"]
+```
+
+`codex mcp add context-milvus -- node /opt/ctxmilvus/node_modules/codex-context-milvus/bin/mcp.js` is the user-level equivalent. Note that `init` always emits the `npx -y` form, so re-running the wizard on an offline box puts the network dependency back.
+
+**What survives the air gap**
+
+- No package in the closure is gated on `os` / `cpu`, so a single bundle serves every platform.
+- The 11 `tree-sitter*` packages are ~245 MB unpacked because each one ships N-API prebuilds for `linux` / `darwin` / `win32` × `x64` / `arm64` inside its tarball, and `node-gyp-build` never downloads anything — a bundle built on Linux x64 also runs on an arm64 Mac. To trade that portability for size, keep only the target triple:
+
+  ```bash
+  TARGET=linux-arm64   # = node -p 'process.platform+"-"+process.arch' on the target
+  find node_modules -mindepth 1 -type d -path '*/prebuilds/*' ! -name "$TARGET" -exec rm -rf {} +
+  ```
+
+  Method B only: this is a raw file deletion, while method A's `npm ci` re-checks package contents.
+
+- A platform with no shipped prebuild is the single case that needs a compiler (`python3` + `make` + `g++`) at install time — build the bundle on a matching connected machine rather than compiling on the target.
+- The bundle contains the client only. Milvus and the embedding endpoint are services the target must already reach; `doctor` is how you check that.
+
 ## Configure
 
 The MCP server reads its settings from environment variables (see the table below), so pick either wiring:

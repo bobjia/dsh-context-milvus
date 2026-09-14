@@ -69,6 +69,22 @@ npx -y codex-context-milvus doctor        # 探测 Embedding 与 Milvus 连通�
 
 环境变量参考、错误码表与当前限制（ADR 工具默认关闭、无运行时热更新、未接入 MCP Roots）见 [`packages/codex/README.md`](packages/codex/README.md)。
 
+### 离线安装（隔离网络环境）
+
+离线机器无法解析约 230 个包的生产依赖闭包，所以离线包必须在一台能连 registry 的机器上制作：用一个只声明本包的临时工程把闭包拉全，再选择带走 npm 缓存或整个 `node_modules`。
+
+```bash
+mkdir ctxmilvus-offline && cd ctxmilvus-offline
+npm init -y
+npm pkg set dependencies.codex-context-milvus=0.2.0
+npm install --omit=dev --cache ./npm-cache
+
+tar czf ctxmilvus-offline.tgz npm-cache package.json package-lock.json   # 方案 A
+tar czf ctxmilvus-tree.tgz node_modules                                  # 方案 B
+```
+
+到目标机上，方案 A 用 `npm ci --omit=dev --offline --cache ./npm-cache` 安装（`--offline` 保证缺包时直接 `ENOTCACHED` 报错，而不是卡在不存在的网络上；若目标机完全不能跑 npm，用方案 B：解压后直接调用 `node_modules/.bin/codex-context-milvus`）。两个坑：一是向导生成的 `config.toml` 用 `npx -y` 启动服务，那等于每次 Codex 启动都要连 registry，必须把 `command` / `args` 改成本地 `bin/mcp.js` 的绝对路径；二是 `tree-sitter*` 的原生预编译产物本身就打在 npm 包里（linux / darwin / win32 × x64 / arm64 全覆盖，且 `node-gyp-build` 不会联网下载），所以一份离线包跨平台通用，但这六种之外的平台需要在安装期编译（`python3` + `make` + `g++`）。完整步骤（含按目标平台裁剪预编译产物、以及改好的 TOML）见 [`packages/codex/README.md` 的 Offline install 一节](packages/codex/README.md#offline-install-air-gapped-target)。
+
 ---
 
 ## 效果评测

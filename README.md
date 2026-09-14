@@ -62,6 +62,22 @@ codex mcp add context-milvus -- npx -y codex-context-milvus mcp
 
 See [`packages/codex/README.md`](packages/codex/README.md) for the `init` wizard, the environment variable reference, the error-code table, and current limitations (ADR tools are off by default, no runtime config hot-reload).
 
+### Offline / air-gapped install
+
+An offline machine cannot resolve the ~230-package production closure, so the payload has to be built on a connected one. Seed a scratch install with the package as its only production dependency, then carry either the npm cache or the whole `node_modules`:
+
+```bash
+mkdir ctxmilvus-offline && cd ctxmilvus-offline
+npm init -y
+npm pkg set dependencies.codex-context-milvus=0.2.0
+npm install --omit=dev --cache ./npm-cache
+
+tar czf ctxmilvus-offline.tgz npm-cache package.json package-lock.json   # method A
+tar czf ctxmilvus-tree.tgz node_modules                                  # method B
+```
+
+On the target, method A installs with `npm ci --omit=dev --offline --cache ./npm-cache` (`--offline` makes npm fail on a missing tarball instead of reaching for a network that is not there), while method B only needs the tree extracted and the binary invoked directly. Two traps: the generated `config.toml` starts the server with `npx -y`, which is a registry call on every Codex launch, so point `command`/`args` at the local `bin/mcp.js`; and the `tree-sitter*` prebuilds for linux/darwin/win32 × x64/arm64 come inside the tarballs, so one bundle is cross-platform — any other triple needs a compiler. The full recipe, including the prebuild-pruning trick and the exact TOML, is in [`packages/codex/README.md` → Offline install](packages/codex/README.md#offline-install-air-gapped-target).
+
 ---
 
 ## Effectiveness Evaluation
