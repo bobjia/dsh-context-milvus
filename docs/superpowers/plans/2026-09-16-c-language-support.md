@@ -11,11 +11,13 @@
 ## Global Constraints
 
 - Only modify `packages/core` (plus docs + tests). Adapters (`packages/dsh`, `packages/codex`) are untouched.
-- `.h` stays owned by C++ (`.c` is the only new extension). Do NOT remove `.h` from the cpp extensions list.
+- `.h` stays owned by C++ (`.c` and `.inc` are the new C extensions). Do NOT remove `.h` from the cpp extensions list.
+- `.inc` is added to C per user decision. Note `.inc` is ambiguous in Linguist (C++, Assembly, BitBake, NASL) — accepted tradeoff.
+- C's `declaration` chunk node type MUST be gated by `chunkNodeFilter` (only `function_declarator`-containing declarations = function prototypes). Never chunk plain variable declarations.
+- The name-extraction change MUST check `declarator` BEFORE `type` (C's `type` field is the return type). Both `extractNodeName` (chunker.ts) and `deriveExportsFromChunks` (import-resolver.ts) must stay in sync, and both must apply `chunkNodeFilter`.
 - Core boundary rules still apply: no `@deepseek-ai/*`, no `@modelcontextprotocol/*`, no zod imports; no `console.log` in `packages/core/src`.
 - New dep `tree-sitter-c` pinned `^0.23.6` (dedupes with the already-installed 0.23.6; fresh installs resolve to 0.24.x which is ABI-compatible with tree-sitter 0.25.1).
-- Do not add `declaration` to C's `chunkNodeTypes` (would chunk every variable declaration).
-- Language name string is exactly `'c'`; chunk types reuse existing type names (`function_definition`, `struct_specifier`, `enum_specifier`, `union_specifier`, `type_definition`).
+- Language name string is exactly `'c'`; chunk types reuse existing type names (`function_definition`, `struct_specifier`, `enum_specifier`, `union_specifier`, `type_definition`, `declaration`).
 - All tests run via the repo's jest setup: `node --experimental-vm-modules node_modules/.bin/jest <path>` (plain `npx jest` does NOT work here).
 - `npm install` must use `--legacy-peer-deps` (pre-existing peer conflict).
 
@@ -62,21 +64,39 @@ git commit -m "feat(core): declare tree-sitter-c as a direct dependency"
 
 ---
 
-### Task 2: Add the C language definition to the chunker
+### Task 2: Add the C language definition to the chunker (+ chunkNodeFilter type)
 
 **Files:**
 - Modify: `packages/core/src/chunker.ts` — insert a new `LanguageDef` into the `LANGUAGES` array, after the `cpp` entry (which ends at line 240) and before the `csharp` entry (line 241)
+- Modify: `packages/core/src/types.ts` — add optional `chunkNodeFilter` to `LanguageConfig` (line 73-81)
 
 **Interfaces:**
 - Consumes: `tree-sitter-c` (Task 1); existing `path` import already at top of file.
-- Produces: `.c` recognized by `getLanguageForExtension`, `isSupportedExtension`, `extensionToLanguage`, `getSupportedExtensions`, `hasTsParser`, and `chunkCode` — all driven by `EXT_MAP` built from `LANGUAGES`.
+- Produces: `.c` and `.inc` recognized by `getLanguageForExtension`, `isSupportedExtension`, `extensionToLanguage`, `getSupportedExtensions`, `hasTsParser`, and `chunkCode` — all driven by `EXT_MAP` built from `LANGUAGES`. Also produces the `chunkNodeFilter?: (node: any) => boolean` field on `LanguageConfig` consumed by Task 3's `deriveExportsFromChunks` and by `chunkWithTreeSitter`.
 
-- [ ] **Step 1: Write the failing test (C chunking via tree-sitter)**
+- [ ] **Step 1: Add `chunkNodeFilter` to the `LanguageConfig` type**
+
+In `packages/core/src/types.ts`, in the `LanguageConfig` interface (lines 73-81), add the optional field after `chunkNodeTypes`:
+
+```ts
+export interface LanguageConfig {
+  name: string
+  extensions: string[]
+  chunkNodeTypes: string[]
+  chunkNodeFilter?: (node: any) => boolean  // NEW: only chunk nodes passing this filter
+  referenceNodeTypes?: string[]  // AST node types to collect as references
+  importNodeTypes?: string[]    // NEW: AST node types for import statements
+  exportNodeTypes?: string[]    // NEW: AST node types for export statements
+  resolveImportPath?: (importPath: string, sourceFile: string) => string | null  // NEW
+}
+```
+
+- [ ] **Step 2: Write the failing test (C chunking via tree-sitter)**
 
 In `packages/core/test/dsh-context-remdb.spec.ts`, inside the `describe('chunkCode (tree-sitter)', ...)` block, add this test right after the C++ test (after line 1090):
 
 ```ts
-  it('extracts functions, structs, enums, and typedefs from C code', async () => {
+  it('extracts functions, structs, enums, typedefs, and macros from C code', async () => {
     const { chunkCode } = await import('../src/chunker.js')
 
     const code = `
@@ -108,7 +128,7 @@ int main(void) {
 }
 `
     const chunks = await chunkCode('/tmp/test.c', code, '.c')
-    expect(chunks.length).toBeGreaterThanOrEqual(4)
+    expect(chunks.length).toBeGreaterThanOrEqual(5)
 
     const addFn = chunks.find((c) => c.name === 'add')
     expect(addFn).toBeDefined()
@@ -133,15 +153,59 @@ int main(void) {
   })
 ```
 
-Note: this test will FAIL at the `name === 'add'` assertion until Task 3 fixes `extractNodeName` — but it also fails outright now because `.c` is unsupported (`chunkCode` throws "Unsupported file extension"). Both failures are expected; the test is written once and stays.
+Add a second test for `.inc` files and prototype declarations:
 
-- [ ] **Step 2: Run test to verify it fails**
+```ts
+  it('chunks function prototypes in .inc header files but not plain declarations', async () => {
+    const { chunkCode } = await import('../src/chunker.js')
 
-Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts -t "extracts functions, structs, enums, and typedefs from C code"`
+    const inc = `
+#ifndef MYUTIL_INC
+#define MYUTIL_INC
 
-Expected: FAIL with `Unsupported file extension: .c` (thrown from `chunkCode`).
+int helper(void);
+void init(int size);
+int (*callback)(int);
+extern int global_count;
+static int counter;
 
-- [ ] **Step 3: Add the C language definition**
+typedef struct { int x; int y; } Point;
+
+#endif
+`
+    const chunks = await chunkCode('/tmp/myutil.inc', inc, '.inc')
+    expect(chunks.length).toBeGreaterThanOrEqual(4)
+
+    const helper = chunks.find((c) => c.name === 'helper')
+    expect(helper).toBeDefined()
+    expect(helper!.chunkType).toBe('declaration')
+    expect(helper!.language).toBe('c')
+
+    const init = chunks.find((c) => c.name === 'init')
+    expect(init).toBeDefined()
+    expect(init!.chunkType).toBe('declaration')
+
+    const callback = chunks.find((c) => c.name === 'callback')
+    expect(callback).toBeDefined()
+    expect(callback!.chunkType).toBe('declaration')
+
+    // Plain variable declarations must NOT become chunks
+    const globalCount = chunks.find((c) => c.name === 'global_count')
+    expect(globalCount).toBeUndefined()
+    const counter = chunks.find((c) => c.name === 'counter')
+    expect(counter).toBeUndefined()
+  })
+```
+
+Note: both tests will FAIL now — `chunkCode` throws "Unsupported file extension" for `.c`/`.inc`. The prototype test additionally requires the `chunkNodeFilter` (Step 3) and Task 3's name fix.
+
+- [ ] **Step 3: Run tests to verify they fail**
+
+Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts -t "C code"`
+
+Expected: FAIL with `Unsupported file extension: .c` (and `.inc`).
+
+- [ ] **Step 4: Add the C language definition**
 
 In `packages/core/src/chunker.ts`, in the `LANGUAGES` array, insert after the `cpp` entry's closing `},` (line 240) and before the `csharp` entry (line 241):
 
@@ -149,7 +213,7 @@ In `packages/core/src/chunker.ts`, in the `LANGUAGES` array, insert after the `c
   {
     config: {
       name: 'c',
-      extensions: ['.c'],
+      extensions: ['.c', '.inc'],
       chunkNodeTypes: [
         'function_definition',
         'struct_specifier',
@@ -157,7 +221,13 @@ In `packages/core/src/chunker.ts`, in the `LANGUAGES` array, insert after the `c
         'union_specifier',
         'type_definition',
         'preproc_function_def',
+        'declaration',
       ],
+      // Only chunk declarations that are function prototypes (int helper(void);),
+      // filter out plain variable declarations (extern int global_count;)
+      chunkNodeFilter: (node: any) =>
+        node.type !== 'declaration' ||
+        node.descendantsOfType('function_declarator').length > 0,
       referenceNodeTypes: ['call_expression', 'field_expression', 'identifier'],
       importNodeTypes: ['preproc_include'],
       resolveImportPath: (importPath: string, sourceFile: string) => {
@@ -171,17 +241,36 @@ In `packages/core/src/chunker.ts`, in the `LANGUAGES` array, insert after the `c
   },
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 5: Apply the chunkNodeFilter in chunkWithTreeSitter**
 
-Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts -t "extracts functions, structs, enums, and typedefs from C code"`
+In `packages/core/src/chunker.ts`, in `chunkWithTreeSitter`, after `collectChunks` builds `nodes` and before `.filter((n: any) => { ... seen ... })`, apply the language filter. Locate this block (around line 471-485):
 
-Expected: FAIL — but now it fails on the name assertions (`add` not found; `Point` not found as `type_definition` because the anonymous struct's chunk has name `anonymous_struct_specifier` and the typedef name isn't extracted). This is the expected intermediate state: `.c` is now chunkable, but names are wrong until Task 3. Verify the failure is about names, not "Unsupported file extension".
+```ts
+  const chunkTypes = new Set(def.config.chunkNodeTypes)
+  const nodes = collectChunks(root, chunkTypes, 0, 10)
+  const seen = new Set<number>()
+```
 
-- [ ] **Step 5: Commit**
+Change the `nodes` line to:
+
+```ts
+  const chunkTypes = new Set(def.config.chunkNodeTypes)
+  const nodes = collectChunks(root, chunkTypes, 0, 10)
+    .filter((n: any) => (def.config.chunkNodeFilter ? def.config.chunkNodeFilter(n) : true))
+  const seen = new Set<number>()
+```
+
+- [ ] **Step 6: Run tests to verify the intermediate state**
+
+Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts -t "C code"`
+
+Expected: FAIL — but now on name assertions (e.g. `addFn` undefined because names come back as `int`; `Point` missing as `type_definition`). This confirms `.c`/`.inc` are chunkable and the filter works, but names are wrong until Task 3. Verify the failure is about names, not "Unsupported file extension".
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add packages/core/src/chunker.ts packages/core/test/dsh-context-remdb.spec.ts
-git commit -m "feat(core): add C language definition to chunker"
+git add packages/core/src/types.ts packages/core/src/chunker.ts packages/core/test/dsh-context-remdb.spec.ts
+git commit -m "feat(core): add C language definition with chunkNodeFilter"
 ```
 
 ---
@@ -193,42 +282,51 @@ git commit -m "feat(core): add C language definition to chunker"
 - Modify: `packages/core/src/import-resolver.ts` — name extraction inside `deriveExportsFromChunks` (lines 262-271)
 
 **Interfaces:**
-- Consumes: nothing new.
-- Produces: correct `name` on C chunks (`add`, not `int`; `Point` for `typedef struct {...} Point;`) and correct symbols in the export map for C files. Must NOT change names for existing languages (TS/JS/Python/C++/etc.).
+- Consumes: `chunkNodeFilter` from Task 2 (must be applied in `deriveExportsFromChunks` too, so exports match chunks).
+- Produces: correct `name` on C chunks (`add`, not `int`; `Point` for `typedef struct {...} Point;`; `helper` for `int helper(void);`) and correct symbols in the export map for C files. Must NOT change names for existing languages (TS/JS/Python/C++/etc.).
 
 - [ ] **Step 1: Run the failing test to confirm current broken behavior**
 
-Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts -t "extracts functions, structs, enums, and typedefs from C code"`
+Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts -t "C code"`
 
 Expected: FAIL — `addFn` is `undefined` because `extractNodeName` returns `int` for `function_definition` nodes (its `type` field holds the return type), so no chunk is named `add`.
 
 - [ ] **Step 2: Fix `extractNodeName` in chunker.ts**
 
-Replace the body of `extractNodeName` (current lines 353-365) so that after the existing field checks it falls back to the `declarator` field, which is where C keeps the name:
+Replace the body of `extractNodeName` (current lines 353-365) with the corrected logic. **Critical ordering: `declarator` must be checked BEFORE `type`** — in C, `function_definition`'s `type` field is the return type (`int add(...)` → type=`int`, declarator=`add`). The name lives on the `declarator` field chain:
 
 ```ts
 function extractNodeName(node: any): string {
-  const nameNode =
-    node.childForFieldName('name') ??
-    node.childForFieldName('type') ??
-    node.childForFieldName('identifier')
+  const nameNode = node.childForFieldName('name')
   if (nameNode) return nameNode.text
 
-  // C/C++: function_definition / type_definition keep the name inside a
-  // declarator (function_declarator → declarator → identifier).
-  // Example: `int add(int a, int b)` → declarator → function_declarator → add
-  //          `typedef struct {...} Point;` → declarator → Point
+  // C/C++: the name lives on the declarator field chain. Must be checked
+  // BEFORE `type` — in C/C++ the `type` field is the return type
+  // (`int add(...)` → type=int, declarator=function_declarator → identifier=add)
   const declarator = node.childForFieldName('declarator')
   if (declarator) {
-    const inner = declarator.childForFieldName('declarator') ?? declarator
-    const innerName =
-      inner.childForFieldName('name') ??
-      inner.childForFieldName('identifier') ??
-      inner.namedChildren.find(
-        (c: any) => c.type === 'identifier' || c.type === 'type_identifier',
-      )
-    if (innerName) return innerName.text
+    let current: any = declarator
+    while (current) {
+      const t = current.type
+      if (t === 'identifier' || t === 'type_identifier' || t === 'field_identifier') {
+        return current.text
+      }
+      const next = current.childForFieldName('declarator')
+      if (!next) break
+      current = next
+    }
+    // Last resort: first identifier-like descendant (covers pointer chains)
+    const ids = declarator.descendantsOfType('identifier')
+    const tids = declarator.descendantsOfType('type_identifier')
+    const fallback = ids[0] ?? tids[0]
+    if (fallback) return fallback.text
   }
+
+  const typeNode = node.childForFieldName('type')
+  if (typeNode) return typeNode.text
+
+  const identifierNode = node.childForFieldName('identifier')
+  if (identifierNode) return identifierNode.text
 
   for (const child of node.namedChildren) {
     const t = child.type
@@ -240,71 +338,91 @@ function extractNodeName(node: any): string {
 }
 ```
 
+Note the field chain shapes this handles (verified against tree-sitter-c 0.23.6):
+- `function_definition`: `declarator` field → `function_declarator` → its `declarator` field → `identifier` (`add`)
+- `type_definition`: `declarator` field → `type_identifier` directly (`Point`)
+- `declaration` (prototype): `declarator` field → `function_declarator` → `identifier` (`helper`)
+- `int (*callback)(int)`: `declarator` → `pointer_declarator` → `function_declarator` → `identifier` (`callback`)
+
 - [ ] **Step 3: Run the chunker test to verify it passes**
 
-Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts -t "extracts functions, structs, enums, and typedefs from C code"`
+Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts -t "C code"`
 
-Expected: PASS — `add` (function_definition), `Point` (type_definition), `Config` (struct_specifier), `Color` (enum_specifier), `SQUARE` (preproc_function_def) all found.
+Expected: PASS — `add` (function_definition), `Point` (type_definition), `Config` (struct_specifier), `Color` (enum_specifier), `SQUARE` (preproc_function_def) all found; `helper`/`init`/`callback` (declaration) found; `global_count`/`counter` NOT found.
 
 - [ ] **Step 4: Fix the same logic in import-resolver.ts**
 
-In `packages/core/src/import-resolver.ts`, inside `deriveExportsFromChunks` (lines 262-271), replace the name-extraction block so C nodes export their real names:
+In `packages/core/src/import-resolver.ts`, inside `deriveExportsFromChunks` (lines 255-286), replace the name-extraction block and apply the `chunkNodeFilter` so C nodes export their real names and non-prototype declarations are excluded:
 
 ```ts
-      if (chunkTypes.has(node.type)) {
+  private deriveExportsFromChunks(root: any, filePath: string, config: LanguageConfig): void {
+    const chunkTypes = new Set(config.chunkNodeTypes)
+    const symbols: string[] = []
+
+    function walk(node: any): void {
+      if (!node || !node.type) return
+
+      if (chunkTypes.has(node.type) && (config.chunkNodeFilter ? config.chunkNodeFilter(node) : true)) {
         // Extract node name using the same logic as extractNodeName
-        const nameNode =
-          node.childForFieldName('name') ??
-          node.childForFieldName('type') ??
-          node.childForFieldName('identifier')
-        if (nameNode) {
-          symbols.push(nameNode.text)
-          continue
-        }
-        // C/C++: name lives in the declarator (function_declarator → identifier)
-        const declarator = node.childForFieldName('declarator')
-        if (declarator) {
-          const inner = declarator.childForFieldName('declarator') ?? declarator
-          const innerName =
-            inner.childForFieldName('name') ??
-            inner.childForFieldName('identifier') ??
-            inner.namedChildren.find(
-              (c: any) => c.type === 'identifier' || c.type === 'type_identifier',
-            )
-          if (innerName) symbols.push(innerName.text)
-        }
-      }
-```
-
-Note: the `continue` keyword works here because this code is inside a `function walk(node: any): void { ... }` with the `if` inside a `for` loop iteration — verify the structure when editing: the walk function's `if (chunkTypes.has(node.type))` block sits before the recursive `if (node.childCount > 0)` block, so `continue` skips the recursion for the current node (matching original behavior where a matched name node also skipped nothing extra — the original code did not `continue`, so be careful: the original just pushed and fell through to recursion). To keep behavior identical for existing languages, do NOT add `continue`; structure the fix as:
-
-```ts
-      if (chunkTypes.has(node.type)) {
-        const nameNode =
-          node.childForFieldName('name') ??
-          node.childForFieldName('type') ??
-          node.childForFieldName('identifier')
+        const nameNode = node.childForFieldName('name')
         if (nameNode) {
           symbols.push(nameNode.text)
         } else {
+          // C/C++: name lives on the declarator field chain
           const declarator = node.childForFieldName('declarator')
           if (declarator) {
-            const inner = declarator.childForFieldName('declarator') ?? declarator
-            const innerName =
-              inner.childForFieldName('name') ??
-              inner.childForFieldName('identifier') ??
-              inner.namedChildren.find(
-                (c: any) => c.type === 'identifier' || c.type === 'type_identifier',
-              )
-            if (innerName) symbols.push(innerName.text)
+            let current: any = declarator
+            let found = false
+            while (current && !found) {
+              const t = current.type
+              if (t === 'identifier' || t === 'type_identifier' || t === 'field_identifier') {
+                symbols.push(current.text)
+                found = true
+              }
+              const next = current.childForFieldName('declarator')
+              if (!next) break
+              current = next
+            }
+            // Fallback: first identifier-like descendant (only if nothing pushed)
+            if (!found) {
+              const ids = declarator.descendantsOfType('identifier')
+              const tids = declarator.descendantsOfType('type_identifier')
+              const fallback = ids[0] ?? tids[0]
+              if (fallback) symbols.push(fallback.text)
+            }
+          } else {
+            const typeNode = node.childForFieldName('type')
+            if (typeNode) {
+              symbols.push(typeNode.text)
+            } else {
+              const identifierNode = node.childForFieldName('identifier')
+              if (identifierNode) symbols.push(identifierNode.text)
+            }
           }
         }
       }
+
+      if (node.childCount > 0) {
+        for (const child of node.children) {
+          walk(child)
+        }
+      }
+    }
+
+    walk(root)
+    // Deduplicate
+    const unique = [...new Set(symbols)]
+    if (unique.length > 0) {
+      this.map.exports[filePath] = unique
+    }
+  }
 ```
+
+Note: the `config.chunkNodeFilter` usage in this function keeps chunk-derived exports consistent with the chunks produced by `chunkWithTreeSitter` (Task 2 Step 5). The `found` flag ensures the fallback only runs when the field-chain walk found nothing, and the final `new Set` dedupes anyway.
 
 - [ ] **Step 5: Add the C import-resolution test**
 
-In `packages/core/test/import-resolver.spec.ts`, inside the `describe('ImportResolver scanFile', ...)` block (after the TypeScript test at line 153), add a C test that mirrors the TS one. It needs the same `tsAvailable`-style guard but for C (tree-sitter-c):
+In `packages/core/test/import-resolver.spec.ts`, inside the `describe('ImportResolver scanFile', ...)` block, add a C test. Add a `cAvailable` guard next to the existing `tsAvailable` (line 118):
 
 ```ts
   let cAvailable = false
@@ -319,8 +437,12 @@ In `packages/core/test/import-resolver.spec.ts`, inside the `describe('ImportRes
       cAvailable = false
     }
   })
+```
 
-  test('extracts C #include imports', async () => {
+Then the test (after the TypeScript test at line 153):
+
+```ts
+  test('extracts C #include imports and exports', async () => {
     if (!cAvailable) return
     const { ImportResolver } = await import('../src/import-resolver.js')
     const resolver = new ImportResolver('/tmp/test-map.json')
@@ -329,6 +451,7 @@ In `packages/core/test/import-resolver.spec.ts`, inside the `describe('ImportRes
     const content = `
       #include "myutil.h"
       #include <stdio.h>
+      int helper(void);
       int main(void) { return helper(); }
     `
     await resolver.scanFile('/project/src/main.c', content, '.c')
@@ -339,13 +462,14 @@ In `packages/core/test/import-resolver.spec.ts`, inside the `describe('ImportRes
     expect(myutilEntry!.target).toBe('/project/src/myutil.h')
     expect(myutilEntry!.exportedAs).toBe('myutil')
 
-    // main should be exported as a chunk symbol
+    // main and helper should be exported as chunk symbols
     const exports = resolver.getExports('/project/src/main.c')
     expect(exports).toContain('main')
+    expect(exports).toContain('helper')
   })
 ```
 
-Note: `cAvailable` must be declared in the same describe scope as the test — place the `let cAvailable = false` declaration next to the existing `let tsAvailable = false` (line 118) and add a second `beforeAll` (or extend the existing one). The C root node type is `translation_unit`.
+Note: the `cAvailable` guard uses `translation_unit` (the C root node type). Since `getParser` caches per-extension, this also covers `.inc` (same grammar).
 
 - [ ] **Step 6: Run all core tests to check for regressions**
 
@@ -357,7 +481,7 @@ Expected: PASS — all chunker tests (all languages) and import-resolver tests p
 
 ```bash
 git add packages/core/src/chunker.ts packages/core/src/import-resolver.ts packages/core/test/dsh-context-remdb.spec.ts packages/core/test/import-resolver.spec.ts
-git commit -m "fix(core): extract C names from declarator field in chunker and import resolver"
+git commit -m "fix(core): extract C names from declarator field chain in chunker and import resolver"
 ```
 
 ---
@@ -385,7 +509,7 @@ export const DEFAULT_EXTENSIONS: Record<string, string[]> = {
   go: ['.go'],
   java: ['.java'],
   php: ['.php'],
-  c: ['.c'],
+  c: ['.c', '.inc'],
   cpp: ['.cpp', '.cxx', '.cc', '.hpp', '.h', '.hh'],
   csharp: ['.cs'],
   scala: ['.scala'],
@@ -466,7 +590,7 @@ git commit -m "feat(core): register .c extension and add C regex fallback"
 - Modify: `README.zh.md` — "Code Chunking" table (lines 566-577) and the dependency list (around line 805)
 
 **Interfaces:**
-- Consumes: the exact language name `c`, extensions `.c`, and chunk node types from Task 2.
+- Consumes: the exact language name `c`, extensions `.c`/`.inc`, and chunk node types from Task 2.
 - Produces: accurate user-facing docs.
 
 - [ ] **Step 1: Update CLAUDE.md**
@@ -474,7 +598,7 @@ git commit -m "feat(core): register .c extension and add C regex fallback"
 In the "Supported languages" table, add a C row before the C++ row:
 
 ```markdown
-| C | .c | tree-sitter |
+| C | .c, .inc | tree-sitter |
 ```
 
 - [ ] **Step 2: Update README.md**
@@ -482,7 +606,7 @@ In the "Supported languages" table, add a C row before the C++ row:
 In the "Code Chunking" table, add a C row before C++ (line 565):
 
 ```markdown
-| C | .c | tree-sitter + regex fallback | function_definition, struct_specifier, enum_specifier, union_specifier, type_definition, preproc_function_def |
+| C | .c, .inc | tree-sitter + regex fallback | function_definition, struct_specifier, enum_specifier, union_specifier, type_definition, preproc_function_def, declaration (prototypes only) |
 ```
 
 In the dependency list (around line 798, the `tree-sitter-*` entries), add:
@@ -545,16 +669,24 @@ EOF
 cat > /tmp/c-index-demo/util.h <<'EOF'
 int helper(void);
 EOF
+cat > /tmp/c-index-demo/config.inc <<'EOF'
+#define MAX_BUF 128
+int init_buffer(void);
+extern int debug_level;
+EOF
 node --input-type=module -e "
 import { chunkCode } from './packages/core/dist/chunker.js';
 import { readFileSync } from 'node:fs';
-const content = readFileSync('/tmp/c-index-demo/main.c', 'utf-8');
-const chunks = await chunkCode('/tmp/c-index-demo/main.c', content, '.c');
-for (const c of chunks) console.log(c.language, c.chunkType, c.name);
+for (const f of ['/tmp/c-index-demo/main.c', '/tmp/c-index-demo/config.inc']) {
+  const content = readFileSync(f, 'utf-8');
+  const chunks = await chunkCode(f, content, f.endsWith('.inc') ? '.inc' : '.c');
+  console.log('---', f);
+  for (const c of chunks) console.log(c.language, c.chunkType, c.name);
+}
 "
 ```
 
-Expected: each chunk prints `c <chunkType> <name>` with `add`, `Point`, `main` present and no `int`-as-name.
+Expected: for `main.c` each chunk prints `c <chunkType> <name>` with `add`, `Point`, `main` present and no `int`-as-name. For `config.inc`: `c preproc_function_def MAX_BUF`? No — `#define MAX_BUF 128` is a `preproc_def` (object-like macro), which is NOT in chunkNodeTypes, so it won't chunk (correct — only function-like macros `#define F(x)` chunk). Expected `.inc` output: `c preproc_function_def init_buffer` is wrong too — `int init_buffer(void);` is a prototype `declaration`, so expect `c declaration init_buffer`; `extern int debug_level;` must NOT appear (filtered). Verify `main`, `add`, `Point` for `.c` and `init_buffer` (declaration) for `.inc`, with `debug_level` absent.
 
 - [ ] **Step 5: Commit any stray changes**
 
@@ -570,16 +702,26 @@ If clean, no commit needed. If unexpected changes exist, review and commit or re
 
 **1. Spec coverage:**
 - Dependency declaration (spec §1) → Task 1 ✓
-- Language definition with chunkNodeTypes/referenceNodeTypes/importNodeTypes/resolveImportPath (spec §2) → Task 2 ✓
-- `extractNodeName` + `deriveExportsFromChunks` declarator fix (spec §3) → Task 3 ✓
+- `chunkNodeFilter` type addition (spec §2b) → Task 2 Step 1 ✓
+- Language definition with `.c`/`.inc`, chunkNodeTypes incl. filtered `declaration`, referenceNodeTypes, importNodeTypes, resolveImportPath (spec §2) → Task 2 ✓
+- Filter application in chunkWithTreeSitter (spec §2b) → Task 2 Step 5 ✓
+- `extractNodeName` + `deriveExportsFromChunks` declarator-chain fix, declarator-before-type (spec §3) → Task 3 ✓
+- Filter application in deriveExportsFromChunks (spec §2b) → Task 3 Step 4 ✓
 - Regex fallback + regexChunkType (spec §4) → Task 4 ✓
-- DEFAULT_EXTENSIONS (spec §5) → Task 4 ✓
+- DEFAULT_EXTENSIONS `.c`/`.inc` (spec §5) → Task 4 ✓
 - Docs CLAUDE.md/README/README.zh (spec §6) → Task 5 ✓
 - Error handling (spec) → covered implicitly: tree-sitter failure falls to regex (Task 4), no-regex-match returns [] (existing behavior), include resolution failure returns null (existing preproc_include path) ✓
-- Tests: tree-sitter path, name correctness, typedef, macro, import resolution (spec §Test) → Tasks 2-3 ✓; regex fallback → Task 4 manual verification (matches repo convention: regex paths for tree-sitter-capable languages are not unit-tested; only PHP's pure-regex path is) ✓
+- Tests: tree-sitter path, name correctness, typedef, macro, `.inc` + prototype filtering, import resolution (spec §Test) → Tasks 2-3 ✓; regex fallback → Task 4 manual verification (matches repo convention: regex paths for tree-sitter-capable languages are not unit-tested; only PHP's pure-regex path is) ✓
 
-**2. Placeholder scan:** No TBD/TODO. Every code step has concrete code. The `resolveImportPath` is fully specified. The regex `typedef` pattern is best-effort but concrete.
+**2. Placeholder scan:** No TBD/TODO. Every code step has concrete code. The `resolveImportPath` is fully specified. The regex `typedef` pattern is best-effort but concrete (verified: captures `Point` not `x`).
 
-**3. Type consistency:** Language name `'c'` used consistently in chunker def, REGEX_PATTERNS key, regexChunkType branch, DEFAULT_EXTENSIONS key, and tests. Chunk type names (`function_definition`, `struct_specifier`, `enum_specifier`, `union_specifier`, `type_definition`, `preproc_function_def`) match the spec exactly. `resolveImportPath` signature `(importPath: string, sourceFile: string) => string | null` matches `LanguageConfig`. The import-resolver test uses `/project/src/myutil.h` target, consistent with `path.resolve('/project/src', 'myutil.h')`.
+**3. Type consistency:** Language name `'c'` used consistently in chunker def, REGEX_PATTERNS key, regexChunkType branch, DEFAULT_EXTENSIONS key, and tests. Chunk type names (`function_definition`, `struct_specifier`, `enum_specifier`, `union_specifier`, `type_definition`, `preproc_function_def`, `declaration`) match the spec exactly. `chunkNodeFilter?: (node: any) => boolean` used identically in types.ts, chunker.ts (chunkWithTreeSitter), and import-resolver.ts (deriveExportsFromChunks). `resolveImportPath` signature `(importPath: string, sourceFile: string) => string | null` matches `LanguageConfig`. The import-resolver test uses `/project/src/myutil.h` target, consistent with `path.resolve('/project/src', 'myutil.h')`.
 
-**One deliberate deviation from the spec:** the spec's §Test item 4 said "强制走 regex 路径时函数/结构体/枚举仍能成块且名字正确" — the plan implements this as a manual verification (Task 4 Step 4) rather than a permanent unit test, because tree-sitter-c reliably parses so `chunkCode` never reaches the regex path for `.c`, and the repo has no established mechanism to force the fallback (C++/Python/etc. regex fallbacks are likewise untested). This matches "测试遵循仓库惯例" from the spec's §Test.
+**Verified against real tree-sitter-c (not just assumed):**
+- `function_definition` fields are `[type, declarator, body]` — the `type` field is the RETURN TYPE, confirming declarator-before-type ordering is required.
+- `function_declarator`'s `declarator` field IS the identifier directly (no further nesting) — the while-loop over the declarator chain handles this correctly.
+- `type_definition`'s `declarator` field is `type_identifier` directly.
+- `int (*callback)(int)` resolves through `pointer_declarator` → `function_declarator` → `identifier`.
+- `descendantsOfType('function_declarator')` correctly distinguishes prototypes from plain declarations (`extern int global_count;` has none).
+
+**Deliberate deviations from the spec:** none — the spec was updated to match these verified findings (`.inc` extension, chunkNodeFilter, corrected name logic).
