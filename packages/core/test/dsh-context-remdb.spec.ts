@@ -1089,6 +1089,102 @@ namespace utils {
     expect(cls!.chunkType).toBe('class_specifier')
   })
 
+  it('extracts functions, structs, enums, typedefs, and macros from C code', async () => {
+    const { chunkCode } = await import('../src/chunker.js')
+
+    const code = `
+#include <stdio.h>
+
+typedef struct {
+    int x;
+    int y;
+} Point;
+
+struct Config {
+    char name[32];
+    unsigned count;
+};
+
+enum Color { RED, GREEN, BLUE };
+
+static int add(int a, int b) {
+    return a + b;
+}
+
+#define SQUARE(x) ((x) * (x))
+
+int main(void) {
+    Point p = {1, 2};
+    struct Config cfg;
+    printf("sum=%d\n", add(p.x, p.y));
+    return 0;
+}
+`
+    const chunks = await chunkCode('/tmp/test.c', code, '.c')
+    expect(chunks.length).toBeGreaterThanOrEqual(5)
+
+    const addFn = chunks.find((c) => c.name === 'add')
+    expect(addFn).toBeDefined()
+    expect(addFn!.chunkType).toBe('function_definition')
+    expect(addFn!.language).toBe('c')
+
+    const point = chunks.find((c) => c.name === 'Point')
+    expect(point).toBeDefined()
+    expect(point!.chunkType).toBe('type_definition')
+
+    const config = chunks.find((c) => c.name === 'Config')
+    expect(config).toBeDefined()
+    expect(config!.chunkType).toBe('struct_specifier')
+
+    const color = chunks.find((c) => c.name === 'Color')
+    expect(color).toBeDefined()
+    expect(color!.chunkType).toBe('enum_specifier')
+
+    const square = chunks.find((c) => c.name === 'SQUARE')
+    expect(square).toBeDefined()
+    expect(square!.chunkType).toBe('preproc_function_def')
+  })
+
+  it('chunks function prototypes in .inc header files but not plain declarations', async () => {
+    const { chunkCode } = await import('../src/chunker.js')
+
+    const inc = `
+#ifndef MYUTIL_INC
+#define MYUTIL_INC
+
+int helper(void);
+void init(int size);
+int (*callback)(int);
+extern int global_count;
+static int counter;
+
+typedef struct { int x; int y; } Point;
+
+#endif
+`
+    const chunks = await chunkCode('/tmp/myutil.inc', inc, '.inc')
+    expect(chunks.length).toBeGreaterThanOrEqual(4)
+
+    const helper = chunks.find((c) => c.name === 'helper')
+    expect(helper).toBeDefined()
+    expect(helper!.chunkType).toBe('declaration')
+    expect(helper!.language).toBe('c')
+
+    const init = chunks.find((c) => c.name === 'init')
+    expect(init).toBeDefined()
+    expect(init!.chunkType).toBe('declaration')
+
+    const callback = chunks.find((c) => c.name === 'callback')
+    expect(callback).toBeDefined()
+    expect(callback!.chunkType).toBe('declaration')
+
+    // Plain variable declarations must NOT become chunks
+    const globalCount = chunks.find((c) => c.name === 'global_count')
+    expect(globalCount).toBeUndefined()
+    const counter = chunks.find((c) => c.name === 'counter')
+    expect(counter).toBeUndefined()
+  })
+
   it('extracts classes and methods from C# code', async () => {
     const { chunkCode } = await import('../src/chunker.js')
 

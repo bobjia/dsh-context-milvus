@@ -74,6 +74,7 @@ export interface LanguageConfig {
   name: string
   extensions: string[]
   chunkNodeTypes: string[]
+  chunkNodeFilter?: (node: any) => boolean  // NEW: only chunk nodes passing this filter
   referenceNodeTypes?: string[]  // AST node types to collect as references
   importNodeTypes?: string[]    // NEW: AST node types for import statements
   exportNodeTypes?: string[]    // NEW: AST node types for export statements

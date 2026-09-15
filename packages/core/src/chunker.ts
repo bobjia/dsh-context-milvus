@@ -240,6 +240,35 @@ const LANGUAGES: LanguageDef[] = [
   },
   {
     config: {
+      name: 'c',
+      extensions: ['.c', '.inc'],
+      chunkNodeTypes: [
+        'function_definition',
+        'struct_specifier',
+        'enum_specifier',
+        'union_specifier',
+        'type_definition',
+        'preproc_function_def',
+        'declaration',
+      ],
+      // Only chunk declarations that are function prototypes (int helper(void);),
+      // filter out plain variable declarations (extern int global_count;)
+      chunkNodeFilter: (node: any) =>
+        node.type !== 'declaration' ||
+        node.descendantsOfType('function_declarator').length > 0,
+      referenceNodeTypes: ['call_expression', 'field_expression', 'identifier'],
+      importNodeTypes: ['preproc_include'],
+      resolveImportPath: (importPath: string, sourceFile: string) => {
+        // #include "foo.h" → ./foo.h
+        if (!importPath) return null
+        const dir = path.dirname(sourceFile)
+        return path.resolve(dir, importPath)
+      },
+    },
+    loadTs: () => require('tree-sitter-c'),
+  },
+  {
+    config: {
       name: 'csharp',
       extensions: ['.cs'],
       chunkNodeTypes: [
@@ -469,6 +498,7 @@ async function chunkWithTreeSitter(
   const root = tree.rootNode
   const chunkTypes = new Set(def.config.chunkNodeTypes)
   const nodes = collectChunks(root, chunkTypes, 0, 10)
+    .filter((n: any) => (def.config.chunkNodeFilter ? def.config.chunkNodeFilter(n) : true))
   const seen = new Set<number>()
 
   const lines = content.split('\n')
