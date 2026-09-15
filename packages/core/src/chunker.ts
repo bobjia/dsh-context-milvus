@@ -378,6 +378,40 @@ export function getSupportedExtensions(): string[] {
 
 // ── Tree-sitter chunking (for TypeScript/JavaScript) ───────────────────
 
+/**
+ * Extract a symbol name from a node's `declarator` field chain (C/C++).
+ *
+ * C keeps declaration names on a declarator chain rather than a `name` field:
+ *   function_definition → declarator=function_declarator → identifier (`add`)
+ *   type_definition     → declarator=type_identifier (`Point`)
+ *   prototype declaration → declarator=function_declarator → identifier (`helper`)
+ *   int (*callback)(int) → pointer_declarator → function_declarator → identifier (`callback`)
+ *
+ * Returns the identifier text, or null when the node has no usable declarator.
+ * Shared by extractNodeName (chunker) and deriveExportsFromChunks (import-resolver).
+ */
+export function extractDeclaratorName(node: any): string | null {
+  const declarator = node.childForFieldName('declarator')
+  if (!declarator) return null
+
+  let current: any = declarator
+  while (current) {
+    const t = current.type
+    if (t === 'identifier' || t === 'type_identifier' || t === 'field_identifier') {
+      return current.text
+    }
+    const next = current.childForFieldName('declarator')
+    if (!next) break
+    current = next
+  }
+
+  // Last resort: first identifier-like descendant (covers pointer chains)
+  const ids = declarator.descendantsOfType('identifier')
+  const tids = declarator.descendantsOfType('type_identifier')
+  const fallback = ids[0] ?? tids[0]
+  return fallback ? fallback.text : null
+}
+
 function extractNodeName(node: any): string {
   const nameNode = node.childForFieldName('name')
   if (nameNode) return nameNode.text
@@ -385,24 +419,8 @@ function extractNodeName(node: any): string {
   // C/C++: the name lives on the declarator field chain. Must be checked
   // BEFORE `type` — in C/C++ the `type` field is the return type
   // (`int add(...)` → type=int, declarator=function_declarator → identifier=add)
-  const declarator = node.childForFieldName('declarator')
-  if (declarator) {
-    let current: any = declarator
-    while (current) {
-      const t = current.type
-      if (t === 'identifier' || t === 'type_identifier' || t === 'field_identifier') {
-        return current.text
-      }
-      const next = current.childForFieldName('declarator')
-      if (!next) break
-      current = next
-    }
-    // Last resort: first identifier-like descendant (covers pointer chains)
-    const ids = declarator.descendantsOfType('identifier')
-    const tids = declarator.descendantsOfType('type_identifier')
-    const fallback = ids[0] ?? tids[0]
-    if (fallback) return fallback.text
-  }
+  const declaratorName = extractDeclaratorName(node)
+  if (declaratorName) return declaratorName
 
   const typeNode = node.childForFieldName('type')
   if (typeNode) return typeNode.text

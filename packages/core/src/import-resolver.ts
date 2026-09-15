@@ -9,7 +9,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import * as path from 'node:path'
 import { existsSync } from 'node:fs'
-import { getParser, hasTsParser, getLanguageForExtension } from './chunker.js'
+import { getParser, hasTsParser, getLanguageForExtension, extractDeclaratorName } from './chunker.js'
 import type { LanguageConfig } from './types.js'
 
 /** A single import entry: where a symbol comes from */
@@ -265,28 +265,10 @@ export class ImportResolver {
         if (nameNode) {
           symbols.push(nameNode.text)
         } else {
-          // C/C++: name lives on the declarator field chain
-          const declarator = node.childForFieldName('declarator')
-          if (declarator) {
-            let current: any = declarator
-            let found = false
-            while (current && !found) {
-              const t = current.type
-              if (t === 'identifier' || t === 'type_identifier' || t === 'field_identifier') {
-                symbols.push(current.text)
-                found = true
-              }
-              const next = current.childForFieldName('declarator')
-              if (!next) break
-              current = next
-            }
-            // Fallback: first identifier-like descendant (only if nothing pushed)
-            if (!found) {
-              const ids = declarator.descendantsOfType('identifier')
-              const tids = declarator.descendantsOfType('type_identifier')
-              const fallback = ids[0] ?? tids[0]
-              if (fallback) symbols.push(fallback.text)
-            }
+          // C/C++: name lives on the declarator field chain (shared helper)
+          const declaratorName = extractDeclaratorName(node)
+          if (declaratorName) {
+            symbols.push(declaratorName)
           } else {
             const typeNode = node.childForFieldName('type')
             if (typeNode) {
