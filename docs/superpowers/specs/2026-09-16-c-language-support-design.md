@@ -180,20 +180,30 @@ function extractNodeName(node: any): string {
 
 ### 4. regex 回退：`REGEX_PATTERNS.c` + `regexChunkType` 分支
 
-参考现有 cpp 正则：
+参考现有 cpp 正则（与 `packages/core/src/chunker.ts` 实现逐字一致）：
 
 ```ts
-c: [
-  // 函数：static int add(int a, int b) ...
-  /^(?:(?:static|inline|extern|const|volatile|unsigned|signed|long|short|char|int|float|double|void|struct|union|enum|size_t|ssize_t|int8_t|uint8_t|int16_t|uint16_t|int32_t|uint32_t|int64_t|uint64_t)\s+)*(?:\w+(?:\s*\*|\s*&)?\s+)?(\w+)\s*\(/gm,
-  /^struct\s+(\w+)/gm,
-  /^union\s+(\w+)/gm,
-  /^enum\s+(\w+)/gm,
-  /^typedef\s+.+?\s(\w+)\s*;/gm,   // typedef ... Point;
-],
+  c: [
+    // function: static int add(int a, int b) { ... }
+    /^(?:(?:static|inline|extern|const|volatile|register)\s+)*(?:unsigned|signed|long|short|char|int|float|double|void|struct|union|enum|size_t|ssize_t|int8_t|uint8_t|int16_t|uint16_t|int32_t|uint32_t|int64_t|uint64_t|const\s+\w+|\w+)\s+(?:[*&]\s*)?(\w+)\s*\(/gm,
+    /^struct\s+(\w+)/gm,
+    /^union\s+(\w+)/gm,
+    /^enum\s+(\w+)/gm,
+    /^typedef\s+.*\b(\w+)\s*;$/gm,
+  ],
 ```
 
-`regexChunkType` 增加 `c` 分支：`struct` → `struct_specifier`、`union` → `union_specifier`、`enum` → `enum_specifier`、`typedef` → `type_definition`，其余 → `function_definition`。
+`regexChunkType` 的 `c` 分支（与实现一致）：
+
+```ts
+  if (language === 'c') {
+    if (/^struct\s/.test(line)) return 'struct_specifier'
+    if (/^union\s/.test(line)) return 'union_specifier'
+    if (/^enum\s/.test(line)) return 'enum_specifier'
+    if (/^typedef\s/.test(line)) return 'type_definition'
+    return 'function_definition'
+  }
+```
 
 ### 5. 默认扩展名：`packages/core/src/config.ts`
 

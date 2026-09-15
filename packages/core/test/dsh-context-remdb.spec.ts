@@ -1107,6 +1107,8 @@ struct Config {
 
 enum Color { RED, GREEN, BLUE };
 
+union U { int i; float f; };
+
 static int add(int a, int b) {
     return a + b;
 }
@@ -1121,7 +1123,7 @@ int main(void) {
 }
 `
     const chunks = await chunkCode('/tmp/test.c', code, '.c')
-    expect(chunks.length).toBeGreaterThanOrEqual(5)
+    expect(chunks.length).toBeGreaterThanOrEqual(6)
 
     const addFn = chunks.find((c) => c.name === 'add')
     expect(addFn).toBeDefined()
@@ -1140,9 +1142,17 @@ int main(void) {
     expect(color).toBeDefined()
     expect(color!.chunkType).toBe('enum_specifier')
 
+    const unionType = chunks.find((c) => c.name === 'U')
+    expect(unionType).toBeDefined()
+    expect(unionType!.chunkType).toBe('union_specifier')
+
     const square = chunks.find((c) => c.name === 'SQUARE')
     expect(square).toBeDefined()
     expect(square!.chunkType).toBe('preproc_function_def')
+
+    const mainFn = chunks.find((c) => c.name === 'main')
+    expect(mainFn).toBeDefined()
+    expect(mainFn!.references ?? []).toContain('add')
   })
 
   it('chunks function prototypes in .inc header files but not plain declarations', async () => {

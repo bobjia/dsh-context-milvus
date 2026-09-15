@@ -1,7 +1,7 @@
 /**
  * Tree-sitter based code chunker with regex fallback.
  *
- * Uses tree-sitter AST for TypeScript/JavaScript/Python/Java/Go/Rust/C++/C#/Scala
+ * Uses tree-sitter AST for TypeScript/JavaScript/Python/Java/Go/Rust/C/C++/C#/Scala
  * (which works with the installed version). For other languages (PHP),
  * uses a regex-based fallback that detects function/class/method boundaries.
  *
@@ -559,7 +559,7 @@ async function chunkWithTreeSitter(
     })
 }
 
-// ── Regex-based chunking (fallback for Python, Rust, Go, Java, PHP, C++, C#, Scala) ─────────
+// ── Regex-based chunking (fallback for Python, Rust, Go, Java, PHP, C, C++, C#, Scala) ─────────
 
 // Patterns for each language
 const REGEX_PATTERNS: Record<string, RegExp[]> = {
