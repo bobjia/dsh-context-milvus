@@ -624,6 +624,14 @@ const REGEX_PATTERNS: Record<string, RegExp[]> = {
     /^enum\s+(?:class\s+)?(\w+)/gm,
     /^namespace\s+(\w+)/gm,
   ],
+  c: [
+    // function: static int add(int a, int b) { ... }
+    /^(?:(?:static|inline|extern|const|volatile|register)\s+)*(?:unsigned|signed|long|short|char|int|float|double|void|struct|union|enum|size_t|ssize_t|int8_t|uint8_t|int16_t|uint16_t|int32_t|uint32_t|int64_t|uint64_t|const\s+\w+|\w+)\s+(?:[*&]\s*)?(\w+)\s*\(/gm,
+    /^struct\s+(\w+)/gm,
+    /^union\s+(\w+)/gm,
+    /^enum\s+(\w+)/gm,
+    /^typedef\s+.*\b(\w+)\s*;$/gm,
+  ],
   csharp: [
     /^(?:public|private|protected|internal)\s+(?:static\s+)?(?:async\s+)?(?:partial\s+)?(?:class|struct|interface|record)\s+(\w+)/gm,
     /^(?:public|private|protected|internal)\s+(?:static\s+)?(?:async\s+)?(?:override\s+)?(?:\w+\s+)?(\w+)\s*\(/gm,
@@ -639,7 +647,7 @@ const REGEX_PATTERNS: Record<string, RegExp[]> = {
   ],
 }
 
-/** Determine the chunk type name from a regex match context (Python, Rust, Go, Java, PHP, C++, C#, Scala) */
+/** Determine the chunk type name from a regex match context (Python, Rust, Go, Java, PHP, C++, C, C#, Scala) */
 function regexChunkType(language: string, match: RegExpExecArray, line: string): string {
   if (language === 'python') {
     if (/^class\s/.test(line)) return 'class_definition'
@@ -678,6 +686,13 @@ function regexChunkType(language: string, match: RegExpExecArray, line: string):
     if (/^struct\s/.test(line)) return 'struct_specifier'
     if (/^enum\s/.test(line)) return 'enum_specifier'
     if (/^namespace\s/.test(line)) return 'namespace_definition'
+    return 'function_definition'
+  }
+  if (language === 'c') {
+    if (/^struct\s/.test(line)) return 'struct_specifier'
+    if (/^union\s/.test(line)) return 'union_specifier'
+    if (/^enum\s/.test(line)) return 'enum_specifier'
+    if (/^typedef\s/.test(line)) return 'type_definition'
     return 'function_definition'
   }
   if (language === 'csharp') {

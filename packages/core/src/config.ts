@@ -113,6 +113,7 @@ export const DEFAULT_EXTENSIONS: Record<string, string[]> = {
   go: ['.go'],
   java: ['.java'],
   php: ['.php'],
+  c: ['.c', '.inc'],
   cpp: ['.cpp', '.cxx', '.cc', '.hpp', '.h', '.hh'],
   csharp: ['.cs'],
   scala: ['.scala'],
