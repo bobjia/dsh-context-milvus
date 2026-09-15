@@ -134,6 +134,7 @@ The 8 ADR tools are registered **at startup only when `ADR_ENABLED` is set** —
 | Java | .java | tree-sitter |
 | Go | .go | tree-sitter |
 | Rust | .rs | tree-sitter |
+| C | .c, .inc | tree-sitter |
 | C++ | .cpp, .cxx, .cc, .hpp, .h, .hh | tree-sitter |
 | C# | .cs | tree-sitter |
 | Scala | .scala | tree-sitter |

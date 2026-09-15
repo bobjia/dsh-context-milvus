@@ -562,6 +562,7 @@ Starting from the entry symbol, BFS-traverses the call chain along reference rel
 | Java | .java | tree-sitter + regex fallback | class_declaration, interface_declaration, enum_declaration, method_declaration, constructor_declaration, record_declaration |
 | Go | .go | tree-sitter + regex fallback | function_declaration, method_declaration, type_declaration, type_spec |
 | Rust | .rs | tree-sitter + regex fallback | function_item, impl_item, trait_item, struct_item, enum_item, macro_definition |
+| C | .c, .inc | tree-sitter + regex fallback | function_definition, struct_specifier, enum_specifier, union_specifier, type_definition, preproc_function_def, declaration (prototypes only) |
 | C++ | .cpp, .cxx, .cc, .hpp, .h, .hh | tree-sitter + regex fallback | function_definition, class_specifier, namespace_definition, struct_specifier, enum_specifier |
 | C# | .cs | tree-sitter + regex fallback | method_declaration, class_declaration, interface_declaration, struct_declaration, enum_declaration |
 | Scala | .scala | tree-sitter + regex fallback | class_definition, function_definition, trait_definition, object_definition, constructor_definition |
@@ -800,6 +801,7 @@ Core (`packages/core` → `dsh-context-milvus-core`):
 - `tree-sitter-java` — Java grammar
 - `tree-sitter-go` — Go grammar
 - `tree-sitter-rust` — Rust grammar
+- `tree-sitter-c` — C grammar
 - `tree-sitter-cpp` — C++ grammar
 - `tree-sitter-c-sharp` — C# grammar
 - `tree-sitter-scala` — Scala grammar
