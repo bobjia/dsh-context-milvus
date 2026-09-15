@@ -128,6 +128,19 @@ describe('ImportResolver scanFile', () => {
     }
   })
 
+  let cAvailable = false
+
+  beforeAll(async () => {
+    try {
+      const { getParser } = await import('../src/chunker.js')
+      const parser = await getParser('.c')
+      const tree = parser.parse('int main(void) { return 0; }')
+      cAvailable = tree && tree.rootNode && tree.rootNode.type === 'translation_unit'
+    } catch {
+      cAvailable = false
+    }
+  })
+
   test('extracts TypeScript imports', async () => {
     if (!tsAvailable) return
     const { ImportResolver } = await import('../src/import-resolver.js')
@@ -150,6 +163,32 @@ describe('ImportResolver scanFile', () => {
     const initDbEntry = resolver.resolve('/project/src/app.ts', 'initDb')
     expect(initDbEntry).not.toBeNull()
     expect(initDbEntry!.target).toContain('/project/src/database')
+  })
+
+  test('extracts C #include imports and exports', async () => {
+    if (!cAvailable) return
+    const { ImportResolver } = await import('../src/import-resolver.js')
+    const resolver = new ImportResolver('/tmp/test-map.json')
+    await resolver.load()
+
+    const content = `
+      #include "myutil.h"
+      #include <stdio.h>
+      int helper(void);
+      int main(void) { return helper(); }
+    `
+    await resolver.scanFile('/project/src/main.c', content, '.c')
+
+    // #include "myutil.h" → target ./myutil.h, symbol myutil
+    const myutilEntry = resolver.resolve('/project/src/main.c', 'myutil')
+    expect(myutilEntry).not.toBeNull()
+    expect(myutilEntry!.target).toBe('/project/src/myutil.h')
+    expect(myutilEntry!.exportedAs).toBe('myutil')
+
+    // main and helper should be exported as chunk symbols
+    const exports = resolver.getExports('/project/src/main.c')
+    expect(exports).toContain('main')
+    expect(exports).toContain('helper')
   })
 
   test('handles file with no imports', async () => {

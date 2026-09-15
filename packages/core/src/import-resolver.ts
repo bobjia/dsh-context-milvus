@@ -259,14 +259,43 @@ export class ImportResolver {
     function walk(node: any): void {
       if (!node || !node.type) return
 
-      if (chunkTypes.has(node.type)) {
+      if (chunkTypes.has(node.type) && (config.chunkNodeFilter ? config.chunkNodeFilter(node) : true)) {
         // Extract node name using the same logic as extractNodeName
-        const nameNode =
-          node.childForFieldName('name') ??
-          node.childForFieldName('type') ??
-          node.childForFieldName('identifier')
+        const nameNode = node.childForFieldName('name')
         if (nameNode) {
           symbols.push(nameNode.text)
+        } else {
+          // C/C++: name lives on the declarator field chain
+          const declarator = node.childForFieldName('declarator')
+          if (declarator) {
+            let current: any = declarator
+            let found = false
+            while (current && !found) {
+              const t = current.type
+              if (t === 'identifier' || t === 'type_identifier' || t === 'field_identifier') {
+                symbols.push(current.text)
+                found = true
+              }
+              const next = current.childForFieldName('declarator')
+              if (!next) break
+              current = next
+            }
+            // Fallback: first identifier-like descendant (only if nothing pushed)
+            if (!found) {
+              const ids = declarator.descendantsOfType('identifier')
+              const tids = declarator.descendantsOfType('type_identifier')
+              const fallback = ids[0] ?? tids[0]
+              if (fallback) symbols.push(fallback.text)
+            }
+          } else {
+            const typeNode = node.childForFieldName('type')
+            if (typeNode) {
+              symbols.push(typeNode.text)
+            } else {
+              const identifierNode = node.childForFieldName('identifier')
+              if (identifierNode) symbols.push(identifierNode.text)
+            }
+          }
         }
       }
 

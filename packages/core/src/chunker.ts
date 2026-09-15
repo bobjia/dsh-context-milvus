@@ -379,11 +379,36 @@ export function getSupportedExtensions(): string[] {
 // ── Tree-sitter chunking (for TypeScript/JavaScript) ───────────────────
 
 function extractNodeName(node: any): string {
-  const nameNode =
-    node.childForFieldName('name') ??
-    node.childForFieldName('type') ??
-    node.childForFieldName('identifier')
+  const nameNode = node.childForFieldName('name')
   if (nameNode) return nameNode.text
+
+  // C/C++: the name lives on the declarator field chain. Must be checked
+  // BEFORE `type` — in C/C++ the `type` field is the return type
+  // (`int add(...)` → type=int, declarator=function_declarator → identifier=add)
+  const declarator = node.childForFieldName('declarator')
+  if (declarator) {
+    let current: any = declarator
+    while (current) {
+      const t = current.type
+      if (t === 'identifier' || t === 'type_identifier' || t === 'field_identifier') {
+        return current.text
+      }
+      const next = current.childForFieldName('declarator')
+      if (!next) break
+      current = next
+    }
+    // Last resort: first identifier-like descendant (covers pointer chains)
+    const ids = declarator.descendantsOfType('identifier')
+    const tids = declarator.descendantsOfType('type_identifier')
+    const fallback = ids[0] ?? tids[0]
+    if (fallback) return fallback.text
+  }
+
+  const typeNode = node.childForFieldName('type')
+  if (typeNode) return typeNode.text
+
+  const identifierNode = node.childForFieldName('identifier')
+  if (identifierNode) return identifierNode.text
 
   for (const child of node.namedChildren) {
     const t = child.type
