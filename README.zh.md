@@ -76,7 +76,7 @@ npx -y codex-context-milvus doctor        # 探测 Embedding 与 Milvus 连通�
 ```bash
 mkdir ctxmilvus-offline && cd ctxmilvus-offline
 npm init -y
-npm pkg set dependencies.codex-context-milvus=0.7.0
+npm pkg set dependencies.codex-context-milvus=0.7.1
 npm install --omit=dev --cache ./npm-cache
 
 tar czf ctxmilvus-offline.tgz npm-cache package.json package-lock.json   # 方案 A

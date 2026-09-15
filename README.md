@@ -69,7 +69,7 @@ An offline machine cannot resolve the ~230-package production closure, so the pa
 ```bash
 mkdir ctxmilvus-offline && cd ctxmilvus-offline
 npm init -y
-npm pkg set dependencies.codex-context-milvus=0.7.0
+npm pkg set dependencies.codex-context-milvus=0.7.1
 npm install --omit=dev --cache ./npm-cache
 
 tar czf ctxmilvus-offline.tgz npm-cache package.json package-lock.json   # method A
