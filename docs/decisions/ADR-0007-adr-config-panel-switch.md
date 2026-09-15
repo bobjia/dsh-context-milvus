@@ -3,15 +3,17 @@ id: ADR-0007-adr-config-panel-switch
 type: decision-record
 status: active
 created: 2026-09-04T23:54:01.173Z
-updated: 2026-09-04T23:54:37.180Z
+updated: 2026-09-16
 author: dsh-context-milvus
 supersedes: null
 superseded_by: null
 code_anchors:
-  - client/client.js
+  - file: packages/dsh/client/client.js
+    symbols: []
+    lines: [1, 1053]
 trigger:
   task_id: null
-  requirement_summary: "用户报告：配置面板（Settings → Plugins → dsh-context-milvus）中没有配置 ADR 的开关。虽然服务器端 Config schema（index.ts）定义了 adrEnabled/adrRoot/adrCollection/adrConstraintReinjectEvery/adrSystemPrompt 五个字段，且 installSettingsSection + toggleAdr() 已支持运行时开关，但客户端自定义渲染组件 MilvusConfigCard（client/client.js）手动罗列渲染字段时遗漏了全部 ADR 字段，导致 GUI 上无法看到和编辑 ADR 配置。"
+  requirement_summary: "用户报告：配置面板（Settings → Plugins → dsh-context-milvus）中没有配置 ADR 的开关。虽然服务器端 Config schema（packages/dsh/src/plugins/dsh-context-milvus/index.ts）定义了 adrEnabled/adrRoot/adrCollection/adrConstraintReinjectEvery/adrSystemPrompt 五个字段，且 installSettingsSection + toggleAdr() 已支持运行时开关，但客户端自定义渲染组件 MilvusConfigCard（packages/dsh/client/client.js）手动罗列渲染字段时遗漏了全部 ADR 字段，导致 GUI 上无法看到和编辑 ADR 配置。"
   change_type: bugfix
 related_decisions: []
 auto_generated: false
@@ -22,14 +24,14 @@ auto_generated: false
 
 ## 问题背景
 
-dsh-context-milvus 插件支持 ADR（Architecture Decision Record）决策记忆功能，服务端 `Config` schema（index.ts）已定义以下配置字段：
+dsh-context-milvus 插件支持 ADR（Architecture Decision Record）决策记忆功能，服务端 `Config` schema（packages/dsh/src/plugins/dsh-context-milvus/index.ts）已定义以下配置字段：
 - `adrEnabled` (boolean) — 启用/禁用 ADR 决策记忆
 - `adrRoot` (string) — ADR 目录路径（相对 indexRoot）
 - `adrCollection` (string) — Milvus ADR 向量集合名称
 - `adrConstraintReinjectEvery` (number) — 约束重注入步数间隔
 - `adrSystemPrompt` (string) — 自定义 ADR 系统提示段落
 
-但客户端配置面板使用自定义 React 组件 `MilvusConfigCard`（client/client.js）手动渲染字段，该组件遗漏了所有 ADR 字段，导致用户无法在 GUI 上看到或编辑 ADR 配置。
+但客户端配置面板使用自定义 React 组件 `MilvusConfigCard`（packages/dsh/client/client.js）手动渲染字段，该组件遗漏了所有 ADR 字段，导致用户无法在 GUI 上看到或编辑 ADR 配置。
 
 ## 约束条件
 
@@ -49,7 +51,7 @@ dsh-context-milvus 插件支持 ADR（Architecture Decision Record）决策记�
 
 ### 方案B：在自定义组件中补全 ADR 字段（✅ 选用）
 - **描述**：在 MilvusConfigCard 的 fields 渲染数组、fieldTypes 类型映射、fieldIds 状态字段列表、以及本地化字典中分别添加 ADR 相关字段
-- **优点**：改动最小（仅 client/client.js），不涉及架构变更，与现有模式完全一致
+- **优点**：改动最小（仅 packages/dsh/client/client.js），不涉及架构变更，与现有模式完全一致
 - **缺点**：仍需手动维护，新增字段时容易遗漏
 - **选择原因**：与现有 UI 模式一致，改动收敛，风险最小
 
@@ -82,6 +84,6 @@ dsh-context-milvus 插件支持 ADR（Architecture Decision Record）决策记�
 
 ## 变更边界
 
-- 仅 client/client.js 文件变更，涉及 5 个 ADR 配置字段的渲染
-- 后端 index.ts 的 Config schema 定义不需要修改
-- 当新增配置字段时，需同步更新 client/client.js 的 fields 数组、fieldTypes 映射、fieldIds 列表和本地化字典
+- 仅 packages/dsh/client/client.js 文件变更，涉及 5 个 ADR 配置字段的渲染
+- 后端 packages/dsh/src/plugins/dsh-context-milvus/index.ts 的 Config schema 定义不需要修改
+- 当新增配置字段时，需同步更新 packages/dsh/client/client.js 的 fields 数组、fieldTypes 映射、fieldIds 列表和本地化字典

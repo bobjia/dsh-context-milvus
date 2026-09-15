@@ -3,12 +3,12 @@ id: ADR-0004-import-resolver-cross-file-resolution
 type: decision-record
 status: active
 created: 2026-09-02T23:31:21.317Z
-updated: 2026-09-02T23:31:21.317Z
+updated: 2026-09-16
 author: dsh-context-milvus
 supersedes: null
 superseded_by: null
 code_anchors:
-  - file: src/plugins/dsh-context-milvus/import-resolver.ts
+  - file: packages/core/src/import-resolver.ts
     symbols:
       - ImportResolver
       - ImportEntry
@@ -17,7 +17,7 @@ code_anchors:
       - extractImportFromNode
       - extractExportSymbols
       - resolveImportPathWithFallback
-    lines: [1, 491]
+    lines: [16, 490]
     git_commit: 27d82ef
 trigger:
   task_id: "4"
@@ -29,7 +29,7 @@ auto_generated: false
 
 ## 决策目标
 
-新建 `ImportResolver` 类（`src/plugins/dsh-context-milvus/import-resolver.ts`），在索引期用 tree-sitter AST 扫描每个文件的 import/export 语句，构建并持久化跨文件双向 Import Map（imports + exports），为 find_callers / trace_call_chain 提供精确的跨文件引用匹配能力。这是 V2 跨文件导入解析计划（10 任务）的第 4 个任务。
+新建 `ImportResolver` 类（`packages/core/src/import-resolver.ts`），在索引期用 tree-sitter AST 扫描每个文件的 import/export 语句，构建并持久化跨文件双向 Import Map（imports + exports），为 find_callers / trace_call_chain 提供精确的跨文件引用匹配能力。这是 V2 跨文件导入解析计划（10 任务）的第 4 个任务。
 
 ## 约束条件
 
@@ -76,7 +76,7 @@ auto_generated: false
 
 ## 相关测试
 
-- `test/import-resolver.spec.ts`（Task 8 计划创建）：scanFile 提取 import/export、resolve/getExports/isImportedFrom、load/save 持久化、removeFile 清理、getStats
+- `packages/core/test/import-resolver.spec.ts`（Task 8 计划创建）：scanFile 提取 import/export、resolve/getExports/isImportedFrom、load/save 持久化、removeFile 清理、getStats
 
 ## 变更边界
 

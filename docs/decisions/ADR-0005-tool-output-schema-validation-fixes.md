@@ -3,21 +3,21 @@ id: ADR-0005-tool-output-schema-validation-fixes
 type: decision-record
 status: active
 created: 2026-09-03T03:30:24.877Z
-updated: 2026-09-03T03:30:51.573Z
+updated: 2026-09-16
 author: dsh-context-milvus
 supersedes: null
 superseded_by: null
 code_anchors:
-  - file: src/plugins/dsh-context-milvus/tools.ts
+  - file: packages/dsh/src/plugins/dsh-context-milvus/tools.ts
     symbols:
       - find_callers
       - registerTools
-    lines: [412, 442]
-  - file: src/plugins/dsh-context-milvus/adr-tools.ts
+    lines: [106, 428]
+  - file: packages/dsh/src/plugins/dsh-context-milvus/adr-tools.ts
     symbols:
       - index_specs
       - registerAdrTools
-    lines: [490, 506]
+    lines: [90, 483]
 trigger:
   task_id: null
   requirement_summary: "`find_callers` forward 方向返回的 chunk 包含 `references` 字段但 output schema 未声明，`index_specs` dry-run 返回的 `detectedRefs` 包含 `lines` 字段但 output schema 未声明，导致 DSH 输出校验拒绝这两个工具。"
@@ -71,7 +71,7 @@ auto_generated: false
 
 ## 相关测试
 
-- `test/adr-tools.spec.ts` + `test/adr-indexer.spec.ts`：ADR 工具 schema 修改后 33 个用例全绿，确认 index_specs/create_adr/update_adr 等无回归
+- `packages/dsh/test/adr-tools.spec.ts` + `packages/core/test/adr-indexer.spec.ts`：ADR 工具 schema 修改后 33 个用例全绿，确认 index_specs/create_adr/update_adr 等无回归
 - `npm run build`（tsc）：类型检查通过，确认 schema 对象字面量类型无误
 
 ## 变更边界

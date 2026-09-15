@@ -3,29 +3,29 @@ id: ADR-0003-constraint-reinjection
 type: decision-record
 status: active
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-16
 author: dsh-context-milvus
 supersedes: null
 superseded_by: null
 code_anchors:
-  - file: src/plugins/dsh-context-milvus/constraint-injector.ts
+  - file: packages/dsh/src/plugins/dsh-context-milvus/constraint-injector.ts
     symbols:
       - setupConstraintInjection
-      - refreshConstraintCache
+      - buildConstraintSummary
       - createUserMessage
-    lines: [1, 205]
+    lines: [68, 227]
     git_commit: ''
-  - file: src/plugins/dsh-context-milvus/adr-tools.ts
+  - file: packages/dsh/src/plugins/dsh-context-milvus/adr-tools.ts
     symbols:
       - load_constraints
       - serviceForExec
       - resolveEffectiveAdrRoot
-    lines: [245, 300]
+    lines: [51, 304]
     git_commit: ''
-  - file: src/plugins/dsh-context-milvus/config.ts
+  - file: packages/core/src/config.ts
     symbols:
       - adrConstraintReinjectEvery
-    lines: [54, 54]
+    lines: [68, 294]
     git_commit: ''
 trigger:
   task_id: null
@@ -92,7 +92,7 @@ auto_generated: false
 
 ## 相关测试
 
-- test/constraint-injector.spec.ts: 注册逻辑、pre-step hook 缓存刷新、消息注入、read 不告警、edit 告警
+- packages/dsh/test/constraint-injector.spec.ts: 注册逻辑、pre-step hook 缓存刷新、消息注入、read 不告警、edit 告警
 
 ## 变更边界
 

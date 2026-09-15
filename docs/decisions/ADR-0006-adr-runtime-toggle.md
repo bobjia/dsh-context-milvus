@@ -3,26 +3,26 @@ id: ADR-0006-adr-runtime-toggle
 type: decision-record
 status: active
 created: 2026-09-03
-updated: 2026-09-03
+updated: 2026-09-16
 author: dsh-context-milvus
 supersedes: null
 superseded_by: null
 code_anchors:
-  - file: src/plugins/dsh-context-milvus/index.ts
+  - file: packages/dsh/src/plugins/dsh-context-milvus/index.ts
     symbols:
       - toggleAdr
       - apply
-    lines: [1, 260]
+    lines: [203, 317]
     git_commit: ''
-  - file: src/plugins/dsh-context-milvus/adr-tools.ts
+  - file: packages/dsh/src/plugins/dsh-context-milvus/adr-tools.ts
     symbols:
       - registerAdrTools
-    lines: [1, 588]
+    lines: [90, 588]
     git_commit: ''
-  - file: src/plugins/dsh-context-milvus/constraint-injector.ts
+  - file: packages/dsh/src/plugins/dsh-context-milvus/constraint-injector.ts
     symbols:
       - setupConstraintInjection
-    lines: [1, 228]
+    lines: [86, 227]
     git_commit: ''
 trigger:
   task_id: null

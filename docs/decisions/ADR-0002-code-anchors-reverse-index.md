@@ -3,12 +3,12 @@ id: ADR-0002-code-anchors-reverse-index
 type: decision-record
 status: active
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-16
 author: dsh-context-milvus
 supersedes: null
 superseded_by: null
 code_anchors:
-  - file: src/plugins/dsh-context-milvus/adr-anchor-index.ts
+  - file: packages/core/src/adr-anchor-index.ts
     symbols:
       - AdrAnchorIndex
       - getAdrsForFile
@@ -16,22 +16,22 @@ code_anchors:
       - removeAdr
       - save
       - load
-    lines: [1, 115]
+    lines: [7, 114]
     git_commit: ''
-  - file: src/plugins/dsh-context-milvus/adr-service.ts
+  - file: packages/core/src/adr-service.ts
     symbols:
       - getActiveConstraints
       - root
-    lines: [77, 345]
+    lines: [97, 389]
     git_commit: ''
-  - file: src/plugins/dsh-context-milvus/adr-tools.ts
+  - file: packages/dsh/src/plugins/dsh-context-milvus/adr-tools.ts
     symbols:
       - search_adr_by_file
       - check_adr_consistency
       - serviceForExec
       - resolveEffectiveIndexRoot
       - resolveEffectiveAdrRoot
-    lines: [40, 470]
+    lines: [51, 372]
     git_commit: ''
 trigger:
   task_id: null
@@ -93,7 +93,7 @@ auto_generated: false
 
 ## 相关测试
 
-- test/adr-anchor-index.spec.ts: 完整覆盖 CRUD、持久化、路径标准化、原子写入
+- packages/core/test/adr-anchor-index.spec.ts: 完整覆盖 CRUD、持久化、路径标准化、原子写入
 
 ## 变更边界
 

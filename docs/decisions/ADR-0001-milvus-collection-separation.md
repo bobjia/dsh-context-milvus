@@ -3,28 +3,28 @@ id: ADR-0001-milvus-collection-separation
 type: decision-record
 status: active
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-16
 author: dsh-context-milvus
 supersedes: null
 superseded_by: null
 code_anchors:
-  - file: src/plugins/dsh-context-milvus/milvus-service.ts
+  - file: packages/core/src/milvus-service.ts
     symbols:
       - ensureAdrCollection
       - insertAdrChunks
       - searchAdr
       - deleteAdrByFilePath
-    lines: [1, 2600]
+    lines: [520, 719]
     git_commit: ''
-  - file: src/plugins/dsh-context-milvus/config.ts
+  - file: packages/core/src/config.ts
     symbols:
       - adrCollection
-    lines: [52, 52]
+    lines: [66, 294]
     git_commit: ''
-  - file: src/plugins/dsh-context-milvus/types.ts
+  - file: packages/core/src/types.ts
     symbols:
       - AdrSearchResult
-    lines: [60, 85]
+    lines: [130, 141]
     git_commit: ''
 trigger:
   task_id: null
@@ -77,8 +77,8 @@ auto_generated: false
 
 ## 相关测试
 
-- test/dsh-context-remdb.spec.ts: ensureAdrCollection 创建逻辑、BM25 fallback
-- test/adr-service.spec.ts: AdrSearchResult 字段解析
+- packages/core/test/dsh-context-remdb.spec.ts: ensureAdrCollection 创建逻辑、BM25 fallback
+- packages/core/test/adr-service.spec.ts: AdrSearchResult 字段解析
 
 ## 变更边界
 
