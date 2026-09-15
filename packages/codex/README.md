@@ -23,7 +23,7 @@ The production closure is ~230 packages, so an air-gapped machine needs the whol
 ```bash
 mkdir ctxmilvus-offline && cd ctxmilvus-offline
 npm init -y
-npm pkg set dependencies.codex-context-milvus=0.2.0   # pin the version you are deploying
+npm pkg set dependencies.codex-context-milvus=0.7.0   # pin the version you are deploying
 npm install --omit=dev --cache ./npm-cache            # resolve + download the full closure
 ```
 
@@ -35,7 +35,7 @@ tar czf ctxmilvus-offline.tgz npm-cache package.json package-lock.json
 # on the target
 tar xzf ctxmilvus-offline.tgz
 npm ci --omit=dev --offline --cache ./npm-cache                           # into ./node_modules
-npm i -g codex-context-milvus@0.2.0 --offline --cache "$PWD/npm-cache"     # or globally
+npm i -g codex-context-milvus@0.7.0 --offline --cache "$PWD/npm-cache"     # or globally
 ```
 
 Keep the `--offline` flag: it makes npm fail with `ENOTCACHED` on a tarball it does not have, instead of hanging on a network that is not there. The cache must come from the scratch install above — it holds the tarballs *and* the version metadata `--offline` resolves against.

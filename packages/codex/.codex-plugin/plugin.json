@@ -1,6 +1,6 @@
 {
   "name": "context-milvus",
-  "version": "0.2.0",
+  "version": "0.7.0",
   "description": "Semantic code search for Codex backed by a Milvus vector database",
   "author": { "name": "bobjia" },
   "license": "MIT",
