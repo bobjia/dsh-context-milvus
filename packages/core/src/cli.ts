@@ -128,7 +128,7 @@ async function runDryRun(config: PluginConfig, args: CliArgs, io: CliIo): Promis
   io.out(`[dry-run] 可索引文件: ${probe.fileCount}`)
   io.out(`[dry-run] 源码字节: ${probe.totalBytes}`)
   io.out(`[dry-run] 预估代码块: ${chunks}`)
-  io.out(`[dry-run] 超过大工作区阈值: ${probe.exceedsLargeWorkspace ? '是' : '否'}`)
+  io.out(`[dry-run] 工作区规模超过大工作区阈值: ${probe.exceedsLargeWorkspace ? '是' : '否'}（是否降级取决于本次待索引量）`)
   return 0
 }
 

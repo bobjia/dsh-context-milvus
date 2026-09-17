@@ -80,7 +80,7 @@ describe('runIndexCli argument handling', () => {
 describe('runIndexCli --dry-run', () => {
   it('probes and reports without constructing Milvus or running an index', async () => {
     mockProbeWorkspace.mockResolvedValue({
-      files: new Map(), fileCount: 0, totalBytes: 0, exceedsLargeWorkspace: false,
+      files: new Map(), sizes: new Map(), fileCount: 0, totalBytes: 0, exceedsLargeWorkspace: false,
     })
     const c = capture()
 
@@ -96,7 +96,7 @@ describe('runIndexCli --dry-run', () => {
 describe('runIndexCli config resolution', () => {
   it('warns and falls back to env defaults when no run-config exists', async () => {
     mockProbeWorkspace.mockResolvedValue({
-      files: new Map(), fileCount: 0, totalBytes: 0, exceedsLargeWorkspace: false,
+      files: new Map(), sizes: new Map(), fileCount: 0, totalBytes: 0, exceedsLargeWorkspace: false,
     })
     const c = capture()
 

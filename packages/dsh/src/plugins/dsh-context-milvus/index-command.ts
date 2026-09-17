@@ -17,7 +17,10 @@ function quote(value: string): string {
   return JSON.stringify(value)
 }
 
-export function buildIndexCommand(indexRoot: string, options?: { specsOnly?: boolean }): string {
+export function buildIndexCommand(
+  indexRoot: string,
+  options?: { specsOnly?: boolean; mode?: 'full' | 'incremental' },
+): string {
   const binPath = fileURLToPath(new URL(BIN_RELATIVE, import.meta.url))
 
   const parts = existsSync(binPath)
@@ -26,6 +29,9 @@ export function buildIndexCommand(indexRoot: string, options?: { specsOnly?: boo
 
   parts.push('--root', quote(indexRoot))
   if (options?.specsOnly) parts.push('--specs-only')
+  // Without this the CLI falls back to its incremental default, so a deferred
+  // mode=full would silently tell the user to run something else.
+  if (options?.mode) parts.push('--mode', options.mode)
 
   return parts.join(' ')
 }

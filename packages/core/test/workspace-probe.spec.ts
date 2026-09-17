@@ -78,6 +78,10 @@ describe('probeWorkspace', () => {
     expect(probe.totalBytes).toBe(
       Buffer.byteLength('const a = 1', 'utf-8') + Buffer.byteLength('const bb = 22', 'utf-8'),
     )
+    // One size entry per walked file, with the exact UTF-8 byte length.
+    expect(probe.sizes.size).toBe(probe.files.size)
+    expect(probe.sizes.get(path.join(tmp, 'a.ts'))).toBe(Buffer.byteLength('const a = 1', 'utf-8'))
+    expect(probe.sizes.get(path.join(tmp, 'b.ts'))).toBe(Buffer.byteLength('const bb = 22', 'utf-8'))
     expect(probe.exceedsLargeWorkspace).toBe(false)
   })
 
@@ -89,6 +93,7 @@ describe('probeWorkspace', () => {
 
     expect(probe.totalBytes).toBe(Buffer.byteLength(content, 'utf-8'))
     expect(probe.totalBytes).toBeGreaterThan(content.length)
+    expect(probe.sizes.get(path.join(tmp, 'cn.ts'))).toBe(Buffer.byteLength(content, 'utf-8'))
   })
 
   it('walks nested directories and skips ignored ones', async () => {

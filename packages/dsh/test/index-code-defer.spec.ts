@@ -42,7 +42,11 @@ jest.unstable_mockModule('../../core/src/run-config.js', () => ({
   readRunConfig: jest.fn(),
 }))
 
-const mockBuildIndexCommand = jest.fn((root: string) => `node /pkg/bin/index.js --root "${root}"`)
+const mockBuildIndexCommand = jest.fn(
+  (root: string, options?: { specsOnly?: boolean; mode?: string }) =>
+    `node /pkg/bin/index.js --root "${root}"` +
+    (options?.mode ? ` --mode ${options.mode}` : ''),
+)
 jest.unstable_mockModule(
   '../src/plugins/dsh-context-milvus/index-command.js',
   () => ({ buildIndexCommand: mockBuildIndexCommand }),
@@ -87,15 +91,33 @@ describe('index_code large-workspace deferral', () => {
       filesIndexed: 0, chunksIndexed: 0, filesRemoved: 0, chunksRemoved: 0,
       filesSkipped: 1234, durationMs: 12,
       deferred: true, workspaceFiles: 1234, workspaceBytes: 1_800_000,
+      pendingFiles: 1234, pendingBytes: 1_800_000,
     })
 
     const result = await indexCodeDef().execute({ mode: 'incremental' })
 
     expect(result.deferred).toBe(true)
     expect(result.workspaceFiles).toBe(1234)
+    expect(result.pendingFiles).toBe(1234)
     expect(result.nextCommand).toContain('--root')
     expect(mockWriteRunConfig).toHaveBeenCalledTimes(1)
     expect(mockRunAdrIndex).not.toHaveBeenCalled()
+  })
+
+  it('passes the requested mode to buildIndexCommand and into nextCommand', async () => {
+    mockRunIndex.mockResolvedValue({
+      filesIndexed: 0, chunksIndexed: 0, filesRemoved: 0, chunksRemoved: 0,
+      filesSkipped: 3, durationMs: 7,
+      deferred: true, workspaceFiles: 3, workspaceBytes: 100,
+      pendingFiles: 3, pendingBytes: 100,
+    })
+
+    const result = await indexCodeDef().execute({ mode: 'full' })
+
+    // Regression guard: dropping the mode would tell the user to run the CLI's
+    // incremental default after a deferred mode=full request.
+    expect(mockBuildIndexCommand).toHaveBeenCalledWith('/workspace/test', { mode: 'full' })
+    expect(result.nextCommand).toContain('--mode full')
   })
 
   it('passes deferLargeWorkspace: true to runIndex', async () => {
@@ -114,6 +136,7 @@ describe('index_code large-workspace deferral', () => {
       filesIndexed: 0, chunksIndexed: 0, filesRemoved: 0, chunksRemoved: 0,
       filesSkipped: 1234, durationMs: 12,
       deferred: true, workspaceFiles: 1234, workspaceBytes: 1_800_000,
+      pendingFiles: 1234, pendingBytes: 1_800_000,
     })
     const def = indexCodeDef()
 
@@ -121,13 +144,35 @@ describe('index_code large-workspace deferral', () => {
       filesIndexed: 0, chunksIndexed: 0, filesRemoved: 0, chunksRemoved: 0,
       filesSkipped: 1234, durationMs: 12,
       deferred: true, workspaceFiles: 1234, workspaceBytes: 1_800_000,
+      pendingFiles: 1234, pendingBytes: 1_800_000,
       nextCommand: 'node /pkg/bin/index.js --root "/workspace/test"',
     })
     const text = blocks.map((b: any) => b.text).join('\n')
 
+    expect(text).toContain('本次索引量较大')
+    expect(text).toContain('1234 个待索引文件')
     expect(text).toContain('已跳过 Embedding')
     expect(text).toContain('node /pkg/bin/index.js')
     expect(text).toContain('--dry-run')
+    // pending === workspace here, so the workspace line would be redundant.
+    expect(text).not.toContain('工作区共')
+  })
+
+  it('mentions the workspace scale only when it differs from the pending work', () => {
+    const def = indexCodeDef()
+
+    const blocks = def.output.render({}, {
+      filesIndexed: 0, chunksIndexed: 0, filesRemoved: 0, chunksRemoved: 0,
+      filesSkipped: 12, durationMs: 12,
+      deferred: true, workspaceFiles: 1234, workspaceBytes: 1_800_000,
+      pendingFiles: 12, pendingBytes: 60_000,
+      nextCommand: 'node /pkg/bin/index.js --root "/workspace/test" --mode full',
+    })
+    const text = blocks.map((b: any) => b.text).join('\n')
+
+    expect(text).toContain('12 个待索引文件')
+    expect(text).toContain('工作区共 1234 个文件')
+    expect(text).toContain('本次需处理 12 个')
   })
 
   it('still writes the run-config when it fails, and still returns the command', async () => {
@@ -136,6 +181,7 @@ describe('index_code large-workspace deferral', () => {
       filesIndexed: 0, chunksIndexed: 0, filesRemoved: 0, chunksRemoved: 0,
       filesSkipped: 10, durationMs: 3,
       deferred: true, workspaceFiles: 10, workspaceBytes: 100,
+      pendingFiles: 10, pendingBytes: 100,
     })
 
     const result = await indexCodeDef().execute({ mode: 'incremental' })

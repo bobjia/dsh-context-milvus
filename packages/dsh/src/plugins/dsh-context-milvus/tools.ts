@@ -64,11 +64,23 @@ function formatIndexResult(result: any): string {
 
 /** Message shown when index_code refused to index a large workspace inline. */
 function formatDeferredIndexResult(value: any): string {
-  const mib = (value.workspaceBytes / (1024 * 1024)).toFixed(1)
-  return [
-    `⚠️ 工作区较大（${value.workspaceFiles} 个文件 / ${mib} MiB 源码；` +
+  // 判定依据是本次待索引量；旧结果里没有 pending* 时退回工作区规模。
+  const pendingFiles = value.pendingFiles ?? value.workspaceFiles
+  const pendingBytes = value.pendingBytes ?? value.workspaceBytes
+  const pendingMib = (pendingBytes / (1024 * 1024)).toFixed(1)
+  const lines = [
+    `⚠️ 本次索引量较大（${pendingFiles} 个待索引文件 / ${pendingMib} MiB 源码；` +
     `阈值 ${LARGE_WORKSPACE_FILE_LIMIT} 文件 / ${LARGE_WORKSPACE_BYTE_LIMIT / 1024} KiB），` +
     '已跳过 Embedding 与 Milvus 上传。',
+  ]
+  if (pendingFiles !== value.workspaceFiles) {
+    const workspaceMib = (value.workspaceBytes / (1024 * 1024)).toFixed(1)
+    lines.push(
+      `（工作区共 ${value.workspaceFiles} 个文件 / ${workspaceMib} MiB，` +
+      `本次需处理 ${pendingFiles} 个。）`,
+    )
+  }
+  lines.push(
     '本次未做任何向量化，不产生 embedding 费用，索引也未更新。',
     '',
     '请在终端单独运行以下命令完成索引：',
@@ -77,7 +89,8 @@ function formatDeferredIndexResult(value: any): string {
     '可先加 --dry-run 查看规模；Ctrl-C 可中断，重跑会自动续传。',
     '若命令报错找不到配置，请先在 DSH 中重跑 index_code 生成配置，或改用环境变量运行。',
     '完成后 search_code / find_callers 才能检索到这个工作区。',
-  ].join('\n')
+  )
+  return lines.join('\n')
 }
 
 /**
@@ -267,6 +280,8 @@ export function registerTools(
             deferred: { type: 'boolean' },
             workspaceFiles: { type: 'number' },
             workspaceBytes: { type: 'number' },
+            pendingFiles: { type: 'number' },
+            pendingBytes: { type: 'number' },
             nextCommand: { type: 'string' },
           },
           additionalProperties: false,
@@ -355,7 +370,7 @@ export function registerTools(
 
           return {
             ...codeResult,
-            nextCommand: buildIndexCommand(effectiveConfig.indexRoot),
+            nextCommand: buildIndexCommand(effectiveConfig.indexRoot, { mode }),
           }
         }
 

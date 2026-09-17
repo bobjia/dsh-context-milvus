@@ -34,6 +34,10 @@ export interface IndexResult {
   workspaceFiles?: number
   /** 源码文本 UTF-8 字节总量（仅 deferred 时返回）。 */
   workspaceBytes?: number
+  /** 本次待索引文件数，即判定依据（仅 deferred 时返回）。 */
+  pendingFiles?: number
+  /** 本次待索引文件的文本 UTF-8 字节总量（仅 deferred 时返回）。 */
+  pendingBytes?: number
 }
 
 /** 超过该可索引文件数即视为大工作区。 */
@@ -46,6 +50,8 @@ export const DEFAULT_CHECKPOINT_EVERY = 50
 /** 一次工作区扫描的结果：文件哈希 + 规模统计。 */
 export interface WorkspaceProbe {
   files: Map<string, string>
+  /** 绝对路径 → 该文件文本的 UTF-8 字节数。 */
+  sizes: Map<string, number>
   fileCount: number
   totalBytes: number
   exceedsLargeWorkspace: boolean
@@ -65,13 +71,15 @@ export function exceedsLargeWorkspace(
 /** Result of a directory walk: file hashes plus the size of the text walked. */
 interface WalkResult {
   files: Map<string, string>
+  /** 绝对路径 → 该文件文本的 UTF-8 字节数。 */
+  sizes: Map<string, number>
   totalBytes: number
 }
 
 /**
  * Walk a directory recursively and collect all supported files.
  * Returns a map of absolute file path → file content hash, plus the UTF-8 byte
- * length of every file that was read.
+ * length of every file that was read (per file and in total).
  */
 async function walkDirectory(
   rootDir: string,
@@ -81,6 +89,7 @@ async function walkDirectory(
 ): Promise<WalkResult> {
   const extSet = new Set(extensions)
   const files = new Map<string, string>()
+  const sizes = new Map<string, number>()
   let totalBytes = 0
 
   async function walk(dir: string): Promise<void> {
@@ -116,7 +125,9 @@ async function walkDirectory(
             const hash = HashTracker.hashContent(content)
             files.set(fullPath, hash)
             // The content is already in memory for hashing — size comes for free.
-            totalBytes += Buffer.byteLength(content, 'utf-8')
+            const size = Buffer.byteLength(content, 'utf-8')
+            sizes.set(fullPath, size)
+            totalBytes += size
           } catch {
             // Skip files we can't read
           }
@@ -126,7 +137,7 @@ async function walkDirectory(
   }
 
   await walk(rootDir)
-  return { files, totalBytes }
+  return { files, sizes, totalBytes }
 }
 
 /**
@@ -203,7 +214,7 @@ export async function probeWorkspace(
   // Load global ignore file
   ignoreMatcher.addPatterns(await loadGlobalIgnoreFile())
 
-  const { files, totalBytes } = await walkDirectory(
+  const { files, sizes, totalBytes } = await walkDirectory(
     config.indexRoot,
     config.indexExtensions,
     ignoreMatcher,
@@ -213,6 +224,7 @@ export async function probeWorkspace(
   const fileCount = files.size
   return {
     files,
+    sizes,
     fileCount,
     totalBytes,
     exceedsLargeWorkspace: exceedsLargeWorkspace(fileCount, totalBytes, options?.limits),
@@ -255,26 +267,9 @@ export async function runIndex(
   const probe = await probeWorkspace(config, { onFileProgress, limits: deferLimits })
   const currentFiles = probe.files
 
-  // 2. Large workspace: stop before any Milvus connection, chunking or embedding.
-  if (defer && probe.exceedsLargeWorkspace) {
-    return {
-      filesIndexed: 0,
-      chunksIndexed: 0,
-      filesRemoved: 0,
-      chunksRemoved: 0,
-      filesSkipped: probe.fileCount,
-      durationMs: Date.now() - startTime,
-      deferred: true,
-      workspaceFiles: probe.fileCount,
-      workspaceBytes: probe.totalBytes,
-    }
-  }
-
-  // 3. Ensure Milvus collection exists
-  progress('检查 Milvus 集合...')
-  await milvus.ensureCollection()
-
-  // 4. Compute delta
+  // 2. Compute delta
+  // computeDelta only reads the local Merkle state — no network — so the
+  // deferred path below still touches nothing in Milvus.
   const computed = tracker.computeDelta(currentFiles)
   let delta: IndexDelta
   if (mode === 'full') {
@@ -289,6 +284,36 @@ export async function runIndex(
     progress('检测文件变更...')
     delta = computed
   }
+
+  // 3. Large job: stop before any Milvus connection, chunking or embedding.
+  // The threshold is measured on the work this run would actually do
+  // (delta.toIndex), not on the size of the whole workspace: a one-file edit in
+  // a big repo must still index inline. mode=full and a first index have
+  // toIndex = every file, so they reduce to the whole-workspace check.
+  if (defer) {
+    const pending = delta.toIndex
+    let pendingBytes = 0
+    for (const filePath of pending) pendingBytes += probe.sizes.get(filePath) ?? 0
+    if (exceedsLargeWorkspace(pending.length, pendingBytes, deferLimits)) {
+      return {
+        filesIndexed: 0,
+        chunksIndexed: 0,
+        filesRemoved: 0,
+        chunksRemoved: 0,
+        filesSkipped: pending.length,
+        durationMs: Date.now() - startTime,
+        deferred: true,
+        workspaceFiles: probe.fileCount,
+        workspaceBytes: probe.totalBytes,
+        pendingFiles: pending.length,
+        pendingBytes,
+      }
+    }
+  }
+
+  // 4. Ensure Milvus collection exists
+  progress('检查 Milvus 集合...')
+  await milvus.ensureCollection()
 
   // 5. Remove deleted files from RemDB
   let chunksRemoved = 0

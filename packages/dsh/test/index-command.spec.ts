@@ -23,6 +23,17 @@ describe('buildIndexCommand', () => {
     expect(buildIndexCommand('/work/api', { specsOnly: true })).toContain('--specs-only')
   })
 
+  it('appends --mode when a mode is requested', () => {
+    expect(buildIndexCommand('/work/api', { mode: 'full' })).toContain('--mode full')
+    expect(buildIndexCommand('/work/api', { mode: 'incremental' })).toContain('--mode incremental')
+  })
+
+  it('appends nothing when no mode is requested', () => {
+    // index_specs relies on this: specs-only is mode-independent.
+    expect(buildIndexCommand('/work/api')).not.toContain('--mode')
+    expect(buildIndexCommand('/work/api', { specsOnly: true })).not.toContain('--mode')
+  })
+
   it('falls back to npx for an unknown layout', () => {
     // Documented fallback branch: asserted via the npx form of the string.
     const command = buildIndexCommand('/work/api')
