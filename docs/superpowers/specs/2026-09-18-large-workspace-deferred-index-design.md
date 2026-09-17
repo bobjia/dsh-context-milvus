@@ -17,7 +17,7 @@ related_decisions: []
 
 口径按**待索引量**（`delta.toIndex`）而非整个工作区规模计算：`mode=full` 与首次索引（tracker 为空）的 `toIndex` 就是全部可索引文件，因此照旧降级；而大仓库上一次只改了几个文件的增量更新会**正常内联执行**，不必把用户赶去终端。阈值判定需要先算出 delta，但 `computeDelta` 是纯本地计算（不连 Milvus、不 embedding），所以「超阈早退不触碰 Milvus」这一性质不变。
 
-`index_specs` 同理：当 specs+plans 下的规格文档规模超过阈值（**文档数 > 100** 或 **文本总量 > 200 KiB**）时，DSH 的 `index_specs` 只做扫描统计，提示用户用同一条脚本命令加 `--specs-only` 完成 frontmatter 生成与索引。触发场景很具体：`findCandidateFiles()` 只返回**没有 frontmatter** 的文档，所以一个规格文档很多、且尚未加过 frontmatter 的仓库，首次运行会逐个生成锚点并写盘、随后全量索引，同样会长时间阻塞会话；跑过一次后候选归零，成本自然下降。
+`index_specs` 同理，且**判定同样按本次实际工作量**：只有**缺 frontmatter 的候选文档**超阈（**候选数 > 100** 或 **候选文本 > 200 KiB**）时才降级，提示用户用同一条脚本命令加 `--specs-only` 完成 frontmatter 生成与索引。触发场景很具体：`findCandidateFiles()` 只返回**没有 frontmatter** 的文档，所以一个规格文档很多、且尚未加过 frontmatter 的仓库，首次运行会逐个生成锚点并写盘、随后索引，会长时间阻塞会话。**候选为 0 时本次零工作，绝不降级**——早期按全量语料判定的写法会让一个文档都已有 frontmatter 的仓库被永久降级，与「跑过一次后候选归零，成本自然下降」的初衷相悖。
 
 Codex 适配器行为不变。阈值判定、run-config 落盘、CLI 实现放在 core（框架无关、可单测），DSH 只负责传开关、渲染提示与暴露 bin。
 
@@ -50,7 +50,7 @@ Codex 适配器行为不变。阈值判定、run-config 落盘、CLI 实现放�
 | 脚本落地 | CLI 逻辑放 **core**，`dsh` 包暴露 bin（Codex 以后可零成本复用） |
 | 阈值口径 | **本次待索引量**：`delta.toIndex` 的文件数 > 1000，或这些文件的文本 > **500 KiB（UTF-8 字节）**。`mode=full` 与首次索引时 `toIndex` = 全部可索引文件，与「工作区规模」等价 |
 | 提示命令的模式 | `nextCommand` 必须带上调用方请求的 `mode`（`--mode full`）。否则 `mode=full` 被降级后提示用户跑的是 CLI 默认的 incremental，用户会误以为已完成全量重建 |
-| 规格文档阈值 | specs+plans **全量**文档：文档数 > **100** 或 文本 > **200 KiB**（专用小常量，规格文档远少于代码文件） |
+| 规格文档阈值 | **本次待处理量**：缺 frontmatter 的**候选**文档数 > **100**，或这些文档文本 > **200 KiB**（专用小常量）。判定**不看全量语料**——`runAdrIndex` 是增量的，且候选为 0 时根本不执行 |
 | 脚本模式 | 默认跑完整流程（代码 → spec/plan frontmatter 生成 → ADR/规格索引），另有 `--specs-only` |
 | 生效范围 | **仅 DSH**；Codex 的 `index_code` 行为不变 |
 | 实现方案 | 阈值判定放进 `runIndex`（opt-in 开关），**单次 walk**，不重复扫描 |
@@ -202,16 +202,26 @@ export interface IndexResult {
 
 ### 1b. 规格文档阈值（`packages/core/src/adr-indexer.ts`）
 
-与代码侧同构，但用**专用小常量**，且测量 **specs+plans 全量文档**（不只数待生成 frontmatter 的候选——后续索引成本由全量决定）：
+与代码侧同构（阈值按**本次实际工作量**算），但用**专用小常量**：
+
+**判定输入是候选文档，不是全量语料。** `index_specs` 的实际工作是：
+
+1. 对**缺 frontmatter** 的候选文档逐个 `generateSpecFrontmatter`（会写用户的文件）——成本与候选数成正比；
+2. 随后 `runAdrIndex(..., { mode: 'incremental' })` 索引变更文档——**增量**，且**只在候选非空时才执行**（`adr-tools.ts` 的 `candidates.length > 0` 门）。
+
+早期设计假设「后续索引成本由全量决定」，按全量语料判定。该假设是错的：全量只在首次（ADR tracker 为空）成立，之后都是增量；而且候选为 0 时 `runAdrIndex` 根本不会执行。后果是一个**文档都已有 frontmatter、无事可做**的仓库会被永久降级——正是本设计想要避免的「把用户赶去终端」。判定因此落在候选集上：候选为 0 → 本次零工作 → 绝不降级。
 
 ```ts
 export const LARGE_SPEC_FILE_LIMIT = 100
 export const LARGE_SPEC_BYTE_LIMIT = 200 * 1024   // 200 KiB
 
 export interface SpecCorpusProbe {
-  files: string[]        // 命中的规格/计划文档绝对路径
+  files: string[]                     // 命中的规格/计划文档绝对路径
   fileCount: number
   totalBytes: number
+  /** 单文件 UTF-8 字节数，供调用方给候选子集计量（内容已读，无额外 IO）。 */
+  sizes: Map<string, number>
+  /** 仅作参考：按**全量语料**算出的超阈标志。判定已改用候选集，见上。 */
   exceedsLargeSpecCorpus: boolean
 }
 
@@ -232,7 +242,8 @@ export async function probeSpecCorpus(
 
 - 只测 `specRoot` + `planRoot`，**不含** `adrRoot`（`index_specs` 不处理 ADR 目录）。
 - 复用 `SPEC_FILE_RE` / `PLAN_FILE_RE`（`adr-indexer.ts:15-16`）与 `scanDirectory` 相同的**非递归 `readdir`** 语义，保证与真实索引扫描一致。
-- `totalBytes` 来自扫描时已读取的内容（`Buffer.byteLength`），无额外 IO。
+- `totalBytes` / `sizes` 来自扫描时已读取的内容（`Buffer.byteLength`），无额外 IO。
+- `probe.exceedsLargeSpecCorpus` 保留但**不再作为判定依据**（判定在适配器侧按候选集算），仅用于报告全量语料规模。
 - `LargeWorkspaceLimits` 提到 `packages/core/src/types.ts`，供代码侧与规格侧共用。
 
 ### 2. `index_code` 行为（`packages/dsh/.../tools.ts`）
@@ -289,27 +300,40 @@ export function buildIndexCommand(
 
 ### 2b. `index_specs` 行为（`packages/dsh/.../adr-tools.ts`）
 
-在 `execute` 最前面插入阈值判定（在 `findCandidateFiles` **之前**）：
+**顺序**：先算候选，再判定（判定需要候选集；但**生成 frontmatter 仍必须在判定之后**）：
 
 ```ts
-const probe = await probeSpecCorpus(config)
-if (!params.dry_run && probe.exceedsLargeSpecCorpus) {
+// 候选 = 本次真正要处理的文档；判定依据是它，而非全量语料
+const candidates: string[] = []
+if (specRoot) candidates.push(...await findCandidateFiles(specRoot, SPEC_FILE_RE))
+if (planRoot) candidates.push(...await findCandidateFiles(planRoot, PLAN_FILE_RE))
+
+const probe = await probeSpecCorpus({ ...config, specRoot, planRoot })
+let pendingBytes = 0
+for (const filePath of candidates) pendingBytes += probe.sizes.get(filePath) ?? 0
+
+if (!params.dry_run && exceedsLargeSpecCorpus(candidates.length, pendingBytes)) {
   // 超阈：不生成 frontmatter、不写盘、不索引
-  return { deferred: true, specFiles: probe.fileCount, specBytes: probe.totalBytes,
+  return { deferred: true,
+           specFiles: probe.fileCount, specBytes: probe.totalBytes,   // 全量语料（报告用）
+           pendingFiles: candidates.length, pendingBytes,             // 判定依据
            nextCommand: buildIndexCommand(indexRoot, { specsOnly: true }), ... }
 }
 ```
 
+- **判定用候选集**：候选为 0 → 本次零工作 → 绝不降级（这正是要修的「无事可做却永久降级」）。
+- `findCandidateFiles` 现在**在判定之前**被调用（判定需要它）。它只读文件、解析 frontmatter，**无副作用**；真正写盘的 `generateSpecFrontmatter` 仍在判定之后，所以「超阈不写任何文件」这条不变。
 - **`dry_run: true` 绕过阈值判定**：预览本身无副作用，且是用户主动查看规模的手段，不应被拒绝。
 - 超阈时**不写任何文件**（`generateSpecFrontmatter` 会改磁盘上的规格文档，这是比 `index_code` 更重的副作用，必须挡住）。
 - 提示命令带 `--specs-only`：`node …/bin/index.js --root <root> --specs-only`。
-- 输出 schema 新增 4 个字段：`deferred: boolean`、`specFiles: number`、`specBytes: number`、`nextCommand: string`。
+- 输出 schema 新增 6 个字段：`deferred`、`specFiles`、`specBytes`（全量语料）、`pendingFiles`、`pendingBytes`（候选）、`nextCommand`。
 - 未超阈时行为与今天完全一致。
 
-`render` 文案：
+`render` 文案（以候选为主语，全量语料仅在两者不同时补充）：
 
 ```
-⚠️ 规格文档较多（143 个文档 / 312 KiB；阈值 100 个文档 / 200 KiB），已跳过 frontmatter 生成与索引。
+⚠️ 本次规格处理量较大（143 篇待处理文档 / 312 KiB；阈值 100 篇 / 200 KiB），已跳过 frontmatter 生成与索引。
+（specs+plans 共 200 篇，本次需处理 143 篇。）        ← 仅当 pendingFiles !== specFiles 时输出
 本次未写入任何文件，也未做向量化。
 
 请在终端单独运行以下命令：
@@ -475,7 +499,7 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
 ### core（规格侧）
 
 - `exceedsLargeSpecCorpus()` 纯函数边界：100 / 101 文档；204800 / 204801 字节。
-- `probeSpecCorpus`：只统计 `specRoot` + `planRoot`（不含 `adrRoot`）；非递归（子目录里的 `.md` 不计入）；只统计匹配 `SPEC_FILE_RE` / `PLAN_FILE_RE` 的文件；`totalBytes` 与文件 UTF-8 长度一致。
+- `probeSpecCorpus`：只统计 `specRoot` + `planRoot`（不含 `adrRoot`）；非递归（子目录里的 `.md` 不计入）；只统计匹配 `SPEC_FILE_RE` / `PLAN_FILE_RE` 的文件；`totalBytes` 与文件 UTF-8 长度一致；`sizes` 每项与对应文件的内容长度一致。
 - `probeSpecCorpus` 注入小阈值即可用小目录覆盖超阈分支。
 
 ### dsh
@@ -483,8 +507,10 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
 - `index_code` 超阈 → 返回 `deferred: true`、写出 run-config、**未调用 `runAdrIndex`**。
 - `index_code` 超阈且请求 `mode=full` → `nextCommand` 含 `--mode full`（**回归防护**：丢失 mode 会让用户误以为已完成全量重建）。
 - `index_code` 未超阈 → 现有 3 个 ADR 输出用例继续通过（新增字段不影响既有断言）。
-- `index_specs` 超阈 → 返回 `deferred: true`、**未调用 `generateSpecFrontmatter`**、未调用 `runAdrIndex`、未写任何文件。
-- `index_specs(dry_run=true)` → 即使超阈也照常预览（未被降级拦截）。
+- `index_specs` **候选超阈** → 返回 `deferred: true`、**未调用 `generateSpecFrontmatter`**、未调用 `runAdrIndex`、未写任何文件；`specFiles`/`specBytes` 报告全量语料，`pendingFiles`/`pendingBytes` 报告候选。
+- `index_specs` **全量语料超阈但候选为 0** → **不降级**（回归防护：这正是「无事可做却永久降级」的 bug），照常返回空结果、不写任何文件。
+- 判定前会调用 `findCandidateFiles`（判定需要候选集），但 `generateSpecFrontmatter` 仍只在判定之后调用。
+- `index_specs(dry_run=true)` → 即使候选超阈也照常预览（未被降级拦截）。
 - `index_specs` 未超阈 → 现有行为不变。
 - `buildIndexCommand`：bin 存在 → 绝对路径命令；不存在 → npx 回退；`{ specsOnly: true }` → 追加 `--specs-only`；`{ mode: 'full' }` → 追加 `--mode full`；不传 `mode` → 不追加。
 - 冻结面：`public-surface.spec.ts` **零改动**通过（13 工具名 / 27 config 键不变）。
@@ -500,7 +526,7 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
 3. 大仓库上只改少量文件的**增量**更新**不被降级**，正常内联完成 —— 阈值按待索引量计算，而非工作区规模。
 4. 按提示命令在终端跑完 → 数据入库 → `search_code` / `find_callers` 能检索到该工作区。
 5. 小仓库（未超阈）`index_code` 行为与改造前一致，全量测试通过。
-6. 规格文档很多的仓库调用 `index_specs` **只做扫描即返回**（不生成 frontmatter、不改文件），提示 `--specs-only` 命令；该命令跑完后 `search_adr` 能检索到这些规格文档。
+6. 候选文档很多的仓库调用 `index_specs` **只做扫描即返回**（不生成 frontmatter、不改文件），提示 `--specs-only` 命令；该命令跑完后 `search_adr` 能检索到这些规格文档。**跑完后再调用 `index_specs`（候选归零）不再降级**——即使全量语料仍超阈。
 7. Codex 的 `index_code` 行为不变。
 8. 脚本跑到一半 Ctrl-C，重跑时已索引文件不再 embedding。
 9. `npm run typecheck`、`npm run build`、`npm test` 全绿。
