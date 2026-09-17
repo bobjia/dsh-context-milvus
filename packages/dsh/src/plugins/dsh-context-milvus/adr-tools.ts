@@ -22,8 +22,12 @@ import { AdrService } from 'dsh-context-milvus-core'
 import type { AdrAnchorIndex } from 'dsh-context-milvus-core'
 import type { PluginConfig } from 'dsh-context-milvus-core'
 import type { HashTracker } from 'dsh-context-milvus-core'
-import { runAdrIndex } from 'dsh-context-milvus-core'
+import {
+  runAdrIndex, probeSpecCorpus, writeRunConfig, deriveMerkleFilePath,
+  LARGE_SPEC_FILE_LIMIT, LARGE_SPEC_BYTE_LIMIT, SPEC_FILE_RE, PLAN_FILE_RE,
+} from 'dsh-context-milvus-core'
 import { findCandidateFiles, previewFrontmatter, generateSpecFrontmatter } from 'dsh-context-milvus-core'
+import { buildIndexCommand } from './index-command.js'
 
 /** Format ADR search results for model consumption */
 function formatAdrSearchResults(value: any[]): string {
@@ -38,6 +42,22 @@ function formatAdrSearchResults(value: any[]): string {
       item.content,
     ].join('\n')
   }).join('\n---\n')
+}
+
+/** Message shown when index_specs refused to process a large spec corpus inline. */
+function formatDeferredSpecsResult(value: any): string {
+  const kib = Math.round(value.specBytes / 1024)
+  return [
+    `⚠️ 规格文档较多（${value.specFiles} 个文档 / ${kib} KiB；` +
+    `阈值 ${LARGE_SPEC_FILE_LIMIT} 个文档 / ${LARGE_SPEC_BYTE_LIMIT / 1024} KiB），` +
+    '已跳过 frontmatter 生成与索引。',
+    '本次未写入任何文件，也未做向量化。',
+    '',
+    '请在终端单独运行以下命令：',
+    `  ${value.nextCommand}`,
+    '',
+    '如需先预览将要生成的锚点，可继续使用 index_specs(dry_run=true)。',
+  ].join('\n')
 }
 
 /**
@@ -505,9 +525,17 @@ export function registerAdrTools(
               lines: { type: 'array', items: { type: 'number' } },
             }, additionalProperties: false } },
           }, additionalProperties: false } },
+          // Large-corpus deferral: nothing was written or indexed this call.
+          deferred: { type: 'boolean' },
+          specFiles: { type: 'number' },
+          specBytes: { type: 'number' },
+          nextCommand: { type: 'string' },
         }, additionalProperties: false,
       },
       render: (_args: any, value: any) => {
+        if (value.deferred) {
+          return [{ type: 'text' as const, text: formatDeferredSpecsResult(value) }]
+        }
         const lines: string[] = []
         lines.push(`文件处理: ${value.filesProcessed}`)
         lines.push(`锚点生成: ${value.anchorsGenerated}`)
@@ -543,10 +571,37 @@ export function registerAdrTools(
         ? ''
         : path.resolve(indexRoot, config.planRoot || 'docs/superpowers/plans')
 
+      // Large spec corpus: stop before generating frontmatter (which writes to
+      // the user's files) or indexing anything. dry_run is exempt — a preview
+      // has no side effects and is how a user inspects the scale.
+      const probe = await probeSpecCorpus({ ...config, specRoot, planRoot })
+      if (!params.dry_run && probe.exceedsLargeSpecCorpus) {
+        try {
+          await writeRunConfig({ ...config, indexRoot, merkleFilePath: deriveMerkleFilePath(indexRoot) })
+        } catch (err) {
+          console.warn(
+            `[dsh-context-milvus] run-config 落盘失败: ${(err as Error).message}`,
+          )
+        }
+
+        return {
+          filesProcessed: 0,
+          anchorsGenerated: 0,
+          filesIndexed: 0,
+          chunksIndexed: 0,
+          dryRun: false,
+          preview: [],
+          deferred: true,
+          specFiles: probe.fileCount,
+          specBytes: probe.totalBytes,
+          nextCommand: buildIndexCommand(indexRoot, { specsOnly: true }),
+        }
+      }
+
       // 1. Find candidate files (no frontmatter) in specRoot + planRoot
       const candidates: string[] = []
-      if (specRoot) candidates.push(...await findCandidateFiles(specRoot, /^\d{4}-\d{2}-\d{2}-.+-design\.md$/))
-      if (planRoot) candidates.push(...await findCandidateFiles(planRoot, /^\d{4}-\d{2}-\d{2}-(?:(?!.*design\.md$).)+\.md$/))
+      if (specRoot) candidates.push(...await findCandidateFiles(specRoot, SPEC_FILE_RE))
+      if (planRoot) candidates.push(...await findCandidateFiles(planRoot, PLAN_FILE_RE))
 
       // 2. For each: generate frontmatter (dry_run = preview only)
       const preview: any[] = []
