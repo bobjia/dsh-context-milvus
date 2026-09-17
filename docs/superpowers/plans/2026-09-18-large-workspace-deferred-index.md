@@ -1873,6 +1873,12 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
 })
 ```
 
+给 bin 加可执行位（与既有的 `packages/codex/bin/{cli.js,mcp.js}` 保持一致，也便于从 checkout 直接 `./bin/index.js` 运行）。注意 `chmod` 磁盘文件后要重新 `git add`，否则 index 与工作区 mode 不一致会让 `git status` 变脏：
+
+```bash
+chmod 755 packages/dsh/bin/index.js
+```
+
 - [ ] **Step 5: 打包配置（`packages/dsh/package.json`）**
 
 在 `"dsh"` 之前插入 `bin`：
