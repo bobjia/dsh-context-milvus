@@ -5,6 +5,7 @@
   "type": "module",
   "files": [
     "dist",
+    "bin",
     "client",
     "cordis-entry.yml",
     "cordis.patch.yml",
@@ -21,6 +22,9 @@
     "./client": "./client/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-context-milvus-index": "bin/index.js"
   },
   "dsh": {
     "client": {
