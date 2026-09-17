@@ -830,13 +830,17 @@ async function write(rel: string, content: string): Promise<void> {
   await writeFile(full, content, 'utf-8')
 }
 
+// The engine expects adapters to have ALREADY resolved these roots against
+// indexRoot (adr-tools.ts does `path.resolve(indexRoot, config.specRoot)`), so
+// the fixture must pass absolute paths. A relative specRoot here would be read
+// against process.cwd() — i.e. this repo's own docs/ — instead of the temp dir.
 function specCfg() {
   return {
     ...getConfig({}),
     indexRoot: tmp,
-    adrRoot: 'docs/decisions',
-    specRoot: 'docs/superpowers/specs',
-    planRoot: 'docs/superpowers/plans',
+    adrRoot: path.join(tmp, 'docs/decisions'),
+    specRoot: path.join(tmp, 'docs/superpowers/specs'),
+    planRoot: path.join(tmp, 'docs/superpowers/plans'),
   }
 }
 
@@ -936,6 +940,11 @@ export function exceedsLargeSpecCorpus(
  * runAdrIndex's scanDirectory, so the numbers describe what an index run
  * would actually touch. The ADR root is excluded — index_specs never
  * processes it.
+ *
+ * Expects `config.specRoot` / `config.planRoot` to already be ABSOLUTE:
+ * adapters resolve them against indexRoot before the engine sees them
+ * (adr-tools.ts does `path.resolve(indexRoot, config.specRoot)`). A relative
+ * root would be read against process.cwd().
  */
 export async function probeSpecCorpus(
   config: PluginConfig,
@@ -979,7 +988,17 @@ export async function probeSpecCorpus(
 }
 ```
 
-补 import（若尚不存在）：`import type { LargeWorkspaceLimits } from './types.js'`；确认 `readFile`、`readdir`、`path` 已导入（`scanDirectory` 已用 `readdir`，读取内容处已用 `readFile`）。
+补 import：把 `adr-indexer.ts:11` 的 `import type { AdrIndexStatus } from './types.js'` 改为
+`import type { AdrIndexStatus, LargeWorkspaceLimits } from './types.js'`（**不要**新增一条重复的
+`./types.js` import 语句）。`readFile`、`readdir`（第 2 行）与 `path`（第 3 行）已导入，无需改动。
+
+同时把第 15-16 行的两个正则改为**导出**，供 Task 6 的 CLI 复用 —— 否则 CLI 会复制一份同样的规则，
+将来改规格命名约定时两处会漂移：
+
+```ts
+export const SPEC_FILE_RE = /^\d{4}-\d{2}-\d{2}-.+-design\.md$/
+export const PLAN_FILE_RE = /^\d{4}-\d{2}-\d{2}-(?:(?!.*design\.md$).)+\.md$/
+```
 
 - [ ] **Step 4: 运行测试确认通过**
 
@@ -992,7 +1011,8 @@ Expected: PASS（6 个用例）。
 
 ```ts
 export { runAdrIndex, getAdrIndexStatus, probeSpecCorpus, exceedsLargeSpecCorpus,
-         LARGE_SPEC_FILE_LIMIT, LARGE_SPEC_BYTE_LIMIT } from './adr-indexer.js'
+         LARGE_SPEC_FILE_LIMIT, LARGE_SPEC_BYTE_LIMIT,
+         SPEC_FILE_RE, PLAN_FILE_RE } from './adr-indexer.js'
 export type { ScanRoot, AdrIndexResult, SpecCorpusProbe } from './adr-indexer.js'
 ```
 
@@ -1424,7 +1444,7 @@ import { readFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import { findCandidateFiles, generateSpecFrontmatter } from './adr-anchor-generator.js'
 import { createAdrBundle } from './adr-bundle.js'
-import { runAdrIndex } from './adr-indexer.js'
+import { runAdrIndex, PLAN_FILE_RE, SPEC_FILE_RE } from './adr-indexer.js'
 import { chunkCode } from './chunker.js'
 import { deriveImportMapFilePath, deriveMerkleFilePath, deriveRunConfigPath, getConfig, type PluginConfig } from './config.js'
 import { EmbeddingClient } from './embedding.js'
@@ -1449,9 +1469,6 @@ interface CliArgs {
   verbose: boolean
   help: boolean
 }
-
-const SPEC_FILE_RE = /^\d{4}-\d{2}-\d{2}-.+-design\.md$/
-const PLAN_FILE_RE = /^\d{4}-\d{2}-\d{2}-(?:(?!.*design\.md$).)+\.md$/
 
 export const CLI_USAGE = `用法: dsh-context-milvus-index [选项]
 
@@ -2382,15 +2399,28 @@ function formatDeferredSpecsResult(value: any): string {
 }
 ```
 
-在 `adr-tools.ts` 的 core import 中补上 `probeSpecCorpus`、`LARGE_SPEC_FILE_LIMIT`、`LARGE_SPEC_BYTE_LIMIT`、`writeRunConfig`、`deriveMerkleFilePath`，并新增：
+在 `adr-tools.ts` 的 core import 中补上 `probeSpecCorpus`、`LARGE_SPEC_FILE_LIMIT`、
+`LARGE_SPEC_BYTE_LIMIT`、`writeRunConfig`、`deriveMerkleFilePath`、`SPEC_FILE_RE`、`PLAN_FILE_RE`，并新增：
 
 ```ts
 import { buildIndexCommand } from './index-command.js'
 ```
 
+同时把 `execute` 里第 548-549 行**内联的两个正则**换成刚导入的常量（Task 4 已把它们导出）：
+
+```ts
+      if (specRoot) candidates.push(...await findCandidateFiles(specRoot, SPEC_FILE_RE))
+      if (planRoot) candidates.push(...await findCandidateFiles(planRoot, PLAN_FILE_RE))
+```
+
 - [ ] **Step 4: 在 `execute` 最前面加降级判定**
 
-在 `index_specs.execute` 中，`specRoot` / `planRoot` 解析之后、`findCandidateFiles` 之前插入：
+在 `index_specs.execute` 中，`specRoot` / `planRoot` 解析之后（即 `adr-tools.ts` 第 544 行之后）、
+`findCandidateFiles` 之前（第 546 行之前）插入：
+
+> 注意：`index_specs` **没有** `adrEnabled` 前置守卫 —— `adrIndexer` 只在第 567 行做可选判断。
+> 因此降级判定**不受 `adrEnabled` 影响**，这是刻意的：即使 ADR 关闭，生成 frontmatter 仍会写用户的文件，
+> 所以超阈时同样应该只扫描并提示，不要加守卫。
 
 ```ts
       // Large spec corpus: stop before generating frontmatter (which writes to
