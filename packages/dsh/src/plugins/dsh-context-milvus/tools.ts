@@ -15,13 +15,17 @@ import type { PluginConfig } from 'dsh-context-milvus-core'
 import { deriveMerkleFilePath, deriveImportMapFilePath } from 'dsh-context-milvus-core'
 import { HashTracker } from 'dsh-context-milvus-core'
 import { ImportResolver } from 'dsh-context-milvus-core'
-import { runIndex, getIndexStatus } from 'dsh-context-milvus-core'
+import {
+  runIndex, getIndexStatus, writeRunConfig,
+  LARGE_WORKSPACE_FILE_LIMIT, LARGE_WORKSPACE_BYTE_LIMIT,
+} from 'dsh-context-milvus-core'
 import { runAdrIndex, getAdrIndexStatus as getAdrIndexStatusFn } from 'dsh-context-milvus-core'
 import type { AdrService } from 'dsh-context-milvus-core'
 import type { AdrAnchorIndex } from 'dsh-context-milvus-core'
 import { findCallers, traceChain } from 'dsh-context-milvus-core'
 import type { FindBySymbol } from 'dsh-context-milvus-core'
 import { createTelemetry, sanitizeQuery } from 'dsh-context-milvus-core'
+import { buildIndexCommand } from './index-command.js'
 
 /** Format search results for model consumption */
 function formatSearchResults(value: any[]): string {
@@ -56,6 +60,24 @@ function formatIndexResult(result: any): string {
     lines.push(`  - ADR 新增/修改: ${result.adrFilesIndexed} 个文件, ${result.adrChunksIndexed} 个代码块`)
   }
   return lines.join('\n')
+}
+
+/** Message shown when index_code refused to index a large workspace inline. */
+function formatDeferredIndexResult(value: any): string {
+  const mib = (value.workspaceBytes / (1024 * 1024)).toFixed(1)
+  return [
+    `⚠️ 工作区较大（${value.workspaceFiles} 个文件 / ${mib} MiB 源码；` +
+    `阈值 ${LARGE_WORKSPACE_FILE_LIMIT} 文件 / ${LARGE_WORKSPACE_BYTE_LIMIT / 1024} KiB），` +
+    '已跳过 Embedding 与 Milvus 上传。',
+    '本次未做任何向量化，不产生 embedding 费用，索引也未更新。',
+    '',
+    '请在终端单独运行以下命令完成索引：',
+    `  ${value.nextCommand}`,
+    '',
+    '可先加 --dry-run 查看规模；Ctrl-C 可中断，重跑会自动续传。',
+    '若命令报错找不到配置，请先在 DSH 中重跑 index_code 生成配置，或改用环境变量运行。',
+    '完成后 search_code / find_callers 才能检索到这个工作区。',
+  ].join('\n')
 }
 
 /**
@@ -241,10 +263,18 @@ export function registerTools(
             durationMs: { type: 'number' },
             adrFilesIndexed: { type: 'number' },
             adrChunksIndexed: { type: 'number' },
+            // Large-workspace deferral: nothing was indexed this call.
+            deferred: { type: 'boolean' },
+            workspaceFiles: { type: 'number' },
+            workspaceBytes: { type: 'number' },
+            nextCommand: { type: 'string' },
           },
           additionalProperties: false,
         },
         render: (_args: any, value: any) => {
+          if (value.deferred) {
+            return [{ type: 'text' as const, text: formatDeferredIndexResult(value) }]
+          }
           return [{ type: 'text' as const, text: formatIndexResult(value) }]
         },
       },
@@ -271,6 +301,13 @@ export function registerTools(
         // Use a workspace-specific tracker if the path is different from default
         const effectiveTracker = await createTrackerForPath(config, overridePath, resolveTracker())
 
+        // The standalone script writes this same Merkle file from another
+        // process; reload so its progress is visible here (load() replaces the
+        // in-memory state wholesale and save() is a no-op unless dirty).
+        await effectiveTracker.load().catch(() => {
+          // Missing or unreadable state file — treat as a fresh start
+        })
+
         // Use a workspace-specific import resolver if the path is different from default
         const effectiveImportResolver = overridePath
           ? new ImportResolver(deriveImportMapFilePath(overridePath))
@@ -289,7 +326,38 @@ export function registerTools(
           mode,
           progress,
           importResolver: effectiveImportResolver,
+          deferLargeWorkspace: true,
         })
+
+        // Large workspace: nothing was chunked, embedded or written. Persist the
+        // resolved config (so the script runs with identical settings) and hand
+        // the user a paste-ready command instead.
+        if (codeResult.deferred) {
+          try {
+            await writeRunConfig(effectiveConfig)
+          } catch (err) {
+            console.warn(
+              `[dsh-context-milvus] run-config 落盘失败: ${(err as Error).message}`,
+            )
+          }
+
+          telemetry.log({
+            ts: new Date().toISOString(),
+            tool: 'index_code',
+            mode,
+            path: effectiveConfig.indexRoot,
+            filesIndexed: 0,
+            chunksIndexed: 0,
+            filesSkipped: codeResult.filesSkipped,
+            durationMs: codeResult.durationMs,
+            deferred: true,
+          })
+
+          return {
+            ...codeResult,
+            nextCommand: buildIndexCommand(effectiveConfig.indexRoot),
+          }
+        }
 
         // After code indexing, also index ADRs if enabled
         let adrFilesIndexed: number | undefined
