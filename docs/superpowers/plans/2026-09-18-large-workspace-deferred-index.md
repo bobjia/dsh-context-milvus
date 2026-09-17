@@ -2758,7 +2758,7 @@ Expected: FAIL —— 第 1 个用例 `deleteByFilePath` 调用 0 次（full 不
 把 `runIndex` 里第 3 步的 full 分支改为（注意 `computed` 现在无条件计算）：
 
 ```ts
-  // 3. Compute delta
+  // 4. Compute delta
   const computed = tracker.computeDelta(currentFiles)
   let delta: IndexDelta
   if (mode === 'full') {
