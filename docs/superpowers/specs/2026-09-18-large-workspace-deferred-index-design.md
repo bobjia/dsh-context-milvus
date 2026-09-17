@@ -7,13 +7,15 @@ id: SPEC-2026-09-18-large-workspace-deferred-index
 related_decisions: []
 ---
 
-# 大工作区索引降级与独立索引脚本（dsh-context-milvus）
+# 大工作区/大规格库索引降级与独立索引脚本（dsh-context-milvus）
 
 ## 概要
 
 `index_code` 目前把「扫描 → 分块 → Embedding → 写入 Milvus」压在**一次工具调用**里。大仓库下这会长时间阻塞会话、可能触发工具超时，并且在用户没意识到的情况下产生大量 embedding 费用。
 
 本次改造：当工作区规模超过阈值（**可索引文件数 > 1000** 或 **源码文本总量 > 500 KiB**）时，DSH 的 `index_code` **只做扫描统计**，随即返回一条提示，要求用户在终端**单独运行随插件分发的索引脚本**完成 Embedding 与上传。脚本是独立进程，不受会话超时约束，可中断续传。
+
+`index_specs` 同理：当 specs+plans 下的规格文档规模超过阈值（**文档数 > 100** 或 **文本总量 > 200 KiB**）时，DSH 的 `index_specs` 只做扫描统计，提示用户用同一条脚本命令加 `--specs-only` 完成 frontmatter 生成与索引。触发场景很具体：`findCandidateFiles()` 只返回**没有 frontmatter** 的文档，所以一个规格文档很多、且尚未加过 frontmatter 的仓库，首次运行会逐个生成锚点并写盘、随后全量索引，同样会长时间阻塞会话；跑过一次后候选归零，成本自然下降。
 
 Codex 适配器行为不变。阈值判定、run-config 落盘、CLI 实现放在 core（框架无关、可单测），DSH 只负责传开关、渲染提示与暴露 bin。
 
@@ -45,6 +47,8 @@ Codex 适配器行为不变。阈值判定、run-config 落盘、CLI 实现放�
 | 脚本配置来源 | `index_code` 把**解析后的有效配置**落盘，脚本读它（保证与插件 100% 一致） |
 | 脚本落地 | CLI 逻辑放 **core**，`dsh` 包暴露 bin（Codex 以后可零成本复用） |
 | 阈值口径 | 文件数 > 1000（仅可索引文件）或 文本 > **500 KiB（UTF-8 字节）** |
+| 规格文档阈值 | specs+plans **全量**文档：文档数 > **100** 或 文本 > **200 KiB**（专用小常量，规格文档远少于代码文件） |
+| 脚本模式 | 默认跑完整流程（代码 → spec/plan frontmatter 生成 → ADR/规格索引），另有 `--specs-only` |
 | 生效范围 | **仅 DSH**；Codex 的 `index_code` 行为不变 |
 | 实现方案 | 阈值判定放进 `runIndex`（opt-in 开关），**单次 walk**，不重复扫描 |
 | 中断保护 | 每 50 个文件 `tracker.save()` 一次 |
@@ -170,7 +174,42 @@ export interface IndexResult {
 
 早退路径**不写 Merkle 状态、不删文件、不建集合**——本次运行对系统零副作用。
 
-本次新增的公共符号需全部经 `packages/core/src/index.ts` 导出（barrel 是适配器唯一的 import 面）：`probeWorkspace`、`exceedsLargeWorkspace`、`LARGE_WORKSPACE_FILE_LIMIT`、`LARGE_WORKSPACE_BYTE_LIMIT`、`DEFAULT_CHECKPOINT_EVERY`、`deriveRunConfigPath`、`writeRunConfig`、`readRunConfig`、`runIndexCli`，以及类型 `WorkspaceProbe`、`LargeWorkspaceLimits`、`RunConfigFile`、`CliIo`。
+本次新增的公共符号需全部经 `packages/core/src/index.ts` 导出（barrel 是适配器唯一的 import 面）：`probeWorkspace`、`exceedsLargeWorkspace`、`probeSpecCorpus`、`exceedsLargeSpecCorpus`、`LARGE_WORKSPACE_FILE_LIMIT`、`LARGE_WORKSPACE_BYTE_LIMIT`、`LARGE_SPEC_FILE_LIMIT`、`LARGE_SPEC_BYTE_LIMIT`、`DEFAULT_CHECKPOINT_EVERY`、`deriveRunConfigPath`、`writeRunConfig`、`readRunConfig`、`runIndexCli`，以及类型 `WorkspaceProbe`、`SpecCorpusProbe`、`LargeWorkspaceLimits`（定义在 `types.ts`）、`RunConfigFile`、`CliIo`。
+
+### 1b. 规格文档阈值（`packages/core/src/adr-indexer.ts`）
+
+与代码侧同构，但用**专用小常量**，且测量 **specs+plans 全量文档**（不只数待生成 frontmatter 的候选——后续索引成本由全量决定）：
+
+```ts
+export const LARGE_SPEC_FILE_LIMIT = 100
+export const LARGE_SPEC_BYTE_LIMIT = 200 * 1024   // 200 KiB
+
+export interface SpecCorpusProbe {
+  files: string[]        // 命中的规格/计划文档绝对路径
+  fileCount: number
+  totalBytes: number
+  exceedsLargeSpecCorpus: boolean
+}
+
+export function exceedsLargeSpecCorpus(
+  fileCount: number,
+  totalBytes: number,
+  limits?: LargeWorkspaceLimits,
+): boolean
+
+/** 扫描 specRoot + planRoot（与 runAdrIndex 相同的正则与非递归 readdir 口径）。 */
+export async function probeSpecCorpus(
+  config: PluginConfig,
+  options?: { limits?: LargeWorkspaceLimits },
+): Promise<SpecCorpusProbe>
+```
+
+口径要点：
+
+- 只测 `specRoot` + `planRoot`，**不含** `adrRoot`（`index_specs` 不处理 ADR 目录）。
+- 复用 `SPEC_FILE_RE` / `PLAN_FILE_RE`（`adr-indexer.ts:15-16`）与 `scanDirectory` 相同的**非递归 `readdir`** 语义，保证与真实索引扫描一致。
+- `totalBytes` 来自扫描时已读取的内容（`Buffer.byteLength`），无额外 IO。
+- `LargeWorkspaceLimits` 提到 `packages/core/src/types.ts`，供代码侧与规格侧共用。
 
 ### 2. `index_code` 行为（`packages/dsh/.../tools.ts`）
 
@@ -196,7 +235,7 @@ nextCommand:    { type: 'string' }
 命令构造（新文件 `packages/dsh/src/plugins/dsh-context-milvus/index-command.ts`，独立成文件以便单测）：
 
 ```ts
-export function buildIndexCommand(indexRoot: string): string
+export function buildIndexCommand(indexRoot: string, options?: { specsOnly?: boolean }): string
 ```
 
 - 以本模块的 `import.meta.url` 为基准解析 `../../../bin/index.js`（`src/plugins/dsh-context-milvus/` 与 `dist/plugins/dsh-context-milvus/` 到包根的层级相同，两种布局都成立）。
@@ -217,6 +256,37 @@ export function buildIndexCommand(indexRoot: string): string
 ```
 
 `run-config` 落盘失败时，文案追加一句：配置未能落盘，请在终端用环境变量（`MILVUS_ADDRESS` / `EMBEDDING_ENDPOINT` / …）运行，或先重试 `index_code`。
+
+### 2b. `index_specs` 行为（`packages/dsh/.../adr-tools.ts`）
+
+在 `execute` 最前面插入阈值判定（在 `findCandidateFiles` **之前**）：
+
+```ts
+const probe = await probeSpecCorpus(config)
+if (!params.dry_run && probe.exceedsLargeSpecCorpus) {
+  // 超阈：不生成 frontmatter、不写盘、不索引
+  return { deferred: true, specFiles: probe.fileCount, specBytes: probe.totalBytes,
+           nextCommand: buildIndexCommand(indexRoot, { specsOnly: true }), ... }
+}
+```
+
+- **`dry_run: true` 绕过阈值判定**：预览本身无副作用，且是用户主动查看规模的手段，不应被拒绝。
+- 超阈时**不写任何文件**（`generateSpecFrontmatter` 会改磁盘上的规格文档，这是比 `index_code` 更重的副作用，必须挡住）。
+- 提示命令带 `--specs-only`：`node …/bin/index.js --root <root> --specs-only`。
+- 输出 schema 新增 4 个字段：`deferred: boolean`、`specFiles: number`、`specBytes: number`、`nextCommand: string`。
+- 未超阈时行为与今天完全一致。
+
+`render` 文案：
+
+```
+⚠️ 规格文档较多（143 个文档 / 312 KiB；阈值 100 个文档 / 200 KiB），已跳过 frontmatter 生成与索引。
+本次未写入任何文件，也未做向量化。
+
+请在终端单独运行以下命令：
+  node …/dsh-context-milvus/bin/index.js --root /abs/workspace --specs-only
+
+如需先预览将要生成的锚点，可继续使用 index_specs(dry_run=true)。
+```
 
 ### 3. `run-config.json` 契约（`packages/core/src/config.ts`）
 
@@ -267,7 +337,8 @@ export async function runIndexCli(argv: string[], io: CliIo): Promise<number>
 | `--mode <full\|incremental>` | `incremental` | 透传给 `runIndex` |
 | `--config <path>` | `deriveRunConfigPath(root)` | 显式指定 run-config |
 | `--dry-run` | off | 只做扫描 + 分块统计，不连 Milvus、不 embed、不写入 |
-| `--no-adr` | off | 跳过 ADR 索引 |
+| `--specs-only` | off | 跳过代码索引，只做 spec/plan 的 frontmatter 生成 + ADR/规格索引 |
+| `--no-adr` | off | 跳过 ADR 与规格索引 |
 | `--verbose` | off | 打印逐文件进度 |
 | `--help` / `-h` | — | 用法说明 |
 
@@ -277,9 +348,14 @@ export async function runIndexCli(argv: string[], io: CliIo): Promise<number>
 2. 读配置：`--config` > `deriveRunConfigPath(root)` > `getConfig({})`（env + 默认值，并打印一行警告说明未使用插件配置）。
 3. **`--dry-run` 在此短路**：调 `probeWorkspace()` 取文件数/字节数，再逐文件 `chunkCode()` 统计分块数，打印规模预估后返回 0 —— **不构造 Milvus / Embedding 客户端，不读写任何状态**。（分块是纯 CPU 开销，大仓库下本身需要时间。）
 4. 构建服务：`new EmbeddingClient(config.embedding)`、`new MilvusService({ address, token, collection, dim, embeddingClient, hybridMode, bm25RrfK, queryExpansion, rerankConfig })`（与 DSH `applyServiceConfig` 同形）、`new HashTracker(config.merkleFilePath)` + `load()`、`new ImportResolver(deriveImportMapFilePath(root))` + `load()`。
-5. `runIndex(config, milvus, tracker, { mode, progress, importResolver })` —— **不设** `deferLargeWorkspace`（脚本本身就是重活路径）。
-6. 若 `config.adrEnabled` 且未 `--no-adr`：`createAdrBundle(config, { createWhenMissing: true })`，把 `adrRoot`/`specRoot`/`planRoot` 相对 `indexRoot` 解析为绝对路径后调 `runAdrIndex(...)`（与 DSH `index_code` 同一调用序列）。
+5. `runIndex(config, milvus, tracker, { mode, progress, importResolver })` —— **不设** `deferLargeWorkspace`（脚本本身就是重活路径）。`--specs-only` 时跳过此步。
+6. 若 `config.adrEnabled` 且未 `--no-adr`：
+   a. **生成 frontmatter**：用 `findCandidateFiles()`（与 `index_specs` 相同的两个正则）找出 spec/plan 下无 frontmatter 的文档，逐个 `generateSpecFrontmatter(filePath, indexRoot)` 写盘（这是 `index_specs` 的核心副作用，必须由脚本承担）。
+   b. `createAdrBundle(config, { createWhenMissing: true })`，把 `adrRoot`/`specRoot`/`planRoot` 相对 `indexRoot` 解析为绝对路径后调 `runAdrIndex(...)`（与 DSH 同一调用序列）。
+   c. `--specs-only` 且 `adrEnabled` 为 false → 打印「规格索引属于 ADR 功能，请先启用 adrEnabled」并返回 1（规格数据存在 ADR 集合里，`runAdrIndex` 会在 `!adrEnabled` 时直接返回零）。
 7. 打印摘要并返回退出码。
+
+摘要分三段输出：`[index]`（代码）、`[specs]`（frontmatter 生成数/索引数）、`[adr]`（ADR 索引数）。
 
 `--verbose` 透传为 `onFileProgress`（逐文件扫描进度）并打印阶段日志。
 
@@ -317,7 +393,7 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
 
 ### 6. 文档更新
 
-- `README.md`：`index_code` 章节补充「大工作区降级」行为与阈值；新增「独立索引脚本」小节（安装位置、参数、退出码、`~/.milvus-index/run-config-*.json` 的作用与 0600 权限）。
+- `README.md`：`index_code` 章节补充「大工作区降级」行为与阈值；`index_specs` 章节补充「大规格库降级」；新增「独立索引脚本」小节（安装位置、参数含 `--specs-only`、退出码、`~/.milvus-index/run-config-*.json` 的作用与 0600 权限）。
 - `packages/dsh/README.md`：一句话指向脚本。
 - 不新增 config key，配置表不变。
 
@@ -330,6 +406,9 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
 | 场景 | 行为 |
 |------|------|
 | 工作区超阈 | 返回 `deferred` 结果 + 提示命令；**无 Milvus 连接、无 embedding 调用、无状态写入** |
+| 规格文档超阈 | 返回 `deferred` 结果 + `--specs-only` 命令；**不生成 frontmatter、不改任何文件、不索引** |
+| `index_specs(dry_run=true)` | 绕过阈值判定，照常预览（无副作用） |
+| `--specs-only` 但 `adrEnabled: false` | 明确报错「规格索引属于 ADR 功能」，退出码 1 |
 | run-config 写入失败 | 告警日志；仍返回 `deferred` 与命令，文案追加「配置未落盘，可用环境变量运行」 |
 | 脚本找不到 run-config | 回退 `getConfig({})`（env + 默认值）并打印警告；不报错退出 |
 | run-config JSON 损坏 / 版本不符 | `readRunConfig` 返回 `null` → 同上回退 |
@@ -356,13 +435,23 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
   - `--help` → 退出 0 且输出用法；
   - 未知参数 → 退出 2；
   - `--dry-run` → 不构造 Milvus/Embedding（mock 断言未调用）；
-  - 缺少 run-config → 走 env 回退并打印警告。
+  - 缺少 run-config → 走 env 回退并打印警告；
+  - `--specs-only` + `adrEnabled: false` → 退出 1 且提示启用 ADR。
+
+### core（规格侧）
+
+- `exceedsLargeSpecCorpus()` 纯函数边界：100 / 101 文档；204800 / 204801 字节。
+- `probeSpecCorpus`：只统计 `specRoot` + `planRoot`（不含 `adrRoot`）；非递归（子目录里的 `.md` 不计入）；只统计匹配 `SPEC_FILE_RE` / `PLAN_FILE_RE` 的文件；`totalBytes` 与文件 UTF-8 长度一致。
+- `probeSpecCorpus` 注入小阈值即可用小目录覆盖超阈分支。
 
 ### dsh
 
 - `index_code` 超阈 → 返回 `deferred: true`、写出 run-config、**未调用 `runAdrIndex`**。
 - `index_code` 未超阈 → 现有 3 个 ADR 输出用例继续通过（新增字段不影响既有断言）。
-- `buildIndexCommand`：bin 存在 → 绝对路径命令；不存在 → npx 回退。
+- `index_specs` 超阈 → 返回 `deferred: true`、**未调用 `generateSpecFrontmatter`**、未调用 `runAdrIndex`、未写任何文件。
+- `index_specs(dry_run=true)` → 即使超阈也照常预览（未被降级拦截）。
+- `index_specs` 未超阈 → 现有行为不变。
+- `buildIndexCommand`：bin 存在 → 绝对路径命令；不存在 → npx 回退；`{ specsOnly: true }` → 追加 `--specs-only`。
 - 冻结面：`public-surface.spec.ts` **零改动**通过（13 工具名 / 27 config 键不变）。
 
 ### 集成
@@ -374,6 +463,7 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
 1. 大仓库调用 `index_code` **只做扫描即返回**（不做分块、不向量化、不写状态），返回可粘贴命令；Milvus 无任何写入、无 embedding 调用（可用 mock/日志断言）。
 2. 按提示命令在终端跑完 → 数据入库 → `search_code` / `find_callers` 能检索到该工作区。
 3. 小仓库（未超阈）`index_code` 行为与改造前一致，全量测试通过。
-4. Codex 的 `index_code` 行为不变。
-5. 脚本跑到一半 Ctrl-C，重跑时已索引文件不再 embedding。
-6. `npm run typecheck`、`npm run build`、`npm test` 全绿。
+4. 规格文档很多的仓库调用 `index_specs` **只做扫描即返回**（不生成 frontmatter、不改文件），提示 `--specs-only` 命令；该命令跑完后 `search_adr` 能检索到这些规格文档。
+5. Codex 的 `index_code` 行为不变。
+6. 脚本跑到一半 Ctrl-C，重跑时已索引文件不再 embedding。
+7. `npm run typecheck`、`npm run build`、`npm test` 全绿。
