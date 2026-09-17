@@ -79,6 +79,22 @@ describe('probeSpecCorpus', () => {
     expect(probe.totalBytes).toBe(3) // 'A' + 'BB'
     expect(probe.files.some((f) => f.endsWith('2026-01-01-alpha-design.md'))).toBe(true)
     expect(probe.files.some((f) => f.endsWith('2026-01-02-alpha.md'))).toBe(true)
+
+    // Per-file sizes let the caller meter an arbitrary candidate subset without
+    // re-reading anything: one entry per counted file, in UTF-8 bytes.
+    expect(probe.sizes.size).toBe(2)
+    expect(probe.sizes.get(path.join(tmp, 'docs/superpowers/specs/2026-01-01-alpha-design.md'))).toBe(1)
+    expect(probe.sizes.get(path.join(tmp, 'docs/superpowers/plans/2026-01-02-alpha.md'))).toBe(2)
+  })
+
+  it('reports per-file sizes in UTF-8 bytes, not characters', async () => {
+    await write('docs/superpowers/specs/2026-01-01-cjk-design.md', '中文')
+
+    const probe = await probeSpecCorpus(specCfg())
+
+    // 2 characters, 6 bytes
+    expect(probe.totalBytes).toBe(6)
+    expect(probe.sizes.get(path.join(tmp, 'docs/superpowers/specs/2026-01-01-cjk-design.md'))).toBe(6)
   })
 
   it('does not recurse into subdirectories (matches runAdrIndex scan)', async () => {

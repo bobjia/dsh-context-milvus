@@ -24,6 +24,9 @@ export interface SpecCorpusProbe {
   files: string[]
   fileCount: number
   totalBytes: number
+  /** 单文件 UTF-8 字节数，供调用方给候选子集计量（内容已读，无额外 IO）。 */
+  sizes: Map<string, number>
+  /** 仅作参考：按**全量语料**算出的超阈标志；判定改用候选集（缺 frontmatter 的文档），不再看它。 */
   exceedsLargeSpecCorpus: boolean
 }
 
@@ -61,6 +64,7 @@ export async function probeSpecCorpus(
   ]
 
   const files: string[] = []
+  const sizes = new Map<string, number>()
   let totalBytes = 0
 
   for (const root of roots) {
@@ -75,8 +79,10 @@ export async function probeSpecCorpus(
       const fullPath = path.join(root.path, name)
       try {
         const content = await readFile(fullPath, 'utf-8')
+        const bytes = Buffer.byteLength(content, 'utf-8')
         files.push(fullPath)
-        totalBytes += Buffer.byteLength(content, 'utf-8')
+        sizes.set(fullPath, bytes)
+        totalBytes += bytes
       } catch {
         // Skip unreadable files
       }
@@ -88,6 +94,7 @@ export async function probeSpecCorpus(
     files,
     fileCount,
     totalBytes,
+    sizes,
     exceedsLargeSpecCorpus: exceedsLargeSpecCorpus(fileCount, totalBytes, options?.limits),
   }
 }

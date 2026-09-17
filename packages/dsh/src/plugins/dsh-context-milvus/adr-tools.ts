@@ -23,7 +23,7 @@ import type { AdrAnchorIndex } from 'dsh-context-milvus-core'
 import type { PluginConfig } from 'dsh-context-milvus-core'
 import type { HashTracker } from 'dsh-context-milvus-core'
 import {
-  runAdrIndex, probeSpecCorpus, writeRunConfig, deriveMerkleFilePath,
+  runAdrIndex, probeSpecCorpus, exceedsLargeSpecCorpus, writeRunConfig, deriveMerkleFilePath,
   LARGE_SPEC_FILE_LIMIT, LARGE_SPEC_BYTE_LIMIT, SPEC_FILE_RE, PLAN_FILE_RE,
 } from 'dsh-context-milvus-core'
 import { findCandidateFiles, previewFrontmatter, generateSpecFrontmatter } from 'dsh-context-milvus-core'
@@ -44,20 +44,31 @@ function formatAdrSearchResults(value: any[]): string {
   }).join('\n---\n')
 }
 
-/** Message shown when index_specs refused to process a large spec corpus inline. */
+/**
+ * Message shown when index_specs refused to process a large spec corpus inline.
+ *
+ * Leads with the pending (candidate) numbers — that is what the decision was
+ * actually made on — and only mentions the whole corpus when it differs.
+ */
 function formatDeferredSpecsResult(value: any): string {
-  const kib = Math.round(value.specBytes / 1024)
-  return [
-    `⚠️ 规格文档较多（${value.specFiles} 个文档 / ${kib} KiB；` +
-    `阈值 ${LARGE_SPEC_FILE_LIMIT} 个文档 / ${LARGE_SPEC_BYTE_LIMIT / 1024} KiB），` +
+  const pendingKib = Math.round(value.pendingBytes / 1024)
+  const lines = [
+    `⚠️ 本次规格处理量较大（${value.pendingFiles} 篇待处理文档 / ${pendingKib} KiB；` +
+    `阈值 ${LARGE_SPEC_FILE_LIMIT} 篇 / ${LARGE_SPEC_BYTE_LIMIT / 1024} KiB），` +
     '已跳过 frontmatter 生成与索引。',
+  ]
+  if (value.pendingFiles !== value.specFiles) {
+    lines.push(`（specs+plans 共 ${value.specFiles} 篇，本次需处理 ${value.pendingFiles} 篇。）`)
+  }
+  lines.push(
     '本次未写入任何文件，也未做向量化。',
     '',
     '请在终端单独运行以下命令：',
     `  ${value.nextCommand}`,
     '',
     '如需先预览将要生成的锚点，可继续使用 index_specs(dry_run=true)。',
-  ].join('\n')
+  )
+  return lines.join('\n')
 }
 
 /**
@@ -526,9 +537,13 @@ export function registerAdrTools(
             }, additionalProperties: false } },
           }, additionalProperties: false } },
           // Large-corpus deferral: nothing was written or indexed this call.
+          // specFiles/specBytes describe the whole corpus; pendingFiles/pendingBytes
+          // are the candidate set the decision was actually made on.
           deferred: { type: 'boolean' },
           specFiles: { type: 'number' },
           specBytes: { type: 'number' },
+          pendingFiles: { type: 'number' },
+          pendingBytes: { type: 'number' },
           nextCommand: { type: 'string' },
         }, additionalProperties: false,
       },
@@ -571,11 +586,26 @@ export function registerAdrTools(
         ? ''
         : path.resolve(indexRoot, config.planRoot || 'docs/superpowers/plans')
 
-      // Large spec corpus: stop before generating frontmatter (which writes to
+      // 1. Candidates = the documents this call would actually process. The
+      // deferral decision is sized on them, not on the whole corpus: frontmatter
+      // generation scales with the candidate count, and runAdrIndex is
+      // incremental and only runs at all when candidates is non-empty. Reading
+      // frontmatter has no side effects — only generateSpecFrontmatter writes,
+      // and that still happens strictly after the check below.
+      const candidates: string[] = []
+      if (specRoot) candidates.push(...await findCandidateFiles(specRoot, SPEC_FILE_RE))
+      if (planRoot) candidates.push(...await findCandidateFiles(planRoot, PLAN_FILE_RE))
+
+      // 2. Meter the candidates from the probe's per-file sizes (content already
+      // read during the scan — no extra IO).
+      const probe = await probeSpecCorpus({ ...config, specRoot, planRoot })
+      let pendingBytes = 0
+      for (const filePath of candidates) pendingBytes += probe.sizes.get(filePath) ?? 0
+
+      // Large candidate set: stop before generating frontmatter (which writes to
       // the user's files) or indexing anything. dry_run is exempt — a preview
       // has no side effects and is how a user inspects the scale.
-      const probe = await probeSpecCorpus({ ...config, specRoot, planRoot })
-      if (!params.dry_run && probe.exceedsLargeSpecCorpus) {
+      if (!params.dry_run && exceedsLargeSpecCorpus(candidates.length, pendingBytes)) {
         try {
           await writeRunConfig({ ...config, indexRoot, merkleFilePath: deriveMerkleFilePath(indexRoot) })
         } catch (err) {
@@ -592,18 +622,17 @@ export function registerAdrTools(
           dryRun: false,
           preview: [],
           deferred: true,
+          // Whole corpus — reporting only.
           specFiles: probe.fileCount,
           specBytes: probe.totalBytes,
+          // The candidate set the decision was actually made on.
+          pendingFiles: candidates.length,
+          pendingBytes,
           nextCommand: buildIndexCommand(indexRoot, { specsOnly: true }),
         }
       }
 
-      // 1. Find candidate files (no frontmatter) in specRoot + planRoot
-      const candidates: string[] = []
-      if (specRoot) candidates.push(...await findCandidateFiles(specRoot, SPEC_FILE_RE))
-      if (planRoot) candidates.push(...await findCandidateFiles(planRoot, PLAN_FILE_RE))
-
-      // 2. For each: generate frontmatter (dry_run = preview only)
+      // 3. For each: generate frontmatter (dry_run = preview only)
       const preview: any[] = []
       let anchorsGenerated = 0
       for (const filePath of candidates) {
@@ -616,7 +645,7 @@ export function registerAdrTools(
         }
       }
 
-      // 3. If not dry_run: run runAdrIndex to index the new files
+      // 4. If not dry_run: run runAdrIndex to index the new files
       let filesIndexed = 0
       let chunksIndexed = 0
       if (!params.dry_run && candidates.length > 0 && adrIndexer) {
