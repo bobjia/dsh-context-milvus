@@ -2513,6 +2513,20 @@ embedding 端点/模型等，文件权限 `0600`），因此脚本与插件使�
 没有该文件时回退到环境变量与默认值，并打印警告。
 
 **不要与插件同时运行索引**：两者不会损坏数据，但会重复劳动。
+
+### 已知限制：多机器共享同一个集合
+
+索引键 `file_path` 是**本机绝对路径**，"是否已索引"由本机的
+`~/.milvus-index/merkle-*.json` 判断。因此当多个用户在不同电脑上克隆同一个
+Git 工程、却指向**同一个远程 Milvus 集合**时：
+
+- 每个克隆会各自写入一份（同一文件、不同绝对路径 → 两套行），删除互不影响；
+- 各自的 Merkle 状态互相看不见，同一份代码会被重复 embedding（重复计费）；
+- 检索结果里会混入其他机器的绝对路径，本机打不开。
+
+**建议：每个工作区/每个用户使用各自的集合**（在 DSH 设置面板里改
+`milvusCollection` / `adrCollection`）。共享集合目前只在"所有人把仓库克隆到
+完全相同的绝对路径、且集合名 / `milvusDim` / embedding 模型完全一致"时才安全。
 ```
 
 - [ ] **Step 4: `packages/dsh/README.md` 加一句**
@@ -2529,6 +2543,324 @@ embedding 端点/模型等，文件权限 `0600`），因此脚本与插件使�
 ```bash
 git add README.md packages/dsh/README.md
 git commit -m "docs: document the large-corpus deferral and the standalone script"
+```
+
+---
+
+### Task 11: `mode=full` 改为真正的重建（幂等修复）
+
+**Files:**
+- Modify: `packages/core/src/indexer.ts`（full 的 delta 恢复 `toRemove`；每文件改为无条件先删后插；零 chunk 时也删）
+- Modify: `packages/core/src/adr-indexer.ts`（同上，两处对称修改）
+- Test: `packages/core/test/index-full-mode.spec.ts`（新建）、`packages/core/test/adr-indexer.spec.ts`（追加一个 describe）
+
+**Interfaces:**
+- Consumes: 既有的 `runIndex` / `runAdrIndex` / `MilvusService.deleteByFilePath` / `deleteByFilePaths` / `deleteAdrByFilePath`。
+- Produces: 无新 API；**行为变更** —— `mode=full` 从"只追加"变为"先删后插"的真重建，且会清理磁盘上已消失文件的行。
+
+**为什么必须修**：主键 `id` 是 `autoID: true`，插入走 `client.insert`（不是 upsert），所以去重**完全依赖**插入前的 `deleteByFilePath`。而该调用被 `if (mode === 'incremental')` 挡住，且 full 模式把 `toRemove` 置空 —— 对**非空**集合跑 full 会让每个 chunk 翻倍，且已删除文件的行永久残留。README 把 full 描述为"全量重建"，与实际行为不符。
+
+- [ ] **Step 1: 写失败的测试（代码侧）**
+
+新建 `packages/core/test/index-full-mode.spec.ts`：
+
+```ts
+import { jest } from '@jest/globals'
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import * as path from 'node:path'
+import { tmpdir } from 'node:os'
+
+const mockEnsureCollection = jest.fn(async () => {})
+const mockInsertChunks = jest.fn(async (chunks: any[]) => chunks.length)
+const mockDeleteByFilePath = jest.fn(async () => 1)
+const mockDeleteByFilePaths = jest.fn(async () => 1)
+
+jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
+  MilvusClient: jest.fn(() => ({ connectPromise: Promise.resolve() })),
+  DataType: { Int64: 5, FloatVector: 101, VarChar: 21, Int32: 4, SparseFloatVector: 104 },
+  MetricType: { COSINE: 'COSINE', BM25: 'BM25' },
+  FunctionType: { BM25: 'BM25' },
+  RANKER_TYPE: { RRF: 'rrf' },
+  ErrorCode: { SUCCESS: 'Success' },
+}))
+
+// chunkCode is stubbed so the zero-chunk case is deterministic: content
+// containing NOTHING yields no chunks, everything else yields exactly one.
+const mockChunkCode = jest.fn(async (filePath: string, content: string) =>
+  content.includes('NOTHING')
+    ? []
+    : [{
+        filePath, content: 'x', startLine: 1, endLine: 1,
+        language: 'typescript', chunkType: 'function', name: 'x',
+      }],
+)
+jest.unstable_mockModule('../src/chunker.js', () => ({ chunkCode: mockChunkCode }))
+
+const { runIndex } = await import('../src/indexer.js')
+const { HashTracker } = await import('../src/merkle.js')
+const { getConfig } = await import('../src/config.js')
+
+/** Structural stand-in for MilvusService — only the methods runIndex calls. */
+function fakeMilvus(): any {
+  return {
+    ensureCollection: mockEnsureCollection,
+    insertChunks: mockInsertChunks,
+    deleteByFilePath: mockDeleteByFilePath,
+    deleteByFilePaths: mockDeleteByFilePaths,
+  }
+}
+
+let tmp: string
+let savedHome: string | undefined
+
+beforeEach(async () => {
+  jest.clearAllMocks()
+  tmp = await mkdtemp(path.join(tmpdir(), 'full-mode-'))
+  savedHome = process.env.HOME
+  process.env.HOME = tmp
+  globalThis.fetch = jest.fn(async (_url: any, init: any) => {
+    const body = JSON.parse(String(init.body))
+    return {
+      ok: true,
+      json: async () => ({
+        data: Array.from({ length: body.input.length }, () => ({ embedding: [0.1, 0.2, 0.3] })),
+      }),
+    }
+  }) as any
+})
+
+afterEach(async () => {
+  if (savedHome === undefined) delete process.env.HOME
+  else process.env.HOME = savedHome
+  await rm(tmp, { recursive: true, force: true })
+})
+
+async function write(rel: string, content: string): Promise<void> {
+  const full = path.join(tmp, rel)
+  await mkdir(path.dirname(full), { recursive: true })
+  await writeFile(full, content, 'utf-8')
+}
+
+function cfg() {
+  return { ...getConfig({}), indexRoot: tmp, indexExtensions: ['.ts'] }
+}
+
+describe('runIndex full mode is a rebuild, not an append', () => {
+  it('deletes each file\'s previous rows before re-inserting', async () => {
+    await write('a.ts', 'const a = 1')
+    await write('b.ts', 'const b = 2')
+
+    await runIndex(cfg(), fakeMilvus(), new HashTracker(path.join(tmp, 'merkle.json')), { mode: 'full' })
+
+    expect(mockDeleteByFilePath).toHaveBeenCalledTimes(2)
+    const deleted = mockDeleteByFilePath.mock.calls.map((c: any) => path.basename(c[0])).sort()
+    expect(deleted).toEqual(['a.ts', 'b.ts'])
+    expect(mockInsertChunks).toHaveBeenCalledTimes(2)
+  })
+
+  it('still removes rows for files that disappeared from disk', async () => {
+    await write('gone.ts', 'const gone = 1')
+    const tracker = new HashTracker(path.join(tmp, 'merkle.json'))
+    await runIndex(cfg(), fakeMilvus(), tracker, { mode: 'incremental' })
+    expect(mockDeleteByFilePaths).not.toHaveBeenCalled()
+
+    // Delete the file, then run a FULL rebuild: the orphan rows must still go.
+    await rm(path.join(tmp, 'gone.ts'))
+    mockDeleteByFilePaths.mockClear()
+
+    const result = await runIndex(cfg(), fakeMilvus(), tracker, { mode: 'full' })
+
+    expect(result.filesRemoved).toBe(1)
+    expect(mockDeleteByFilePaths).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops stale rows when a file stops producing chunks', async () => {
+    await write('a.ts', 'const a = 1')
+    const tracker = new HashTracker(path.join(tmp, 'merkle.json'))
+    await runIndex(cfg(), fakeMilvus(), tracker, { mode: 'incremental' })
+    expect(mockInsertChunks).toHaveBeenCalledTimes(1)
+
+    // Same path, but now it yields no chunks at all.
+    await write('a.ts', '// NOTHING to chunk here')
+    mockDeleteByFilePath.mockClear()
+    mockInsertChunks.mockClear()
+
+    await runIndex(cfg(), fakeMilvus(), tracker, { mode: 'incremental' })
+
+    expect(mockDeleteByFilePath).toHaveBeenCalledTimes(1)
+    expect(mockInsertChunks).not.toHaveBeenCalled()
+  })
+
+  it('keeps incremental delete-then-insert behaviour', async () => {
+    await write('a.ts', 'const a = 1')
+
+    await runIndex(cfg(), fakeMilvus(), new HashTracker(path.join(tmp, 'merkle.json')), { mode: 'incremental' })
+
+    expect(mockDeleteByFilePath).toHaveBeenCalledTimes(1)
+    expect(mockInsertChunks).toHaveBeenCalledTimes(1)
+  })
+})
+```
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core/test/index-full-mode.spec.ts`
+Expected: FAIL —— 第 1 个用例 `deleteByFilePath` 调用 0 次（full 不删）；第 2 个用例 `filesRemoved` 为 0；第 3 个用例 `deleteByFilePath` 调用 0 次（零 chunk 提前 continue）。
+
+- [ ] **Step 3: 修 `indexer.ts` 的 delta 与删除时机**
+
+把 `runIndex` 里第 3 步的 full 分支改为（注意 `computed` 现在无条件计算）：
+
+```ts
+  // 3. Compute delta
+  const computed = tracker.computeDelta(currentFiles)
+  let delta: IndexDelta
+  if (mode === 'full') {
+    // Full mode: re-index every file, but still drop the rows of files that no
+    // longer exist — a "rebuild" must not leave orphans behind.
+    delta = {
+      toIndex: Array.from(currentFiles.keys()),
+      toRemove: computed.toRemove,
+      unchanged: [],
+    }
+  } else {
+    progress('检测文件变更...')
+    delta = computed
+  }
+```
+
+把逐文件循环里的 `chunkCode` 调用之后、`chunks.length === 0` 判定**之前**插入无条件删除，并删掉原来那段 `if (mode === 'incremental')` ：
+
+```ts
+        const chunks = await chunkCode(filePath, content, ext, {
+          contextLines: config.chunkContextLines,
+        })
+
+        // Replace semantics: drop this file's previous rows before inserting.
+        // Incremental needs it to replace stale chunks; full needs it to stay
+        // idempotent (the primary key is autoID, so a bare insert would
+        // duplicate every chunk); both need it when a file stops producing
+        // chunks, which would otherwise leave its old rows behind forever.
+        await milvus.deleteByFilePath(filePath)
+
+        if (chunks.length === 0) {
+          // No chunkable structures found — still record the hash to avoid re-scanning
+          tracker.updateRecord(filePath, hash, 0)
+          continue
+        }
+```
+
+- [ ] **Step 4: 修 `adr-indexer.ts`（对称的两处）**
+
+把 `runAdrIndex` 的 delta 计算（`adr-indexer.ts:116-122`）改为：
+
+```ts
+  // Compute delta
+  const computed = tracker.computeDelta(currentFiles)
+  let delta: { toIndex: string[]; toRemove: string[]; unchanged: string[] }
+  if (mode === 'full') {
+    // Full mode: re-index every doc, but still drop rows for docs that are gone.
+    delta = { toIndex: allFiles, toRemove: computed.toRemove, unchanged: [] }
+  } else {
+    delta = computed
+  }
+```
+
+把 `chunkAdrFile` 之后、`chunks.length === 0` 判定之前插入无条件删除（并删掉 `adr-indexer.ts:169-171` 的 `if (mode === 'incremental')` 块）：
+
+```ts
+        const chunks = await chunkAdrFile(filePath, content)
+
+        // Replace semantics — see runIndex: autoID means an unguarded insert
+        // duplicates every chunk, in full mode as much as incremental.
+        await milvus.deleteAdrByFilePath(filePath)
+
+        if (chunks.length === 0) {
+          tracker.updateRecord(filePath, hash, 0)
+          continue
+        }
+```
+
+- [ ] **Step 5: 追加 ADR 侧测试**
+
+在 `packages/core/test/adr-indexer.spec.ts` 的 `describe('runAdrIndex', ...)` **内部**追加（复用该文件已有的 `config` / `milvus` / `tracker` / `anchorIndex` / `adrDir`）：
+
+```ts
+  describe('full mode is a rebuild, not an append', () => {
+    const DOC = `---
+id: ADR-0001-test
+type: decision-record
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test"
+  change_type: refactor
+related_decisions: []
+auto_generated: false
+---
+
+## 决策目标
+
+Test goal
+`
+
+    it('deletes each doc\'s previous rows before re-inserting', async () => {
+      await writeFile(path.join(adrDir, 'ADR-0001-test.md'), DOC)
+      milvus.deleteAdrByFilePath = jest.fn().mockResolvedValue(1)
+
+      await runAdrIndex(config, milvus, tracker, anchorIndex, { mode: 'full' })
+
+      expect(milvus.deleteAdrByFilePath).toHaveBeenCalledTimes(1)
+      expect(milvus.insertAdrChunks).toHaveBeenCalledTimes(1)
+    })
+
+    it('still removes rows for docs that disappeared', async () => {
+      const docPath = path.join(adrDir, 'ADR-0002-gone.md')
+      await writeFile(docPath, DOC.replace('ADR-0001-test', 'ADR-0002-gone'))
+      await runAdrIndex(config, milvus, tracker, anchorIndex, { mode: 'incremental' })
+
+      await rm(docPath)
+      milvus.deleteAdrByFilePath = jest.fn().mockResolvedValue(1)
+
+      const result = await runAdrIndex(config, milvus, tracker, anchorIndex, { mode: 'full' })
+
+      expect(result.filesRemoved).toBe(1)
+    })
+  })
+```
+
+> `rm` 已在该 spec 顶部从 `node:fs/promises` 导入；`writeFile`、`path`、`adrDir`、`tracker`、`anchorIndex` 也都在外层 `describe` 作用域内，直接复用。
+
+- [ ] **Step 6: 运行测试确认通过**
+
+Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core/test/index-full-mode.spec.ts packages/core/test/adr-indexer.spec.ts`
+Expected: PASS（新用例全过，`adr-indexer.spec.ts` 既有用例无回归）。
+
+- [ ] **Step 7: 全量回归 + 类型检查**
+
+Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core && npm run typecheck`
+Expected: 全部通过，退出 0。
+
+> 注意：`packages/dsh/test/adr-tools.spec.ts` 与 `packages/codex` 的测试若断言了"full 模式不删除"，需要一并更新 —— 这类断言在旧行为下才成立。以实际失败为准修正。
+
+- [ ] **Step 8: 提交**
+
+```bash
+git add packages/core/src/indexer.ts packages/core/src/adr-indexer.ts packages/core/test/index-full-mode.spec.ts packages/core/test/adr-indexer.spec.ts
+git commit -m "fix(core): make mode=full a real rebuild instead of an append
+
+The primary key is autoID and inserts use client.insert, so deduplication
+depended entirely on deleteByFilePath — which was gated behind
+mode === 'incremental', while full mode also blanked toRemove. Running a
+full index against a non-empty collection therefore duplicated every
+chunk and left rows for deleted files behind. Both indexers now delete
+before inserting unconditionally and keep computing toRemove in full mode."
 ```
 
 ---
