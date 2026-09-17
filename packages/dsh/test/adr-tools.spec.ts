@@ -27,16 +27,25 @@ jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
 // Mock modules for registerTools (tools.ts)
 // Note: jest.unstable_mockModule resolves relative paths from the test file,
 // so we use paths relative to test/ that point to the source modules.
+// The core barrel re-exports these modules with *named* re-exports, so each
+// mock has to satisfy every name the barrel lists: a missing one is a link-time
+// SyntaxError ("does not provide an export named ..."), not a runtime
+// undefined. Spread the real module and override only the functions under test,
+// so adding an export to the barrel cannot break this spec.
+const actualAdrIndexer = await import('../../core/src/adr-indexer.js')
 const mockRunAdrIndex = jest.fn()
 const mockGetAdrIndexStatus = jest.fn()
 jest.unstable_mockModule('../../core/src/adr-indexer.js', () => ({
+  ...actualAdrIndexer,
   runAdrIndex: mockRunAdrIndex,
   getAdrIndexStatus: mockGetAdrIndexStatus,
 }))
 
+const actualIndexer = await import('../../core/src/indexer.js')
 const mockRunIndex = jest.fn()
 const mockGetIndexStatus = jest.fn()
 jest.unstable_mockModule('../../core/src/indexer.js', () => ({
+  ...actualIndexer,
   runIndex: mockRunIndex,
   getIndexStatus: mockGetIndexStatus,
 }))
