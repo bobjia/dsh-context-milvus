@@ -9,8 +9,9 @@ export { HashTracker } from './merkle.js'
 export type { IndexDelta } from './merkle.js'
 export { IgnoreMatcher } from './ignore-matcher.js'
 export { ImportResolver } from './import-resolver.js'
-export { runIndex, getIndexStatus } from './indexer.js'
-export type { IndexResult } from './indexer.js'
+export { runIndex, getIndexStatus, probeWorkspace, exceedsLargeWorkspace,
+         LARGE_WORKSPACE_FILE_LIMIT, LARGE_WORKSPACE_BYTE_LIMIT, DEFAULT_CHECKPOINT_EVERY } from './indexer.js'
+export type { IndexResult, WorkspaceProbe } from './indexer.js'
 export { findCallers, traceChain, isNoiseSymbol, DEFAULT_STOP_WORDS } from './code-relations.js'
 export type { RelationChunk, CallersResult, ChainNode, TraceResult,
               FindCallersOptions, TraceOptions, FindBySymbol } from './code-relations.js'

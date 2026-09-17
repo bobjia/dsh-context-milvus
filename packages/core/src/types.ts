@@ -207,3 +207,12 @@ export interface AnchorIndexStats {
   adrCount: number
   anchorCount: number
 }
+
+/**
+ * 可注入的规模阈值。生产调用不传，走各模块的默认常量；
+ * 测试传小数值即可用很小的目录覆盖超阈分支。
+ */
+export interface LargeWorkspaceLimits {
+  files?: number
+  bytes?: number
+}

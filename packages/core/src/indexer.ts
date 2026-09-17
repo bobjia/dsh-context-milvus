@@ -17,7 +17,7 @@ import type { MilvusService } from './milvus-service.js'
 import { type PluginConfig, DEFAULT_IGNORE_PATTERNS } from './config.js'
 import { IgnoreMatcher } from './ignore-matcher.js'
 import { ImportResolver } from './import-resolver.js'
-import type { CodeChunk, IndexStatus } from './types.js'
+import type { CodeChunk, IndexStatus, LargeWorkspaceLimits } from './types.js'
 import { consoleLogger, type Logger } from './logger.js'
 
 /** Result of a single indexing run */
@@ -30,18 +30,52 @@ export interface IndexResult {
   durationMs: number
 }
 
+/** 超过该可索引文件数即视为大工作区。 */
+export const LARGE_WORKSPACE_FILE_LIMIT = 1000
+/** 超过该源码文本字节数（UTF-8）即视为大工作区。 */
+export const LARGE_WORKSPACE_BYTE_LIMIT = 500 * 1024
+/** 每成功处理这么多个文件落盘一次 Merkle 状态。 */
+export const DEFAULT_CHECKPOINT_EVERY = 50
+
+/** 一次工作区扫描的结果：文件哈希 + 规模统计。 */
+export interface WorkspaceProbe {
+  files: Map<string, string>
+  fileCount: number
+  totalBytes: number
+  exceedsLargeWorkspace: boolean
+}
+
+/** 纯判定：严格大于任一阈值即超阈。 */
+export function exceedsLargeWorkspace(
+  fileCount: number,
+  totalBytes: number,
+  limits?: LargeWorkspaceLimits,
+): boolean {
+  const fileLimit = limits?.files ?? LARGE_WORKSPACE_FILE_LIMIT
+  const byteLimit = limits?.bytes ?? LARGE_WORKSPACE_BYTE_LIMIT
+  return fileCount > fileLimit || totalBytes > byteLimit
+}
+
+/** Result of a directory walk: file hashes plus the size of the text walked. */
+interface WalkResult {
+  files: Map<string, string>
+  totalBytes: number
+}
+
 /**
  * Walk a directory recursively and collect all supported files.
- * Returns a map of absolute file path → file content hash.
+ * Returns a map of absolute file path → file content hash, plus the UTF-8 byte
+ * length of every file that was read.
  */
 async function walkDirectory(
   rootDir: string,
   extensions: string[],
   ignoreMatcher: IgnoreMatcher,
   progress?: (filePath: string) => void,
-): Promise<Map<string, string>> {
+): Promise<WalkResult> {
   const extSet = new Set(extensions)
   const files = new Map<string, string>()
+  let totalBytes = 0
 
   async function walk(dir: string): Promise<void> {
     let entries: string[]
@@ -75,6 +109,8 @@ async function walkDirectory(
             const content = await readFile(fullPath, 'utf-8')
             const hash = HashTracker.hashContent(content)
             files.set(fullPath, hash)
+            // The content is already in memory for hashing — size comes for free.
+            totalBytes += Buffer.byteLength(content, 'utf-8')
           } catch {
             // Skip files we can't read
           }
@@ -84,7 +120,7 @@ async function walkDirectory(
   }
 
   await walk(rootDir)
-  return files
+  return { files, totalBytes }
 }
 
 /**
@@ -137,6 +173,47 @@ async function loadGlobalIgnoreFile(): Promise<string[]> {
 }
 
 /**
+ * Scan a workspace and report its size.
+ *
+ * Shares the ignore-rule construction with runIndex so the standalone CLI's
+ * --dry-run numbers match what a real index run would see.
+ */
+export async function probeWorkspace(
+  config: PluginConfig,
+  options?: { onFileProgress?: (filePath: string) => void; limits?: LargeWorkspaceLimits },
+): Promise<WorkspaceProbe> {
+  const ignoreMatcher = new IgnoreMatcher([
+    ...DEFAULT_IGNORE_PATTERNS,
+    ...config.ignorePatterns,
+  ])
+
+  // Load codebase-specific ignore files
+  const ignoreFiles = await findIgnoreFiles(config.indexRoot)
+  for (const ignoreFile of ignoreFiles) {
+    const patterns = await readIgnoreFile(ignoreFile)
+    ignoreMatcher.addPatterns(patterns)
+  }
+
+  // Load global ignore file
+  ignoreMatcher.addPatterns(await loadGlobalIgnoreFile())
+
+  const { files, totalBytes } = await walkDirectory(
+    config.indexRoot,
+    config.indexExtensions,
+    ignoreMatcher,
+    options?.onFileProgress,
+  )
+
+  const fileCount = files.size
+  return {
+    files,
+    fileCount,
+    totalBytes,
+    exceedsLargeWorkspace: exceedsLargeWorkspace(fileCount, totalBytes, options?.limits),
+  }
+}
+
+/**
  * Run the indexing pipeline.
  */
 export async function runIndex(
@@ -164,32 +241,10 @@ export async function runIndex(
   progress('检查 Milvus 集合...')
   await milvus.ensureCollection()
 
-  // 2. Walk directory
+  // 2. Walk directory — also yields the size stats the large-workspace check needs
   progress('扫描代码仓库...')
-
-  // Create ignore matcher with default + custom patterns
-  const ignoreMatcher = new IgnoreMatcher([
-    ...DEFAULT_IGNORE_PATTERNS,
-    ...config.ignorePatterns,
-  ])
-
-  // Load codebase-specific ignore files
-  const ignoreFiles = await findIgnoreFiles(config.indexRoot)
-  for (const ignoreFile of ignoreFiles) {
-    const patterns = await readIgnoreFile(ignoreFile)
-    ignoreMatcher.addPatterns(patterns)
-  }
-
-  // Load global ignore file
-  const globalPatterns = await loadGlobalIgnoreFile()
-  ignoreMatcher.addPatterns(globalPatterns)
-
-  const currentFiles = await walkDirectory(
-    config.indexRoot,
-    config.indexExtensions,
-    ignoreMatcher,
-    onFileProgress,
-  )
+  const probe = await probeWorkspace(config, { onFileProgress })
+  const currentFiles = probe.files
 
   // 3. Compute delta
   let delta: IndexDelta
