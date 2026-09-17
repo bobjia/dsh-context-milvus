@@ -27,7 +27,7 @@ import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 // Loads dsh-settings' `Context.settings` service augmentation (types only, erased at runtime).
 import type {} from '@deepseek-ai/dsh-settings'
-import { getConfig, deriveMerkleFilePath, deriveImportMapFilePath, type CordisConfig } from 'dsh-context-milvus-core'
+import { getConfig, deriveMerkleFilePath, deriveImportMapFilePath, type CordisConfig, type PluginConfig, type AdrService, type AdrAnchorIndex } from 'dsh-context-milvus-core'
 import { MilvusService } from 'dsh-context-milvus-core'
 import { HashTracker } from 'dsh-context-milvus-core'
 import { EmbeddingClient } from 'dsh-context-milvus-core'
@@ -200,27 +200,194 @@ export const Config = z.object({
     .description('遥测 JSONL 文件路径（留空使用默认 ~/.milvus-index/telemetry.jsonl）'),
 })
 
+/**
+ * Fields that are baked into the Milvus/embedding service instances when they
+ * are constructed. A change to any of them requires rebuilding those services;
+ * every other config field is read per tool execution through the config thunk
+ * and therefore takes effect immediately.
+ */
+function serviceSignature(c: PluginConfig): string {
+  return JSON.stringify([
+    c.milvusAddress,
+    c.milvusToken ?? '',
+    c.milvusCollection,
+    c.milvusDim,
+    c.hybridMode,
+    c.bm25RrfK,
+    c.queryExpansion,
+    c.rerankEnabled,
+    c.rerankMultiplier,
+    c.embedding.endpoint,
+    c.embedding.apiKey ?? '',
+    c.embedding.model,
+  ])
+}
+
 export async function apply(ctx: Context, config?: CordisConfig) {
   // ── Settings registration (mirrors web-search-deepseek pattern) ──────
   // `current` is a thunk so tools always read the latest config after a
   // GUI edit without requiring a plugin reload.
   let current: () => CordisConfig = () => config ?? {}
 
+  // ── Connection services (Milvus + embedding) ─────────────────────────
+  // Built from the resolved config and rebuilt on a settings edit whenever one
+  // of the construction-time fields changes (see serviceSignature). Tools get
+  // `getMilvus` rather than the instance so a rebuild is visible to every
+  // subsequent execution.
+  let milvus: MilvusService | null = null
+  let milvusSignature = ''
+
+  const getMilvus = (): MilvusService => {
+    if (!milvus) {
+      throw new Error('[dsh-context-milvus] MilvusService 尚未初始化')
+    }
+    return milvus
+  }
+
+  /** Build (or rebuild) the Milvus/embedding services. Returns true if rebuilt. */
+  function applyServiceConfig(cfg: PluginConfig): boolean {
+    const signature = serviceSignature(cfg)
+    if (milvus && signature === milvusSignature) return false
+
+    const embeddingClient = new EmbeddingClient(cfg.embedding)
+    milvus = new MilvusService({
+      address: cfg.milvusAddress,
+      token: cfg.milvusToken,
+      collection: cfg.milvusCollection,
+      dim: cfg.milvusDim,
+      embeddingClient,
+      hybridMode: cfg.hybridMode,
+      bm25RrfK: cfg.bm25RrfK,
+      queryExpansion: cfg.queryExpansion,
+      rerankConfig: { enabled: cfg.rerankEnabled, multiplier: cfg.rerankMultiplier },
+    })
+    milvusSignature = signature
+
+    // Try to initialize collection; failure doesn't block tool registration
+    milvus.ensureCollection().catch((err: Error) => {
+      console.warn(
+        `[dsh-context-milvus] 集合初始化失败，将在首次使用工具时重试: ${err.message}`,
+      )
+    })
+    return true
+  }
+
+  // ── Startup-derived state ────────────────────────────────────────────
+  // The Merkle tracker, the cross-file import map and the ADR bundle are all
+  // derived from config at load time and carry on-disk state, so each keeps a
+  // holder that is refreshed when its inputs change. Tools receive getters (or,
+  // for ADR, a stable object whose fields are swapped in place) so a rebuild is
+  // visible to every later execution.
+  let tracker: HashTracker | null = null
+  let trackerPath = ''
+
+  const getTracker = (): HashTracker => {
+    if (!tracker) {
+      throw new Error('[dsh-context-milvus] HashTracker 尚未初始化')
+    }
+    return tracker
+  }
+
+  /** Build (or rebuild) the default Merkle tracker. Returns true if rebuilt. */
+  function applyTrackerConfig(cfg: PluginConfig): boolean {
+    if (tracker && cfg.merkleFilePath === trackerPath) return false
+
+    tracker = new HashTracker(cfg.merkleFilePath)
+    trackerPath = cfg.merkleFilePath
+    // Load Merkle state in the background — a missing state file is a fresh start.
+    tracker.load().catch(() => {
+      // No state file yet — fresh start
+    })
+    return true
+  }
+
+  let importResolver: ImportResolver | null = null
+  let importResolverRoot = ''
+
+  const getImportResolver = (): ImportResolver | undefined => importResolver ?? undefined
+
+  /** Build (or rebuild) the cross-file import map. Returns true if rebuilt. */
+  async function applyImportResolverConfig(cfg: PluginConfig): Promise<boolean> {
+    if (importResolver && cfg.indexRoot === importResolverRoot) return false
+
+    const resolver = new ImportResolver(deriveImportMapFilePath(cfg.indexRoot))
+    await resolver.load().catch(() => {
+      // No import map yet — fresh start
+    })
+    importResolver = resolver
+    importResolverRoot = cfg.indexRoot
+    return true
+  }
+
+  // The ADR bundle (service + anchor index + hash tracker) is derived from
+  // indexRoot/adrRoot, and the system prompt section is baked in when the ADR
+  // hooks are registered, so both are part of one signature.
+  let adrOptions: {
+    service: AdrService
+    anchorIndex: AdrAnchorIndex
+    adrTracker: HashTracker
+  } | null = null
+  let adrKey = ''
+
+  const getAdrOptions = () => {
+    if (!adrOptions) {
+      throw new Error('[dsh-context-milvus] ADR 服务尚未初始化')
+    }
+    return adrOptions
+  }
+
+  /** ADR inputs that are baked into the bundle or the prompt section. */
+  function adrSignature(cfg: PluginConfig): string {
+    return JSON.stringify([
+      path.resolve(cfg.indexRoot, cfg.adrRoot || 'docs/decisions'),
+      cfg.adrSystemPrompt,
+    ])
+  }
+
+  /** Build (or rebuild) the ADR bundle. Returns true if rebuilt. */
+  async function applyAdrConfig(cfg: PluginConfig): Promise<boolean> {
+    const key = adrSignature(cfg)
+    if (adrOptions && key === adrKey) return false
+
+    // createWhenMissing: true 延续 DSH 的历史行为 —— 加载插件即建出 ADR 目录。
+    // 缺了这个参数就会变成行为变化，因为 core 的 bundle 默认不在用户仓库里建目录。
+    const bundle = await createAdrBundle(cfg, { createWhenMissing: true })
+    if (adrOptions) {
+      // Mutate in place: tools registered earlier hold this exact object.
+      adrOptions.service = bundle.service
+      adrOptions.anchorIndex = bundle.anchorIndex
+      adrOptions.adrTracker = bundle.tracker
+    } else {
+      adrOptions = {
+        service: bundle.service,
+        anchorIndex: bundle.anchorIndex,
+        adrTracker: bundle.tracker,
+      }
+    }
+    adrKey = key
+    return true
+  }
+
   // ADR toggle state: disposers for runtime registration/unregistration
   let adrToolDisposers: (() => void)[] = []
   let constraintDisposer: (() => void) | null = null
   let prevAdrEnabled = false
+  // Flipped once the startup services below exist. The settings provider calls
+  // onChange() synchronously while attaching — before those services are built
+  // — so an early onChange must not touch them.
+  let servicesReady = false
 
   /** Toggle ADR features on/off at runtime without plugin reload. */
   function toggleAdr(enable: boolean): void {
     if (enable && !prevAdrEnabled) {
-      // ADR was just enabled — register tools and hooks
+      // ADR was just enabled — register tools and hooks against the current bundle
+      const adr = getAdrOptions()
       adrToolDisposers = registerAdrTools(
-        ctx, () => getConfig(current()), milvus, adrService, anchorIndex,
-        { runAdrIndex, tracker: adrTracker },
+        ctx, () => getConfig(current()), getMilvus, adr.service, adr.anchorIndex,
+        { runAdrIndex, tracker: adr.adrTracker },
       )
       constraintDisposer = setupConstraintInjection(
-        ctx, () => getConfig(current()), adrService, anchorIndex,
+        ctx, () => getConfig(current()), adr.service, adr.anchorIndex,
       )
       console.log(`[dsh-context-milvus] ADR 决策记忆已启用`)
     } else if (!enable && prevAdrEnabled) {
@@ -236,6 +403,39 @@ export async function apply(ctx: Context, config?: CordisConfig) {
     prevAdrEnabled = enable
   }
 
+  // Settings commits arrive synchronously, but rebuilding the ADR bundle is
+  // async (it reloads on-disk state), so changes are applied in order.
+  let configUpdateChain: Promise<void> = Promise.resolve()
+
+  /** Apply a committed settings change to every derived service. */
+  function applySettingsChange(): void {
+    configUpdateChain = configUpdateChain
+      .then(async () => {
+        const newConfig = getConfig(current())
+        const rebuiltServices = applyServiceConfig(newConfig)
+        const rebuiltTracker = applyTrackerConfig(newConfig)
+        const rebuiltResolver = await applyImportResolverConfig(newConfig)
+        const rebuiltAdr = await applyAdrConfig(newConfig)
+
+        const wasAdrEnabled = prevAdrEnabled
+        toggleAdr(newConfig.adrEnabled)
+        if (rebuiltAdr && wasAdrEnabled && newConfig.adrEnabled) {
+          // ADR tools and hooks captured the previous bundle's instances, so
+          // re-register them against the rebuilt one.
+          toggleAdr(false)
+          toggleAdr(true)
+        }
+
+        if (rebuiltServices || rebuiltTracker || rebuiltResolver || rebuiltAdr) {
+          console.log('[dsh-context-milvus] 配置已变更，相关服务已重建')
+        }
+        console.log('[dsh-context-milvus] Configuration updated via settings')
+      })
+      .catch((err: Error) => {
+        console.warn(`[dsh-context-milvus] 配置更新失败: ${err.message}`)
+      })
+  }
+
   // dsh-settings ≥0.1.5: the settings section API moved onto the `ctx.settings`
   // service (installSection). It is optional — when no provider is mounted the
   // plugin keeps working off its composition entry config.
@@ -245,70 +445,44 @@ export async function apply(ctx: Context, config?: CordisConfig) {
         current = source
       },
       onChange: () => {
-        const newConfig = getConfig(current())
-        toggleAdr(newConfig.adrEnabled)
-        console.log('[dsh-context-milvus] Configuration updated via settings')
+        // The provider fires onChange() synchronously while attaching, before
+        // the startup services below exist; the startup path applies the
+        // initial config itself, so ignore that first notification.
+        if (!servicesReady) return
+        applySettingsChange()
       },
     })
   })
 
   // Resolve initial config for startup services
   const resolved = getConfig(current())
-  const embeddingClient = new EmbeddingClient(resolved.embedding)
-  const milvus = new MilvusService({
-    address: resolved.milvusAddress,
-    token: resolved.milvusToken,
-    collection: resolved.milvusCollection,
-    dim: resolved.milvusDim,
-    embeddingClient,
-    hybridMode: resolved.hybridMode,
-    bm25RrfK: resolved.bm25RrfK,
-    queryExpansion: resolved.queryExpansion,
-    rerankConfig: { enabled: resolved.rerankEnabled, multiplier: resolved.rerankMultiplier },
-  })
-
-  const tracker = new HashTracker(resolved.merkleFilePath)
-
-  // Load Merkle state on startup (non-blocking)
-  tracker.load().catch(() => {
-    // No state file yet — fresh start
-  })
-
-  // Initialize ImportResolver for cross-file import/export analysis
-  const importMapPath = deriveImportMapFilePath(resolved.indexRoot)
-  const importResolver = new ImportResolver(importMapPath)
-  await importResolver.load().catch(() => {
-    // No import map yet — fresh start
-  })
-
-  // Try to initialize collection; failure doesn't block tool registration
-  milvus.ensureCollection().catch((err: Error) => {
-    console.warn(
-      `[dsh-context-milvus] 集合初始化失败，将在首次使用工具时重试: ${err.message}`,
-    )
-  })
+  applyServiceConfig(resolved)
+  applyTrackerConfig(resolved)
+  await applyImportResolverConfig(resolved)
 
   // ── ADR (Decision Memory) services ────────────────────────────────────
   // Always create ADR services at startup so they are available for the
   // main tools (index_code, index_status). ADR tools and constraint
   // injection hooks are registered/unregistered dynamically via toggleAdr().
-  // createWhenMissing: true 延续 DSH 的历史行为 —— 加载插件即建出 ADR 目录。
-  // 缺了这个参数就会变成行为变化，因为 core 的 bundle 默认不在用户仓库里建目录。
-  const adr = await createAdrBundle(resolved, { createWhenMissing: true })
-  const { adrRoot, service: adrService, anchorIndex, tracker: adrTracker } = adr
-  const adrOptions = { service: adrService, anchorIndex, adrTracker }
+  await applyAdrConfig(resolved)
 
-  // Initial ADR setup — register tools and hooks if enabled at startup
-  prevAdrEnabled = resolved.adrEnabled
+  // Startup services now exist, so later settings edits may safely use them.
+  servicesReady = true
+
+  // Initial ADR setup — register tools and hooks if enabled at startup.
+  // prevAdrEnabled still starts false, so this is a real registration.
   if (resolved.adrEnabled) {
     toggleAdr(true)
-    console.log(`[dsh-context-milvus] ADR 决策记忆已加载 (${adrRoot})`)
+    console.log(`[dsh-context-milvus] ADR 决策记忆已加载 (${getAdrOptions().service.root})`)
   }
 
-  // Register all tools — pass the config thunk so each tool execution
-  // picks up the latest settings without restart. adrOptions is always
-  // passed; tools check config.adrEnabled at execution time.
-  registerTools(ctx, () => getConfig(current()), milvus, tracker, importResolver, adrOptions)
+  // Register all tools — pass the config thunk so each tool execution picks up
+  // the latest settings without restart, plus getters for every service a
+  // settings edit can rebuild. adrOptions is a stable object mutated in place;
+  // tools check config.adrEnabled at execution time.
+  registerTools(
+    ctx, () => getConfig(current()), getMilvus, getTracker, getImportResolver, getAdrOptions(),
+  )
 
   console.log(
     `[dsh-context-milvus] 已加载 (${resolved.indexExtensions.length} 种文件类型, ` +

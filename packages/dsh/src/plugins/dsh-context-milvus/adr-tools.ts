@@ -90,7 +90,7 @@ function serviceForExec(
 export function registerAdrTools(
   ctx: Context,
   resolveConfig: () => PluginConfig,
-  milvus: MilvusService,
+  resolveMilvus: () => MilvusService,
   adrService: AdrService,
   anchorIndex: AdrAnchorIndex,
   adrIndexer?: {
@@ -126,6 +126,7 @@ export function registerAdrTools(
       render: (_args: any, value: any) => [{ type: 'text' as const, text: formatAdrSearchResults(value as any[]) }],
     },
     async execute(params: any) {
+      const milvus = resolveMilvus()
       await milvus.ensureAdrCollection()
       const filters: any = {}
       if (params.status && params.status !== 'all') filters.status = params.status
@@ -202,6 +203,7 @@ export function registerAdrTools(
       ],
     },
     async execute(params: any, exec?: any) {
+      const milvus = resolveMilvus()
       const svc = serviceForExec(resolveConfig, adrService, exec)
       const result = await svc.createAdr({
         title: params.title,
@@ -242,6 +244,7 @@ export function registerAdrTools(
       ],
     },
     async execute(params: any, exec?: any) {
+      const milvus = resolveMilvus()
       const svc = serviceForExec(resolveConfig, adrService, exec)
       const result = await svc.updateAdr(params.adr_id, {
         content: params.content,
@@ -529,6 +532,7 @@ export function registerAdrTools(
       },
     },
     async execute(params: any, exec?: any) {
+      const milvus = resolveMilvus()
       const config = resolveConfig()
       const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
       const indexRoot = sessionCwd || config.indexRoot || process.cwd()

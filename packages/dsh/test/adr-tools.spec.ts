@@ -86,7 +86,7 @@ describe('registerAdrTools', () => {
   })
 
   it('registers 8 tools and returns disposers', () => {
-    const disposers = registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    const disposers = registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     expect(mockRegister).toHaveBeenCalledTimes(8)
     expect(disposers).toHaveLength(8)
     disposers.forEach(d => expect(typeof d).toBe('function'))
@@ -94,13 +94,13 @@ describe('registerAdrTools', () => {
 
   it('registers 8 tools regardless of adrEnabled (guard moved to caller)', () => {
     resolveConfig.mockReturnValue({ adrEnabled: false })
-    const disposers = registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    const disposers = registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     expect(mockRegister).toHaveBeenCalledTimes(8)
     expect(disposers).toHaveLength(8)
   })
 
   it('search_adr tool calls milvus.searchAdr', async () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const searchAdrDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'search_adr')?.[0]
     expect(searchAdrDef).toBeDefined()
     await searchAdrDef.execute({ query: 'test query', topK: 3 })
@@ -108,14 +108,14 @@ describe('registerAdrTools', () => {
   })
 
   it('search_adr passes path prefix filter', async () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const searchAdrDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'search_adr')?.[0]
     await searchAdrDef.execute({ query: 'test', path: '/workspace/project', status: 'active' })
     expect(milvus.searchAdr).toHaveBeenCalledWith('test', 5, { status: 'active', pathPrefix: '/workspace/project' })
   })
 
   it('search_adr output schema includes docType', () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const searchAdrDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'search_adr')?.[0]
     expect(searchAdrDef).toBeDefined()
     const props = searchAdrDef.output.schema.items.properties
@@ -123,7 +123,7 @@ describe('registerAdrTools', () => {
   })
 
   it('search_adr render includes docType label', () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const searchAdrDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'search_adr')?.[0]
     expect(searchAdrDef).toBeDefined()
 
@@ -153,7 +153,7 @@ describe('registerAdrTools', () => {
   })
 
   it('search_adr_by_file calls anchorIndex.getAdrsForFile', async () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'search_adr_by_file')?.[0]
     expect(toolDef).toBeDefined()
     anchorIndex.getAdrsForFile.mockReturnValue(['ADR-0001'])
@@ -163,14 +163,14 @@ describe('registerAdrTools', () => {
   })
 
   it('create_adr calls adrService.createAdr', async () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'create_adr')?.[0]
     await toolDef.execute({ title: 'test' })
     expect(adrService.createAdr).toHaveBeenCalledWith({ title: 'test' })
   })
 
   it('update_adr calls adrService.updateAdr with mapped args', async () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'update_adr')?.[0]
     await toolDef.execute({
       adr_id: 'ADR-0001-test',
@@ -186,14 +186,14 @@ describe('registerAdrTools', () => {
   })
 
   it('list_adrs calls adrService.listAdrs', async () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'list_adrs')?.[0]
     await toolDef.execute({ status: 'active' })
     expect(adrService.listAdrs).toHaveBeenCalledWith({ status: 'active', limit: 100 })
   })
 
   it('check_adr_consistency checks anchors', async () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'check_adr_consistency')?.[0]
     const result = await toolDef.execute({})
     expect(result).toHaveProperty('staleAnchors')
@@ -201,7 +201,7 @@ describe('registerAdrTools', () => {
   })
 
   it('check_adr_consistency detects stale anchors for missing files', async () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'check_adr_consistency')?.[0]
     anchorIndex.getAll.mockReturnValue(new Map([
       ['/nonexistent/path/file.ts', ['ADR-0001', 'ADR-0002']],
@@ -217,7 +217,7 @@ describe('registerAdrTools', () => {
   })
 
   it('check_adr_consistency flags uncovered files', async () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'check_adr_consistency')?.[0]
     anchorIndex.getAll.mockReturnValue(new Map([
       ['/workspace/src/covered.ts', ['ADR-0001']],
@@ -281,7 +281,7 @@ describe('index_specs tool', () => {
   })
 
   it('registers index_specs tool', () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_specs')?.[0]
     expect(toolDef).toBeDefined()
     expect(toolDef.name).toBe('index_specs')
@@ -290,7 +290,7 @@ describe('index_specs tool', () => {
   })
 
   it('dry_run returns preview without modifying files', async () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_specs')?.[0]
 
     const result = await toolDef.execute({ path: specsDir, dry_run: true })
@@ -315,7 +315,7 @@ describe('index_specs tool', () => {
     const mockRunAdrIndex = jest.fn().mockResolvedValue({ filesIndexed: 1, chunksIndexed: 3 })
     const adrIndexer = { runAdrIndex: mockRunAdrIndex, tracker: {} }
 
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex, adrIndexer)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex, adrIndexer)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_specs')?.[0]
 
     const result = await toolDef.execute({ path: specsDir, dry_run: false })
@@ -340,7 +340,7 @@ describe('index_specs tool', () => {
   })
 
   it('skips indexing when adrIndexer is not provided', async () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_specs')?.[0]
 
     const result = await toolDef.execute({ path: specsDir, dry_run: false })
@@ -361,7 +361,7 @@ describe('index_specs tool', () => {
     const emptyDir = path.join(tempDir, 'empty')
     await fs.mkdir(emptyDir, { recursive: true })
 
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_specs')?.[0]
 
     const result = await toolDef.execute({ path: emptyDir, dry_run: true })
@@ -373,7 +373,7 @@ describe('index_specs tool', () => {
   })
 
   it('render formats dry_run output correctly', () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_specs')?.[0]
 
     const result = toolDef.output.render({}, {
@@ -397,7 +397,7 @@ describe('index_specs tool', () => {
   })
 
   it('render formats non-dry_run output correctly', () => {
-    registerAdrTools(ctx, resolveConfig, milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, resolveConfig, () => milvus, adrService, anchorIndex)
     const toolDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_specs')?.[0]
 
     const result = toolDef.output.render({}, {
@@ -454,7 +454,7 @@ describe('registerTools - index_code adr config', () => {
   })
 
   it('passes absolute specRoot and planRoot to runAdrIndex', async () => {
-    registerTools(ctx, resolveConfig, milvus, tracker, undefined, adrOptions)
+    registerTools(ctx, resolveConfig, () => milvus, () => tracker, undefined, adrOptions)
     const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
     expect(indexCodeDef).toBeDefined()
 
@@ -475,7 +475,7 @@ describe('registerTools - index_code adr config', () => {
       specRoot: 'docs/superpowers/specs',
       planRoot: 'docs/superpowers/plans',
     })
-    registerTools(ctx, resolveConfig, milvus, tracker, undefined, adrOptions)
+    registerTools(ctx, resolveConfig, () => milvus, () => tracker, undefined, adrOptions)
     const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
     expect(indexCodeDef).toBeDefined()
 
@@ -485,7 +485,7 @@ describe('registerTools - index_code adr config', () => {
   })
 
   it('does not call runAdrIndex when adrOptions is not provided', async () => {
-    registerTools(ctx, resolveConfig, milvus, tracker, undefined)
+    registerTools(ctx, resolveConfig, () => milvus, () => tracker, undefined)
     const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
     expect(indexCodeDef).toBeDefined()
 
@@ -502,7 +502,7 @@ describe('registerTools - index_code adr config', () => {
       specRoot: 'docs/superpowers/specs',
       planRoot: 'docs/superpowers/plans',
     })
-    registerTools(ctx, resolveConfig, milvus, tracker, undefined, adrOptions)
+    registerTools(ctx, resolveConfig, () => milvus, () => tracker, undefined, adrOptions)
     const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
 
     const result = await indexCodeDef.execute({ mode: 'incremental' })
@@ -515,7 +515,7 @@ describe('registerTools - index_code adr config', () => {
 
   it('includes adr count keys when ADR ran, preserving real zero counts', async () => {
     mockRunAdrIndex.mockResolvedValue({ filesIndexed: 0, chunksIndexed: 0 })
-    registerTools(ctx, resolveConfig, milvus, tracker, undefined, adrOptions)
+    registerTools(ctx, resolveConfig, () => milvus, () => tracker, undefined, adrOptions)
     const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
 
     const result = await indexCodeDef.execute({ mode: 'incremental' })
@@ -528,7 +528,7 @@ describe('registerTools - index_code adr config', () => {
 
   it('passes nonzero adr counts through to the result', async () => {
     mockRunAdrIndex.mockResolvedValue({ filesIndexed: 3, chunksIndexed: 12 })
-    registerTools(ctx, resolveConfig, milvus, tracker, undefined, adrOptions)
+    registerTools(ctx, resolveConfig, () => milvus, () => tracker, undefined, adrOptions)
     const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
 
     const result = await indexCodeDef.execute({ mode: 'incremental' })

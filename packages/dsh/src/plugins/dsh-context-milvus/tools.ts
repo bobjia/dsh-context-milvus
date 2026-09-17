@@ -98,17 +98,19 @@ async function createTrackerForPath(
  * @param ctx - Cordis context
  * @param resolveConfig - thunk returning the latest PluginConfig; called on
  *   each tool execution so GUI config edits take effect without restart
- * @param milvus - shared Milvus service instance
- * @param tracker - shared default HashTracker instance
- * @param importResolver - optional ImportResolver for cross-file import/export analysis
+ * @param resolveMilvus - thunk returning the current Milvus service; called on
+ *   each tool execution so a service rebuilt after a settings edit is used
+ * @param resolveTracker - thunk returning the current default HashTracker
+ * @param resolveImportResolver - thunk returning the current ImportResolver for
+ *   cross-file import/export analysis (undefined when none is available)
  * @param adrOptions - optional ADR services for indexing & status
  */
 export function registerTools(
   ctx: Context,
   resolveConfig: () => PluginConfig,
-  milvus: MilvusService,
-  tracker: HashTracker,
-  importResolver?: ImportResolver,
+  resolveMilvus: () => MilvusService,
+  resolveTracker: () => HashTracker,
+  resolveImportResolver?: () => ImportResolver | undefined,
   adrOptions?: {
     service: AdrService
     anchorIndex: AdrAnchorIndex
@@ -179,6 +181,7 @@ export function registerTools(
         const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
         const path = params.path ?? sessionCwd ?? undefined
 
+        const milvus = resolveMilvus()
         await milvus.ensureCollection()
         const results = await milvus.search(query, topK, path)
         const meta = milvus.lastSearchMeta
@@ -266,12 +269,12 @@ export function registerTools(
           : config
 
         // Use a workspace-specific tracker if the path is different from default
-        const effectiveTracker = await createTrackerForPath(config, overridePath, tracker)
+        const effectiveTracker = await createTrackerForPath(config, overridePath, resolveTracker())
 
         // Use a workspace-specific import resolver if the path is different from default
         const effectiveImportResolver = overridePath
           ? new ImportResolver(deriveImportMapFilePath(overridePath))
-          : importResolver
+          : resolveImportResolver?.()
         if (overridePath && effectiveImportResolver) {
           await effectiveImportResolver.load().catch(() => {
             // No import map yet — fresh start
@@ -281,6 +284,7 @@ export function registerTools(
         // Progress callback for indexing logs
         const progress = (msg: string) => console.log(`[index_code] ${msg}`)
 
+        const milvus = resolveMilvus()
         const codeResult = await runIndex(effectiveConfig, milvus, effectiveTracker, {
           mode,
           progress,
@@ -384,7 +388,7 @@ export function registerTools(
         const config = resolveConfig()
 
         // Use a workspace-specific tracker if a path is provided
-        const effectiveTracker = await createTrackerForPath(config, overridePath, tracker)
+        const effectiveTracker = await createTrackerForPath(config, overridePath, resolveTracker())
 
         // Create effective config with optional path override for status
         const effectiveConfig = overridePath
@@ -509,6 +513,7 @@ export function registerTools(
       },
 
       async execute(params: any, exec?: any) {
+        const milvus = resolveMilvus()
         await milvus.ensureCollection()
         const direction = params.direction === 'forward' ? 'forward' as const : 'backward' as const
         const maxResults = params.maxResults ?? 20
@@ -516,6 +521,7 @@ export function registerTools(
         const resolve = params.resolve !== false
 
         // Load import resolver if resolve is enabled
+        const importResolver = resolveImportResolver?.()
         const resolver = resolve && importResolver?.isLoaded() ? importResolver : undefined
 
         // Warn when sourceFile is provided but resolver is not available
@@ -654,12 +660,14 @@ export function registerTools(
       },
 
       async execute(params: any, exec?: any) {
+        const milvus = resolveMilvus()
         await milvus.ensureCollection()
         const direction = params.direction === 'forward' ? 'forward' as const : 'backward' as const
         const maxDepth = params.maxDepth ?? 3
         const maxResults = params.maxResults ?? 10
         const resolve = params.resolve !== false
 
+        const importResolver = resolveImportResolver?.()
         const resolver = resolve && importResolver?.isLoaded() ? importResolver : undefined
 
         const findBySymbol: FindBySymbol = async (symbol, dir, limit) => {
