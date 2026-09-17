@@ -13,7 +13,9 @@ related_decisions: []
 
 `index_code` 目前把「扫描 → 分块 → Embedding → 写入 Milvus」压在**一次工具调用**里。大仓库下这会长时间阻塞会话、可能触发工具超时，并且在用户没意识到的情况下产生大量 embedding 费用。
 
-本次改造：当工作区规模超过阈值（**可索引文件数 > 1000** 或 **源码文本总量 > 500 KiB**）时，DSH 的 `index_code` **只做扫描统计**，随即返回一条提示，要求用户在终端**单独运行随插件分发的索引脚本**完成 Embedding 与上传。脚本是独立进程，不受会话超时约束，可中断续传。
+本次改造：当**本次运行的工作量**超过阈值（**待索引文件数 > 1000** 或 **待索引文本总量 > 500 KiB**）时，DSH 的 `index_code` **只做扫描统计**，随即返回一条提示，要求用户在终端**单独运行随插件分发的索引脚本**完成 Embedding 与上传。脚本是独立进程，不受会话超时约束，可中断续传。
+
+口径按**待索引量**（`delta.toIndex`）而非整个工作区规模计算：`mode=full` 与首次索引（tracker 为空）的 `toIndex` 就是全部可索引文件，因此照旧降级；而大仓库上一次只改了几个文件的增量更新会**正常内联执行**，不必把用户赶去终端。阈值判定需要先算出 delta，但 `computeDelta` 是纯本地计算（不连 Milvus、不 embedding），所以「超阈早退不触碰 Milvus」这一性质不变。
 
 `index_specs` 同理：当 specs+plans 下的规格文档规模超过阈值（**文档数 > 100** 或 **文本总量 > 200 KiB**）时，DSH 的 `index_specs` 只做扫描统计，提示用户用同一条脚本命令加 `--specs-only` 完成 frontmatter 生成与索引。触发场景很具体：`findCandidateFiles()` 只返回**没有 frontmatter** 的文档，所以一个规格文档很多、且尚未加过 frontmatter 的仓库，首次运行会逐个生成锚点并写盘、随后全量索引，同样会长时间阻塞会话；跑过一次后候选归零，成本自然下降。
 
@@ -46,7 +48,8 @@ Codex 适配器行为不变。阈值判定、run-config 落盘、CLI 实现放�
 | 「单独做」的形态 | 随插件分发的**独立脚本**，用户在终端自己运行（**不是** agent 工具） |
 | 脚本配置来源 | `index_code` 把**解析后的有效配置**落盘，脚本读它（保证与插件 100% 一致） |
 | 脚本落地 | CLI 逻辑放 **core**，`dsh` 包暴露 bin（Codex 以后可零成本复用） |
-| 阈值口径 | 文件数 > 1000（仅可索引文件）或 文本 > **500 KiB（UTF-8 字节）** |
+| 阈值口径 | **本次待索引量**：`delta.toIndex` 的文件数 > 1000，或这些文件的文本 > **500 KiB（UTF-8 字节）**。`mode=full` 与首次索引时 `toIndex` = 全部可索引文件，与「工作区规模」等价 |
+| 提示命令的模式 | `nextCommand` 必须带上调用方请求的 `mode`（`--mode full`）。否则 `mode=full` 被降级后提示用户跑的是 CLI 默认的 incremental，用户会误以为已完成全量重建 |
 | 规格文档阈值 | specs+plans **全量**文档：文档数 > **100** 或 文本 > **200 KiB**（专用小常量，规格文档远少于代码文件） |
 | 脚本模式 | 默认跑完整流程（代码 → spec/plan frontmatter 生成 → ADR/规格索引），另有 `--specs-only` |
 | 生效范围 | **仅 DSH**；Codex 的 `index_code` 行为不变 |
@@ -128,32 +131,49 @@ options?: {
 }
 ```
 
-**执行顺序调整**：`walk → 阈值判定 → ensureCollection → delta → …`。
+**执行顺序**：`walk → delta → 阈值判定 → ensureCollection → …`。
 
-理由：超阈早退时**完全不触碰 Milvus**（不建连接、不建集合），这正是「不产生费用、不产生副作用」的关键。把 `ensureCollection` 从 walk 之前移到阈值判定之后，对未超阈路径无行为差异（集合仍在使用前确保存在）。
+理由：超阈早退时**完全不触碰 Milvus**（不建连接、不建集合），这正是「不产生费用、不产生副作用」的关键。阈值判定要按 `delta.toIndex` 计算，因此必须排在 delta 之后；但 `computeDelta` 只读本机 Merkle 状态（纯本地、无网络），所以早退路径依然零 Milvus 接触。`ensureCollection` 保持排在判定之后。
 
-判定与早退：
+判定与早退（`pending` = 本次真正要索引的文件）：
 
 ```ts
 const probe = await probeWorkspace(config, { onFileProgress, limits })
-const { files: currentFiles, fileCount, totalBytes } = probe
+const { files: currentFiles, fileCount, totalBytes, sizes } = probe
 
-if (deferLargeWorkspace && probe.exceedsLargeWorkspace) {
+// delta 是纯本地计算，先算出来才知道本次工作量
+const computed = tracker.computeDelta(currentFiles)
+const delta = mode === 'full'
+  ? { toIndex: Array.from(currentFiles.keys()), toRemove: computed.toRemove, unchanged: [] }
+  : computed
+
+// 阈值按待索引量，而非整个工作区：大仓库的小增量应当正常内联执行
+const pending = delta.toIndex
+let pendingBytes = 0
+for (const filePath of pending) pendingBytes += sizes.get(filePath) ?? 0
+
+if (deferLargeWorkspace && exceedsLargeWorkspace(pending.length, pendingBytes, limits)) {
   return {
     filesIndexed: 0, chunksIndexed: 0,
     filesRemoved: 0, chunksRemoved: 0,
-    filesSkipped: fileCount,
+    filesSkipped: pending.length,
     durationMs: Date.now() - startTime,
     deferred: true,
     workspaceFiles: fileCount,
     workspaceBytes: totalBytes,
+    pendingFiles: pending.length,
+    pendingBytes,
   }
 }
 ```
 
 其中 `deferLargeWorkspace = options?.deferLargeWorkspace`，`limits = typeof deferLargeWorkspace === 'object' ? deferLargeWorkspace : undefined`（`true` → 常量阈值）。
 
-`IndexResult` 增加三个可选字段（`deferred` 仅在早退时为 `true`；`workspaceFiles`/`workspaceBytes` 也仅在早退时返回，以保持既有路径结果形状逐字节不变）：
+`workspaceFiles`/`workspaceBytes` 报告**工作区规模**（说明"这是个多大的仓库"），`pendingFiles`/`pendingBytes` 报告**本次工作量**（判定依据，也是提示文案的主语）。`filesSkipped` 取 `pending.length`：本次一个文件都没处理。
+
+`WorkspaceProbe` 需新增 `sizes: Map<string, number>`（单文件 UTF-8 字节数）。`walkDirectory` 本来就在 hash 时算出 `Buffer.byteLength(content, 'utf-8')` 并累加 `totalBytes`，把每个文件的大小顺手存进 map 即可，**无额外 IO**。
+
+`IndexResult` 增加五个可选字段（`deferred` 仅在早退时为 `true`；其余也仅在早退时返回，以保持既有路径结果形状逐字节不变）：
 
 ```ts
 export interface IndexResult {
@@ -163,12 +183,16 @@ export interface IndexResult {
   chunksRemoved: number
   filesSkipped: number
   durationMs: number
-  /** true = 工作区超阈，本次未做分块/Embedding/写入。 */
+  /** true = 本次工作量超阈，未做分块/Embedding/写入。 */
   deferred?: boolean
-  /** 可索引文件数（仅 deferred 时返回）。 */
+  /** 工作区可索引文件数（仅 deferred 时返回）。 */
   workspaceFiles?: number
-  /** 源码文本 UTF-8 字节总量（仅 deferred 时返回）。 */
+  /** 工作区源码文本 UTF-8 字节总量（仅 deferred 时返回）。 */
   workspaceBytes?: number
+  /** 本次待索引文件数，即判定依据（仅 deferred 时返回）。 */
+  pendingFiles?: number
+  /** 本次待索引文件的文本 UTF-8 字节总量（仅 deferred 时返回）。 */
+  pendingBytes?: number
 }
 ```
 
@@ -219,37 +243,43 @@ export async function probeSpecCorpus(
 
 1. 调 `writeRunConfig(effectiveConfig)` 落盘有效配置；失败只告警，不阻断提示返回。
 2. **跳过 ADR 索引**（否则会出现「代码没入库、ADR 入了库」的半成品状态）。
-3. 用 `buildIndexCommand(effectiveConfig.indexRoot)` 拼出可直接粘贴的命令。
+3. 用 `buildIndexCommand(effectiveConfig.indexRoot, { mode })` 拼出可直接粘贴的命令，**`mode` 必须透传**。
 4. 返回带 `deferred` 的结果；`render` 输出完整提示文案。
 5. telemetry 追加 `deferred: true`（`TelemetryEntry` 已有索引签名，无需改类型）。
 
-输出 schema 新增 4 个字段（因 `additionalProperties: false`，必须显式声明）：
+输出 schema 新增 6 个字段（因 `additionalProperties: false`，必须显式声明）：
 
 ```ts
 deferred:       { type: 'boolean' }
 workspaceFiles: { type: 'number' }
 workspaceBytes: { type: 'number' }
+pendingFiles:   { type: 'number' }
+pendingBytes:   { type: 'number' }
 nextCommand:    { type: 'string' }
 ```
 
 命令构造（新文件 `packages/dsh/src/plugins/dsh-context-milvus/index-command.ts`，独立成文件以便单测）：
 
 ```ts
-export function buildIndexCommand(indexRoot: string, options?: { specsOnly?: boolean }): string
+export function buildIndexCommand(
+  indexRoot: string,
+  options?: { specsOnly?: boolean; mode?: 'full' | 'incremental' },
+): string
 ```
 
 - 以本模块的 `import.meta.url` 为基准解析 `../../../bin/index.js`（`src/plugins/dsh-context-milvus/` 与 `dist/plugins/dsh-context-milvus/` 到包根的层级相同，两种布局都成立）。
 - 该文件存在 → `node <绝对路径> --root <indexRoot>`；这是**安装在 DSH profile 里的那份**，与当前运行的插件同源，最可靠。
 - 不存在（例如源码树里跑测试）→ 回退 `npx -p dsh-context-milvus dsh-context-milvus-index --root <indexRoot>`。
+- `mode` 提供时追加 `--mode <mode>`。`index_code` 总是传（降级后用户必须跑到与请求一致的模式）；`index_specs` 不传（specs-only 与 mode 无关，走 CLI 默认 incremental 即可）。
 
 `render` 文案（中文，与既有工具风格一致）：
 
 ```
-⚠️ 工作区较大（1234 个文件 / 1.8 MiB 源码；阈值 1000 文件 / 500 KiB），已跳过 Embedding 与 Milvus 上传。
+⚠️ 本次索引量较大（1234 个待索引文件 / 1.8 MiB 源码；阈值 1000 文件 / 500 KiB），已跳过 Embedding 与 Milvus 上传。
 本次未做任何向量化，不产生 embedding 费用，索引也未更新。
 
 请在终端单独运行以下命令完成索引：
-  node /…/dsh-context-milvus/bin/index.js --root /abs/workspace
+  node /…/dsh-context-milvus/bin/index.js --root /abs/workspace --mode full
 
 可先加 --dry-run 查看规模；Ctrl-C 可中断，重跑会自动续传。
 完成后 search_code / find_callers 才能检索到这个工作区。
@@ -420,13 +450,17 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
 
 ### core
 
-- `probeWorkspace`：`totalBytes` 等于命中文件 UTF-8 字节之和；不可读文件不计入；忽略规则与 `runIndex` 一致。
+- `probeWorkspace`：`totalBytes` 等于命中文件 UTF-8 字节之和；`sizes` 中每个文件的字节数与内容长度一致；不可读文件不计入；忽略规则与 `runIndex` 一致。
 - `exceedsLargeWorkspace()` 纯函数边界：999 / 1000 文件不触发，1001 触发；512000 字节不触发，512001 触发。
 - `probeWorkspace` 真实临时目录 + 注入小阈值：小目录也能覆盖「超阈」分支，无需造 1001 个文件。
 - `runIndex` 超阈早退（`deferLargeWorkspace: true`）：
-  - 返回 `deferred: true` + 正确的 `workspaceFiles` / `workspaceBytes`；
+  - 返回 `deferred: true` + 正确的 `workspaceFiles` / `workspaceBytes` / `pendingFiles` / `pendingBytes`；
   - **断言未调用** `EmbeddingClient.embed`、`milvus.insertChunks`、`milvus.ensureCollection`；
   - 未写 Merkle 状态文件。
+- **阈值按待索引量而非工作区规模**（本设计的核心行为）：
+  - 大工作区 + tracker 已记录全部文件 + 只改 1 个文件 → 注入小阈值时**不降级**，正常走完 chunk/embed/insert（增量更新不再被赶去终端）；
+  - 同一工作区 `mode=full` → `toIndex` = 全部文件 → 仍降级；
+  - 首次索引（tracker 为空）→ `toIndex` = 全部文件 → 仍降级。
 - `deferLargeWorkspace` 未设置时，超阈工作区仍完整执行（证明 Codex 路径不受影响）。
 - `checkpointEvery`：处理 N 个文件后 `tracker.save()` 被调用（mock `HashTracker` 计数）。
 - `deriveRunConfigPath`：与 `deriveMerkleFilePath` 同哈希段、同 `safeName`。
@@ -447,11 +481,12 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
 ### dsh
 
 - `index_code` 超阈 → 返回 `deferred: true`、写出 run-config、**未调用 `runAdrIndex`**。
+- `index_code` 超阈且请求 `mode=full` → `nextCommand` 含 `--mode full`（**回归防护**：丢失 mode 会让用户误以为已完成全量重建）。
 - `index_code` 未超阈 → 现有 3 个 ADR 输出用例继续通过（新增字段不影响既有断言）。
 - `index_specs` 超阈 → 返回 `deferred: true`、**未调用 `generateSpecFrontmatter`**、未调用 `runAdrIndex`、未写任何文件。
 - `index_specs(dry_run=true)` → 即使超阈也照常预览（未被降级拦截）。
 - `index_specs` 未超阈 → 现有行为不变。
-- `buildIndexCommand`：bin 存在 → 绝对路径命令；不存在 → npx 回退；`{ specsOnly: true }` → 追加 `--specs-only`。
+- `buildIndexCommand`：bin 存在 → 绝对路径命令；不存在 → npx 回退；`{ specsOnly: true }` → 追加 `--specs-only`；`{ mode: 'full' }` → 追加 `--mode full`；不传 `mode` → 不追加。
 - 冻结面：`public-surface.spec.ts` **零改动**通过（13 工具名 / 27 config 键不变）。
 
 ### 集成
@@ -461,9 +496,11 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
 ## 验收标准
 
 1. 大仓库调用 `index_code` **只做扫描即返回**（不做分块、不向量化、不写状态），返回可粘贴命令；Milvus 无任何写入、无 embedding 调用（可用 mock/日志断言）。
-2. 按提示命令在终端跑完 → 数据入库 → `search_code` / `find_callers` 能检索到该工作区。
-3. 小仓库（未超阈）`index_code` 行为与改造前一致，全量测试通过。
-4. 规格文档很多的仓库调用 `index_specs` **只做扫描即返回**（不生成 frontmatter、不改文件），提示 `--specs-only` 命令；该命令跑完后 `search_adr` 能检索到这些规格文档。
-5. Codex 的 `index_code` 行为不变。
-6. 脚本跑到一半 Ctrl-C，重跑时已索引文件不再 embedding。
-7. `npm run typecheck`、`npm run build`、`npm test` 全绿。
+2. 提示命令与请求一致：`mode=full` 被降级后 `nextCommand` 含 `--mode full`；增量请求不会被提示去跑全量。
+3. 大仓库上只改少量文件的**增量**更新**不被降级**，正常内联完成 —— 阈值按待索引量计算，而非工作区规模。
+4. 按提示命令在终端跑完 → 数据入库 → `search_code` / `find_callers` 能检索到该工作区。
+5. 小仓库（未超阈）`index_code` 行为与改造前一致，全量测试通过。
+6. 规格文档很多的仓库调用 `index_specs` **只做扫描即返回**（不生成 frontmatter、不改文件），提示 `--specs-only` 命令；该命令跑完后 `search_adr` 能检索到这些规格文档。
+7. Codex 的 `index_code` 行为不变。
+8. 脚本跑到一半 Ctrl-C，重跑时已索引文件不再 embedding。
+9. `npm run typecheck`、`npm run build`、`npm test` 全绿。
