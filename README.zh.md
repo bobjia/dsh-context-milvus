@@ -476,12 +476,13 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 | `mode` | string | 否 | `incremental` | 索引模式：`full` 或 `incremental` |
 | `path` | string | 否 | (配置的根路径) | 要索引的路径 |
 
-**大工作区降级：** 当工作区的可索引文件数 > 1000，或源码文本总量 > 500 KiB（UTF-8 字节）时，
+**大工作区降级：** 当**本次运行**需要索引的文件数 > 1000，或这些文件的源码文本总量 > 500 KiB（UTF-8 字节）时，
 `index_code` 只做扫描统计并立即返回，**不做分块、不调用 Embedding、不写 Milvus**，
-同时给出可在终端直接运行的索引命令（见下文「独立索引脚本」）。这是为了避免大仓库把
-一次工具调用拖到超时，并在用户不知情的情况下产生 embedding 费用。
+同时给出可在终端直接运行的索引命令（见下文「独立索引脚本」），并带上你请求的 `--mode`。
+这是为了避免大仓库把一次工具调用拖到超时，并在用户不知情的情况下产生 embedding 费用。
 
-未超过阈值时行为不变；Codex 的 `index_code` 不参与降级。
+阈值按**本次工作量**而非整个工作区规模计算，所以大仓库上只改少量文件的增量更新会**正常内联执行**；
+`mode=full` 与首次索引会重索引全部文件，因此工作区一旦超限即降级。Codex 的 `index_code` 不参与降级。
 
 ### `index_status`
 

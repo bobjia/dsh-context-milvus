@@ -469,9 +469,9 @@ Index the codebase. Supports two modes:
 | `mode` | string | no | `incremental` | Index mode: `full` or `incremental` |
 | `path` | string | no | (configured root) | Path to index |
 
-**Large-workspace deferral:** when a workspace has more than 1000 indexable files, or more than 500 KiB of source text (UTF-8 bytes), `index_code` only scans and reports, then returns immediately — it does **not** chunk, call Embedding, or write to Milvus. It also returns a command you can paste into a terminal to run the indexing yourself (see [Standalone Index Script](#standalone-index-script) below). This keeps a single tool call from running past its timeout, and from spending embedding money the user never asked to spend.
+**Large-workspace deferral:** when a run would index more than 1000 files, or more than 500 KiB of source text (UTF-8 bytes), `index_code` only scans and reports, then returns immediately — it does **not** chunk, call Embedding, or write to Milvus. It also returns a command you can paste into a terminal to run the indexing yourself, carrying the same `--mode` you asked for (see [Standalone Index Script](#standalone-index-script) below). This keeps a single tool call from running past its timeout, and from spending embedding money the user never asked to spend.
 
-Below the threshold the behaviour is unchanged; the Codex `index_code` never defers.
+The threshold is measured on the work the run would actually do, not on the size of the workspace, so a small incremental update on a large repository still runs inline. `mode=full` and a first index re-index every file, so they defer as soon as the workspace itself is over the limit. The Codex `index_code` never defers.
 
 ### `index_status`
 
