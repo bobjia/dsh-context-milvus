@@ -20,6 +20,8 @@
 - 测试命令：`node --experimental-vm-modules node_modules/.bin/jest <path>`（`npx jest` 在本仓库不可用）。全量：`npm test`；类型检查：`npm run typecheck`；构建：`npm run build`。
 - 任何导入 core barrel 或其传递依赖 `milvus-service.js` 的 spec，**必须**先 `jest.unstable_mockModule('@zilliz/milvus2-sdk-node', ...)`。
 - 提交信息用仓库既有的 conventional-commit 风格（`feat(core):` / `feat(dsh):` / `test(...)` / `docs(...)`）。
+- **改了 core barrel 就必须跑全量 `npm test`**，不能只跑 `packages/core`：`packages/dsh/test/*.spec.ts` 会 mock `core/src/*.js`，而 barrel 用的是**具名再导出**，mock 里少一个名字就是链接期 `SyntaxError: ... does not provide an export named ...`，整份 suite 直接加载失败（Task 1 就因此悄悄弄坏了 `adr-tools.spec.ts`）。Task 4/5/6 都会往 barrel 加导出，务必跑全量。
+- tree-sitter × Jest 的间歇性 flake（`chunkCode` 静默返回 0 个块）**已修复**：`jest.config.js` 的 `^tree-sitter$` mapper 指向 `packages/core/test/helpers/tree-sitter-jest-repair.cjs`。若再遇到该症状，先读那个 helper 的注释，不要重新排查。
 
 ---
 
