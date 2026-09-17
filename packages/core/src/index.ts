@@ -39,3 +39,5 @@ export {
 export type { DetectedRef, GenerateResult } from './adr-anchor-generator.js'
 export { createAdrBundle } from './adr-bundle.js'
 export type { AdrBundle, AdrTitle } from './adr-bundle.js'
+export { runIndexCli, parseCliArgs, CLI_USAGE } from './cli.js'
+export type { CliIo } from './cli.js'
