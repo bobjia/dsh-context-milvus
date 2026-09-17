@@ -323,7 +323,7 @@ export async function probeWorkspace(
 - [ ] **Step 6: 运行测试确认通过**
 
 Run: `node --experimental-vm-modules node_modules/.bin/jest packages/core/test/workspace-probe.spec.ts`
-Expected: PASS（9 个用例）。
+Expected: PASS（8 个用例）。
 
 - [ ] **Step 7: 确认没有回归**
 
