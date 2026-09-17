@@ -275,17 +275,19 @@ export async function runIndex(
   await milvus.ensureCollection()
 
   // 4. Compute delta
+  const computed = tracker.computeDelta(currentFiles)
   let delta: IndexDelta
   if (mode === 'full') {
-    // Full mode: index everything, remove nothing (since we'll re-insert)
+    // Full mode: re-index every file, but still drop the rows of files that no
+    // longer exist — a "rebuild" must not leave orphans behind.
     delta = {
       toIndex: Array.from(currentFiles.keys()),
-      toRemove: [],
+      toRemove: computed.toRemove,
       unchanged: [],
     }
   } else {
     progress('检测文件变更...')
-    delta = tracker.computeDelta(currentFiles)
+    delta = computed
   }
 
   // 5. Remove deleted files from RemDB
@@ -316,6 +318,13 @@ export async function runIndex(
           contextLines: config.chunkContextLines,
         })
 
+        // Replace semantics: drop this file's previous rows before inserting.
+        // Incremental needs it to replace stale chunks; full needs it to stay
+        // idempotent (the primary key is autoID, so a bare insert would
+        // duplicate every chunk); both need it when a file stops producing
+        // chunks, which would otherwise leave its old rows behind forever.
+        await milvus.deleteByFilePath(filePath)
+
         if (chunks.length === 0) {
           // No chunkable structures found — still record the hash to avoid re-scanning
           tracker.updateRecord(filePath, hash, 0)
@@ -337,11 +346,6 @@ export async function runIndex(
           ...chunk,
           vector: vectors[i],
         }))
-
-        // For incremental mode, remove old chunks first
-        if (mode === 'incremental') {
-          await milvus.deleteByFilePath(filePath)
-        }
 
         const inserted = await milvus.insertChunks(chunksWithVectors)
         tracker.updateRecord(filePath, hash, inserted)

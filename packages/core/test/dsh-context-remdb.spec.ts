@@ -1449,6 +1449,9 @@ describe('runIndex()', () => {
     mockLoadCollectionSync.mockReset()
     mockInsert.mockReset()
     mockDelete.mockReset()
+    // Every indexed file is now deleted before re-inserting (full mode included),
+    // so the SDK delete mock must return a well-formed response by default.
+    mockDelete.mockResolvedValue({ delete_cnt: 0, succ_index: [], err_index: [] })
     mockSearch.mockReset()
     mockDescribeCollection.mockReset()
     mockHybridSearch.mockReset()

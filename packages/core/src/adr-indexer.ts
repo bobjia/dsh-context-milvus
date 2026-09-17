@@ -191,11 +191,13 @@ export async function runAdrIndex(
   const allFiles = Array.from(currentFiles.keys())
 
   // Compute delta
+  const computed = tracker.computeDelta(currentFiles)
   let delta: { toIndex: string[]; toRemove: string[]; unchanged: string[] }
   if (mode === 'full') {
-    delta = { toIndex: allFiles, toRemove: [], unchanged: [] }
+    // Full mode: re-index every doc, but still drop rows for docs that are gone.
+    delta = { toIndex: allFiles, toRemove: computed.toRemove, unchanged: [] }
   } else {
-    delta = tracker.computeDelta(currentFiles)
+    delta = computed
   }
 
   // Remove deleted files
@@ -229,6 +231,11 @@ export async function runAdrIndex(
         const hash = currentFiles.get(filePath) ?? HashTracker.hashContent(content)
 
         const chunks = await chunkAdrFile(filePath, content)
+
+        // Replace semantics — see runIndex: autoID means an unguarded insert
+        // duplicates every chunk, in full mode as much as incremental.
+        await milvus.deleteAdrByFilePath(filePath)
+
         if (chunks.length === 0) {
           tracker.updateRecord(filePath, hash, 0)
           continue
@@ -243,9 +250,6 @@ export async function runAdrIndex(
 
         // Insert with vectors
         const chunksWithVectors = chunks.map((chunk, i) => ({ ...chunk, vector: vectors[i] }))
-        if (mode === 'incremental') {
-          await milvus.deleteAdrByFilePath(filePath)
-        }
         const inserted = await milvus.insertAdrChunks(chunksWithVectors)
 
         // Update anchor index

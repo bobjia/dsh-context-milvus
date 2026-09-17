@@ -577,4 +577,52 @@ This is a spec document.
     // The indexed file is the my-design one, not redesign
     expect(insertedChunks[0].filePath).toContain('2026-09-01-my-design.md')
   })
+
+  describe('full mode is a rebuild, not an append', () => {
+    const DOC = `---
+id: ADR-0001-test
+type: decision-record
+status: active
+created: 2026-09-01T00:00:00Z
+updated: 2026-09-01T00:00:00Z
+author: test
+supersedes: null
+superseded_by: null
+code_anchors: []
+trigger:
+  task_id: null
+  requirement_summary: "Test"
+  change_type: refactor
+related_decisions: []
+auto_generated: false
+---
+
+## 决策目标
+
+Test goal
+`
+
+    it('deletes each doc\'s previous rows before re-inserting', async () => {
+      await writeFile(path.join(adrDir, 'ADR-0001-test.md'), DOC)
+      milvus.deleteAdrByFilePath = jest.fn().mockResolvedValue(1)
+
+      await runAdrIndex(config, milvus, tracker, anchorIndex, { mode: 'full' })
+
+      expect(milvus.deleteAdrByFilePath).toHaveBeenCalledTimes(1)
+      expect(milvus.insertAdrChunks).toHaveBeenCalledTimes(1)
+    })
+
+    it('still removes rows for docs that disappeared', async () => {
+      const docPath = path.join(adrDir, 'ADR-0002-gone.md')
+      await writeFile(docPath, DOC.replace('ADR-0001-test', 'ADR-0002-gone'))
+      await runAdrIndex(config, milvus, tracker, anchorIndex, { mode: 'incremental' })
+
+      await rm(docPath)
+      milvus.deleteAdrByFilePath = jest.fn().mockResolvedValue(1)
+
+      const result = await runAdrIndex(config, milvus, tracker, anchorIndex, { mode: 'full' })
+
+      expect(result.filesRemoved).toBe(1)
+    })
+  })
 })
