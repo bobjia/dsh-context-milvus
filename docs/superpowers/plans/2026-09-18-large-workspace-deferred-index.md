@@ -2270,8 +2270,16 @@ jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
   ErrorCode: { SUCCESS: 'Success' },
 }))
 
+// The core barrel re-exports adr-indexer.js with *named* re-exports, so this
+// mock must satisfy every name the barrel lists — a missing one is a link-time
+// SyntaxError ("does not provide an export named ..."), not a runtime
+// undefined. (Task 4 added SPEC_FILE_RE/PLAN_FILE_RE here.) Spread the real
+// module and override only what this test drives, so future barrel additions
+// cannot break this spec.
+const actualAdrIndexer = await import('../../core/src/adr-indexer.js')
 const mockProbeSpecCorpus = jest.fn()
 jest.unstable_mockModule('../../core/src/adr-indexer.js', () => ({
+  ...actualAdrIndexer,
   runAdrIndex: jest.fn(),
   getAdrIndexStatus: jest.fn(),
   probeSpecCorpus: mockProbeSpecCorpus,
