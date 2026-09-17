@@ -477,7 +477,7 @@ The threshold is measured on the work the run would actually do, not on the size
 
 View index status, including file count, total code blocks, last index time, etc.
 
-**Large-spec-corpus deferral (`index_specs`):** when the spec/plan corpus under `specRoot` + `planRoot` holds more than 100 documents, or more than 200 KiB of text, `index_specs` only scans and reports, then returns immediately — it does **not** generate frontmatter, write any file, or index anything — and returns a terminal command carrying `--specs-only`.
+**Large-spec-corpus deferral (`index_specs`):** when the documents that actually need work — those **lacking frontmatter** under `specRoot` + `planRoot` — number more than 100, or hold more than 200 KiB of text, `index_specs` only scans and reports, then returns immediately — it does **not** generate frontmatter, write any file, or index anything — and returns a terminal command carrying `--specs-only`. The threshold is measured on those candidates rather than on the whole corpus, because the incremental index that follows only runs when at least one candidate exists: a corpus whose documents all already have frontmatter has nothing to do, and is never deferred.
 
 `index_specs(dry_run=true)` is exempt (a preview has no side effects) and is the way to inspect which anchors would be generated.
 

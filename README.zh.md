@@ -488,9 +488,10 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 
 查看索引状态，包括文件数量、代码块总数、最后索引时间等。
 
-**大规格库降级：** 当 `specRoot` + `planRoot` 下的规格/计划文档数 > 100，或文本总量 > 200 KiB 时，
-`index_specs` 只做扫描统计并立即返回，**不生成 frontmatter、不写任何文件、不索引**，
-并给出带 `--specs-only` 的终端命令。
+**大规格库降级：** 当**本次真正需要处理**的文档 —— `specRoot` + `planRoot` 下**缺 frontmatter** 的候选文档 —— 超过 100 篇，
+或这些文档的文本总量 > 200 KiB 时，`index_specs` 只做扫描统计并立即返回，**不生成 frontmatter、不写任何文件、不索引**，
+并给出带 `--specs-only` 的终端命令。阈值按**候选**而非全量语料计算：后续的增量索引只在候选非空时才会执行，
+因此一个文档都已有 frontmatter、无事可做的仓库不会被降级。
 
 `index_specs(dry_run=true)` 不受此限制（预览无副作用），可用它先查看将要生成哪些锚点。
 
