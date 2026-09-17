@@ -248,6 +248,7 @@ export async function runIndex(
   const startTime = Date.now()
   const defer = options?.deferLargeWorkspace
   const deferLimits = typeof defer === 'object' ? defer : undefined
+  const checkpointEvery = options?.checkpointEvery ?? DEFAULT_CHECKPOINT_EVERY
 
   // 1. Walk directory — also yields the size stats the large-workspace check needs
   progress('扫描代码仓库...')
@@ -347,6 +348,13 @@ export async function runIndex(
 
         filesIndexed++
         chunksIndexed += inserted
+
+        // Checkpoint periodically: an interrupted long run must not pay for the
+        // same embeddings twice. Vectors already inserted are recorded as
+        // unchanged, so a re-run skips them.
+        if (checkpointEvery > 0 && filesIndexed % checkpointEvery === 0) {
+          await tracker.save()
+        }
       } catch (err) {
         failedFiles.push(filePath)
         progress(`  失败: ${path.basename(filePath)} — ${(err as Error).message}`)
