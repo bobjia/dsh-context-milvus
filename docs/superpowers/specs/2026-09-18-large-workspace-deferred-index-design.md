@@ -80,10 +80,16 @@ export interface WorkspaceProbe {
   exceedsLargeWorkspace: boolean
 }
 
+/** 阈值可注入：生产调用不传，走常量；测试传小数值即可用小目录覆盖边界。 */
+export interface LargeWorkspaceLimits {
+  files?: number
+  bytes?: number
+}
+
 /** 扫描工作区：构建 IgnoreMatcher（默认 + 自定义 + .gitignore + 全局）+ walk。 */
 export async function probeWorkspace(
   config: PluginConfig,
-  options?: { onFileProgress?: (filePath: string) => void },
+  options?: { onFileProgress?: (filePath: string) => void; limits?: LargeWorkspaceLimits },
 ): Promise<WorkspaceProbe>
 ```
 
@@ -95,8 +101,7 @@ export async function probeWorkspace(
 export function exceedsLargeWorkspace(
   fileCount: number,
   totalBytes: number,
-  /** 仅测试用；生产调用不传，走上面的常量。 */
-  limits?: { files?: number; bytes?: number },
+  limits?: LargeWorkspaceLimits,
 ): boolean
 ```
 
@@ -111,8 +116,9 @@ options?: {
   logger?: Logger
   onFileProgress?: (filePath: string) => void
   importResolver?: ImportResolver
-  /** 超阈时只扫描统计并早退；默认 false（Codex 与现有调用不受影响）。 */
-  deferLargeWorkspace?: boolean
+  /** 超阈时只扫描统计并早退；默认 false（Codex 与现有调用不受影响）。
+   *  传对象可覆盖阈值（测试用）；DSH 传 true 走常量。 */
+  deferLargeWorkspace?: boolean | LargeWorkspaceLimits
   /** 每处理 N 个文件落盘一次 Merkle 状态；0 表示只在结束时落盘。默认 50。 */
   checkpointEvery?: number
 }
@@ -125,10 +131,10 @@ options?: {
 判定与早退：
 
 ```ts
-const probe = await probeWorkspace(config, { onFileProgress })
+const probe = await probeWorkspace(config, { onFileProgress, limits })
 const { files: currentFiles, fileCount, totalBytes } = probe
 
-if (options?.deferLargeWorkspace && probe.exceedsLargeWorkspace) {
+if (deferLargeWorkspace && probe.exceedsLargeWorkspace) {
   return {
     filesIndexed: 0, chunksIndexed: 0,
     filesRemoved: 0, chunksRemoved: 0,
@@ -140,6 +146,8 @@ if (options?.deferLargeWorkspace && probe.exceedsLargeWorkspace) {
   }
 }
 ```
+
+其中 `deferLargeWorkspace = options?.deferLargeWorkspace`，`limits = typeof deferLargeWorkspace === 'object' ? deferLargeWorkspace : undefined`（`true` → 常量阈值）。
 
 `IndexResult` 增加三个可选字段（`deferred` 仅在早退时为 `true`；`workspaceFiles`/`workspaceBytes` 也仅在早退时返回，以保持既有路径结果形状逐字节不变）：
 
@@ -162,7 +170,7 @@ export interface IndexResult {
 
 早退路径**不写 Merkle 状态、不删文件、不建集合**——本次运行对系统零副作用。
 
-本次新增的公共符号需全部经 `packages/core/src/index.ts` 导出（barrel 是适配器唯一的 import 面）：`probeWorkspace`、`exceedsLargeWorkspace`、`LARGE_WORKSPACE_FILE_LIMIT`、`LARGE_WORKSPACE_BYTE_LIMIT`、`DEFAULT_CHECKPOINT_EVERY`、`deriveRunConfigPath`、`writeRunConfig`、`readRunConfig`、`runIndexCli`，以及类型 `WorkspaceProbe`、`RunConfigFile`、`CliIo`。
+本次新增的公共符号需全部经 `packages/core/src/index.ts` 导出（barrel 是适配器唯一的 import 面）：`probeWorkspace`、`exceedsLargeWorkspace`、`LARGE_WORKSPACE_FILE_LIMIT`、`LARGE_WORKSPACE_BYTE_LIMIT`、`DEFAULT_CHECKPOINT_EVERY`、`deriveRunConfigPath`、`writeRunConfig`、`readRunConfig`、`runIndexCli`，以及类型 `WorkspaceProbe`、`LargeWorkspaceLimits`、`RunConfigFile`、`CliIo`。
 
 ### 2. `index_code` 行为（`packages/dsh/.../tools.ts`）
 
@@ -334,8 +342,8 @@ process.exitCode = await runIndexCli(process.argv.slice(2), {
 ### core
 
 - `probeWorkspace`：`totalBytes` 等于命中文件 UTF-8 字节之和；不可读文件不计入；忽略规则与 `runIndex` 一致。
-- `exceedsLargeWorkspace()` 纯函数边界：999 / 1000 文件不触发，1001 触发；512000 字节不触发，512001 触发（用 `limits` 注入小数值，避免造 500 KiB 数据）。
-- 真实临时目录用例：>1000 个小文件时 `probeWorkspace().exceedsLargeWorkspace === true`。
+- `exceedsLargeWorkspace()` 纯函数边界：999 / 1000 文件不触发，1001 触发；512000 字节不触发，512001 触发。
+- `probeWorkspace` 真实临时目录 + 注入小阈值：小目录也能覆盖「超阈」分支，无需造 1001 个文件。
 - `runIndex` 超阈早退（`deferLargeWorkspace: true`）：
   - 返回 `deferred: true` + 正确的 `workspaceFiles` / `workspaceBytes`；
   - **断言未调用** `EmbeddingClient.embed`、`milvus.insertChunks`、`milvus.ensureCollection`；
