@@ -28,6 +28,12 @@ export interface IndexResult {
   chunksRemoved: number
   filesSkipped: number
   durationMs: number
+  /** true = 工作区超阈，本次未做分块 / Embedding / 写入。 */
+  deferred?: boolean
+  /** 可索引文件数（仅 deferred 时返回）。 */
+  workspaceFiles?: number
+  /** 源码文本 UTF-8 字节总量（仅 deferred 时返回）。 */
+  workspaceBytes?: number
 }
 
 /** 超过该可索引文件数即视为大工作区。 */
@@ -226,6 +232,10 @@ export async function runIndex(
     onFileProgress?: (filePath: string) => void
     importResolver?: ImportResolver  // Optional, for import map building
     logger?: Logger  // Used for progress output when no progress callback is given
+    /** 超阈时只扫描统计并早退；默认 false。传对象可覆盖阈值（测试用）。 */
+    deferLargeWorkspace?: boolean | LargeWorkspaceLimits
+    /** 每处理 N 个文件落盘一次 Merkle 状态；0 表示只在结束时落盘。默认 50。 */
+    checkpointEvery?: number
   },
 ): Promise<IndexResult> {
   const mode = options?.mode ?? 'incremental'
@@ -236,17 +246,34 @@ export async function runIndex(
   const onFileProgress = options?.onFileProgress
 
   const startTime = Date.now()
+  const defer = options?.deferLargeWorkspace
+  const deferLimits = typeof defer === 'object' ? defer : undefined
 
-  // 1. Ensure Milvus collection exists
+  // 1. Walk directory — also yields the size stats the large-workspace check needs
+  progress('扫描代码仓库...')
+  const probe = await probeWorkspace(config, { onFileProgress, limits: deferLimits })
+  const currentFiles = probe.files
+
+  // 2. Large workspace: stop before any Milvus connection, chunking or embedding.
+  if (defer && probe.exceedsLargeWorkspace) {
+    return {
+      filesIndexed: 0,
+      chunksIndexed: 0,
+      filesRemoved: 0,
+      chunksRemoved: 0,
+      filesSkipped: probe.fileCount,
+      durationMs: Date.now() - startTime,
+      deferred: true,
+      workspaceFiles: probe.fileCount,
+      workspaceBytes: probe.totalBytes,
+    }
+  }
+
+  // 3. Ensure Milvus collection exists
   progress('检查 Milvus 集合...')
   await milvus.ensureCollection()
 
-  // 2. Walk directory — also yields the size stats the large-workspace check needs
-  progress('扫描代码仓库...')
-  const probe = await probeWorkspace(config, { onFileProgress })
-  const currentFiles = probe.files
-
-  // 3. Compute delta
+  // 4. Compute delta
   let delta: IndexDelta
   if (mode === 'full') {
     // Full mode: index everything, remove nothing (since we'll re-insert)
@@ -260,7 +287,7 @@ export async function runIndex(
     delta = tracker.computeDelta(currentFiles)
   }
 
-  // 4. Remove deleted files from RemDB
+  // 5. Remove deleted files from RemDB
   let chunksRemoved = 0
   if (delta.toRemove.length > 0) {
     progress(`移除已删除文件: ${delta.toRemove.length} 个...`)
@@ -268,7 +295,7 @@ export async function runIndex(
     tracker.removeRecords(delta.toRemove)
   }
 
-  // 5. Index changed files
+  // 6. Index changed files
   const embeddingClient = new EmbeddingClient(config.embedding)
   let filesIndexed = 0
   let chunksIndexed = 0
@@ -327,7 +354,7 @@ export async function runIndex(
     }
   }
 
-  // 6. Build import map for changed files
+  // 7. Build import map for changed files
   if (options?.importResolver && delta.toIndex.length > 0) {
     progress('扫描 import/export 关系...')
     for (const filePath of delta.toIndex) {
@@ -353,7 +380,7 @@ export async function runIndex(
     await options.importResolver.save()
   }
 
-  // 7. Save Merkle state
+  // 8. Save Merkle state
   await tracker.save()
 
   const durationMs = Date.now() - startTime
