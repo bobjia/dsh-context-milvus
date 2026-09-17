@@ -26,8 +26,10 @@ export { parseFrontmatter } from './adr-frontmatter.js'
 export { chunkAdrFile } from './adr-chunker.js'
 export { AdrAnchorIndex } from './adr-anchor-index.js'
 export { AdrService } from './adr-service.js'
-export { runAdrIndex, getAdrIndexStatus } from './adr-indexer.js'
-export type { ScanRoot, AdrIndexResult } from './adr-indexer.js'
+export { runAdrIndex, getAdrIndexStatus, probeSpecCorpus, exceedsLargeSpecCorpus,
+         LARGE_SPEC_FILE_LIMIT, LARGE_SPEC_BYTE_LIMIT,
+         SPEC_FILE_RE, PLAN_FILE_RE } from './adr-indexer.js'
+export type { ScanRoot, AdrIndexResult, SpecCorpusProbe } from './adr-indexer.js'
 export {
   findCandidateFiles, detectCodeReferences,
   generateSpecFrontmatter, previewFrontmatter,

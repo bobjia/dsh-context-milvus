@@ -8,12 +8,89 @@ import { AdrAnchorIndex } from './adr-anchor-index.js'
 import type { MilvusService } from './milvus-service.js'
 import type { PluginConfig } from './config.js'
 import type { Logger } from './logger.js'
-import type { AdrIndexStatus } from './types.js'
+import type { AdrIndexStatus, LargeWorkspaceLimits } from './types.js'
 import type { AdrService } from './adr-service.js'
 
 const ADR_FILE_RE = /^ADR-\d{4}-.+\.md$/
-const SPEC_FILE_RE = /^\d{4}-\d{2}-\d{2}-.+-design\.md$/
-const PLAN_FILE_RE = /^\d{4}-\d{2}-\d{2}-(?:(?!.*design\.md$).)+\.md$/
+export const SPEC_FILE_RE = /^\d{4}-\d{2}-\d{2}-.+-design\.md$/
+export const PLAN_FILE_RE = /^\d{4}-\d{2}-\d{2}-(?:(?!.*design\.md$).)+\.md$/
+
+/** 规格/计划文档规模阈值（比代码侧小：规格文档远少于代码文件）。 */
+export const LARGE_SPEC_FILE_LIMIT = 100
+export const LARGE_SPEC_BYTE_LIMIT = 200 * 1024
+
+/** 一次规格库扫描的结果。 */
+export interface SpecCorpusProbe {
+  files: string[]
+  fileCount: number
+  totalBytes: number
+  exceedsLargeSpecCorpus: boolean
+}
+
+/** 纯判定：严格大于任一阈值即超阈。 */
+export function exceedsLargeSpecCorpus(
+  fileCount: number,
+  totalBytes: number,
+  limits?: LargeWorkspaceLimits,
+): boolean {
+  const fileLimit = limits?.files ?? LARGE_SPEC_FILE_LIMIT
+  const byteLimit = limits?.bytes ?? LARGE_SPEC_BYTE_LIMIT
+  return fileCount > fileLimit || totalBytes > byteLimit
+}
+
+/**
+ * Scan the spec + plan corpus and report its size.
+ *
+ * Deliberately uses the same regexes and the same non-recursive readdir as
+ * runAdrIndex's scanDirectory, so the numbers describe what an index run
+ * would actually touch. The ADR root is excluded — index_specs never
+ * processes it.
+ *
+ * Expects `config.specRoot` / `config.planRoot` to already be ABSOLUTE:
+ * adapters resolve them against indexRoot before the engine sees them
+ * (adr-tools.ts does `path.resolve(indexRoot, config.specRoot)`). A relative
+ * root would be read against process.cwd().
+ */
+export async function probeSpecCorpus(
+  config: PluginConfig,
+  options?: { limits?: LargeWorkspaceLimits },
+): Promise<SpecCorpusProbe> {
+  const roots: ScanRoot[] = [
+    { path: config.specRoot, fileRe: SPEC_FILE_RE, label: 'spec' },
+    { path: config.planRoot, fileRe: PLAN_FILE_RE, label: 'plan' },
+  ]
+
+  const files: string[] = []
+  let totalBytes = 0
+
+  for (const root of roots) {
+    if (!root.path) continue
+    let names: string[]
+    try {
+      names = (await readdir(root.path)).filter((f) => root.fileRe.test(f))
+    } catch {
+      continue // Missing directory — contributes nothing
+    }
+    for (const name of names) {
+      const fullPath = path.join(root.path, name)
+      try {
+        const content = await readFile(fullPath, 'utf-8')
+        files.push(fullPath)
+        totalBytes += Buffer.byteLength(content, 'utf-8')
+      } catch {
+        // Skip unreadable files
+      }
+    }
+  }
+
+  const fileCount = files.length
+  return {
+    files,
+    fileCount,
+    totalBytes,
+    exceedsLargeSpecCorpus: exceedsLargeSpecCorpus(fileCount, totalBytes, options?.limits),
+  }
+}
 
 /** A single root directory to scan */
 export interface ScanRoot {
