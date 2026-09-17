@@ -361,7 +361,7 @@ export async function runIndexCli(argv: string[], io: CliIo): Promise<number>
 
 退出码：`0` 成功、`1` 运行失败（配置损坏、Milvus/embedding 不可达等）、`2` 用法错误。
 
-`SIGINT` 处理：注册 handler → `await tracker.save()` → 退出 `130`；第二次 `SIGINT` 立即退出（避免卡在不可中断的 await 上）。
+`SIGINT` 处理：注册 handler → `await tracker.save()` → 退出 `130`。handler 在正常运行期间保持注册（退出时在 `finally` 中移除），因此连续 Ctrl-C 只会重复「落盘 + 退出」，不会卡在不可中断的 await 上。
 
 **dsh bin**：新增 `packages/dsh/bin/index.js`（纯 JS，ESM，带 shebang，与 `packages/codex/bin/cli.js` 同风格）：
 
