@@ -184,6 +184,22 @@ export function deriveMerkleFilePath(indexRoot: string): string {
 }
 
 /**
+ * Path of the per-workspace run-config that index_code writes when it defers a
+ * large workspace. Same hashing/naming scheme as the Merkle state so the two
+ * files sit side by side and cannot collide across workspaces.
+ */
+export function deriveRunConfigPath(indexRoot: string): string {
+  const normalizedPath = path.resolve(indexRoot)
+  const hash = createHash('sha256').update(normalizedPath, 'utf-8').digest('hex').slice(0, 16)
+  const dirName = path.basename(normalizedPath) || 'root'
+  const safeName = dirName.replace(/[^a-zA-Z0-9_\-]/g, '_')
+
+  return process.env.HOME
+    ? `${process.env.HOME}/.milvus-index/run-config-${safeName}-${hash}.json`
+    : `.milvus-run-config-${safeName}-${hash}.json`
+}
+
+/**
  * Derive the import map file path for a given root path.
  * Uses the same approach as deriveMerkleFilePath but with a different prefix.
  */

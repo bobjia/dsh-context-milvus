@@ -1,7 +1,9 @@
 export * from './types.js'
-export { getConfig, deriveMerkleFilePath, deriveImportMapFilePath,
+export { getConfig, deriveMerkleFilePath, deriveImportMapFilePath, deriveRunConfigPath,
          DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS, DEFAULT_IGNORE_PATTERNS } from './config.js'
 export type { CordisConfig, PluginConfig } from './config.js'
+export { writeRunConfig, readRunConfig } from './run-config.js'
+export type { RunConfigFile } from './run-config.js'
 export { EmbeddingClient } from './embedding.js'
 export { MilvusService } from './milvus-service.js'
 export type { SearchMeta } from './milvus-service.js'
