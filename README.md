@@ -469,9 +469,17 @@ Index the codebase. Supports two modes:
 | `mode` | string | no | `incremental` | Index mode: `full` or `incremental` |
 | `path` | string | no | (configured root) | Path to index |
 
+**Large-workspace deferral:** when a workspace has more than 1000 indexable files, or more than 500 KiB of source text (UTF-8 bytes), `index_code` only scans and reports, then returns immediately — it does **not** chunk, call Embedding, or write to Milvus. It also returns a command you can paste into a terminal to run the indexing yourself (see [Standalone Index Script](#standalone-index-script) below). This keeps a single tool call from running past its timeout, and from spending embedding money the user never asked to spend.
+
+Below the threshold the behaviour is unchanged; the Codex `index_code` never defers.
+
 ### `index_status`
 
 View index status, including file count, total code blocks, last index time, etc.
+
+**Large-spec-corpus deferral (`index_specs`):** when the spec/plan corpus under `specRoot` + `planRoot` holds more than 100 documents, or more than 200 KiB of text, `index_specs` only scans and reports, then returns immediately — it does **not** generate frontmatter, write any file, or index anything — and returns a terminal command carrying `--specs-only`.
+
+`index_specs(dry_run=true)` is exempt (a preview has no side effects) and is the way to inspect which anchors would be generated.
 
 ### `find_callers`
 
@@ -549,6 +557,48 @@ Starting from the entry symbol, BFS-traverses the call chain along reference rel
   ]
 }
 ```
+
+## Standalone Index Script
+
+On a large workspace the plugin hands the heavy lifting to you to run in a terminal. The script ships with `dsh-context-milvus`:
+
+```bash
+# Full index: code → spec/plan frontmatter generation → ADR/spec index
+node ~/.dsh/profiles/web/node_modules/dsh-context-milvus/bin/index.js --root /path/to/workspace
+
+# Spec documents only
+node ~/.dsh/profiles/web/node_modules/dsh-context-milvus/bin/index.js --root /path/to/workspace --specs-only
+
+# Inspect the scale first (no Milvus connection, writes nothing)
+node ~/.dsh/profiles/web/node_modules/dsh-context-milvus/bin/index.js --root /path/to/workspace --dry-run
+```
+
+| Flag | Description |
+|------|-------------|
+| `--root <path>` | Workspace root (default: current directory) |
+| `--mode full\|incremental` | Index mode (default `incremental`) |
+| `--config <path>` | Explicit run-config (default: derived from `--root`) |
+| `--specs-only` | Only generate frontmatter and index spec/plan documents |
+| `--no-adr` | Skip the ADR and spec index |
+| `--dry-run` | Scan and report only |
+| `--verbose` | Print per-file progress |
+| `-h`, `--help` | Show usage |
+
+Exit codes: `0` success, `1` run failure, `2` usage error; `Ctrl-C` saves progress first and exits `130`, so re-running resumes where it left off.
+
+**Config source:** the script prefers `~/.milvus-index/run-config-<workspace-name>-<hash>.json` — the **resolved effective config** that `index_code` / `index_specs` wrote when they deferred (Milvus address/token, embedding endpoint/model, etc., file mode `0600`) — so the script and the plugin use exactly the same settings. Without that file it falls back to environment variables and defaults, and prints a warning.
+
+**Do not index while the plugin is indexing:** the two cannot corrupt each other's data, but they will duplicate work.
+
+### Known limitation: sharing one collection across machines
+
+The index key `file_path` is a **machine-absolute path**, and "already indexed" is decided by this machine's `~/.milvus-index/merkle-*.json`. So when several users clone the same Git repository on different computers but point at the **same remote Milvus collection**:
+
+- each clone writes its own rows (same file, different absolute paths → two sets of rows), and deleting in one does not affect the other;
+- neither clone can see the other's Merkle state, so the same code is embedded repeatedly (and billed repeatedly);
+- search results mix in other machines' absolute paths, which do not open locally.
+
+**Recommendation: give each workspace/user its own collection** (change `milvusCollection` / `adrCollection` in the DSH settings panel). Sharing a collection is currently only safe when everyone clones the repository to exactly the same absolute path and the collection name, `milvusDim` and embedding model all match.
 
 ---
 

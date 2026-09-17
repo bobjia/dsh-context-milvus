@@ -476,9 +476,22 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 | `mode` | string | 否 | `incremental` | 索引模式：`full` 或 `incremental` |
 | `path` | string | 否 | (配置的根路径) | 要索引的路径 |
 
+**大工作区降级：** 当工作区的可索引文件数 > 1000，或源码文本总量 > 500 KiB（UTF-8 字节）时，
+`index_code` 只做扫描统计并立即返回，**不做分块、不调用 Embedding、不写 Milvus**，
+同时给出可在终端直接运行的索引命令（见下文「独立索引脚本」）。这是为了避免大仓库把
+一次工具调用拖到超时，并在用户不知情的情况下产生 embedding 费用。
+
+未超过阈值时行为不变；Codex 的 `index_code` 不参与降级。
+
 ### `index_status`
 
 查看索引状态，包括文件数量、代码块总数、最后索引时间等。
+
+**大规格库降级：** 当 `specRoot` + `planRoot` 下的规格/计划文档数 > 100，或文本总量 > 200 KiB 时，
+`index_specs` 只做扫描统计并立即返回，**不生成 frontmatter、不写任何文件、不索引**，
+并给出带 `--specs-only` 的终端命令。
+
+`index_specs(dry_run=true)` 不受此限制（预览无副作用），可用它先查看将要生成哪些锚点。
 
 ### `find_callers`
 
@@ -558,6 +571,55 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
 ```
 
 ---
+
+## 独立索引脚本
+
+大工作区下插件会把重活交给你在终端独立完成。脚本随 `dsh-context-milvus` 一起发布：
+
+```bash
+# 完整索引：代码 → spec/plan frontmatter 生成 → ADR/规格索引
+node ~/.dsh/profiles/web/node_modules/dsh-context-milvus/bin/index.js --root /path/to/workspace
+
+# 只处理规格文档
+node ~/.dsh/profiles/web/node_modules/dsh-context-milvus/bin/index.js --root /path/to/workspace --specs-only
+
+# 先看规模（不连 Milvus、不写任何东西）
+node ~/.dsh/profiles/web/node_modules/dsh-context-milvus/bin/index.js --root /path/to/workspace --dry-run
+```
+
+| 参数 | 说明 |
+|------|------|
+| `--root <path>` | 工作区根目录（默认当前目录） |
+| `--mode full\|incremental` | 索引模式（默认 `incremental`） |
+| `--config <path>` | 指定 run-config（默认按 `--root` 派生） |
+| `--specs-only` | 只做 spec/plan 的 frontmatter 生成与索引 |
+| `--no-adr` | 跳过 ADR 与规格索引 |
+| `--dry-run` | 只扫描统计 |
+| `--verbose` | 打印逐文件进度 |
+| `-h`, `--help` | 显示用法 |
+
+退出码：`0` 成功、`1` 运行失败、`2` 用法错误；`Ctrl-C` 会先落盘进度再以 `130` 退出，重跑自动续传。
+
+**配置来源：** 脚本优先读取 `~/.milvus-index/run-config-<工作区名>-<hash>.json` ——
+这是 `index_code` / `index_specs` 降级时写下的**解析后有效配置**（含 Milvus 地址/token、
+embedding 端点/模型等，文件权限 `0600`），因此脚本与插件使用完全一致的设置。
+没有该文件时回退到环境变量与默认值，并打印警告。
+
+**不要与插件同时运行索引**：两者不会损坏数据，但会重复劳动。
+
+### 已知限制：多机器共享同一个集合
+
+索引键 `file_path` 是**本机绝对路径**，"是否已索引"由本机的
+`~/.milvus-index/merkle-*.json` 判断。因此当多个用户在不同电脑上克隆同一个
+Git 工程、却指向**同一个远程 Milvus 集合**时：
+
+- 每个克隆会各自写入一份（同一文件、不同绝对路径 → 两套行），删除互不影响；
+- 各自的 Merkle 状态互相看不见，同一份代码会被重复 embedding（重复计费）；
+- 检索结果里会混入其他机器的绝对路径，本机打不开。
+
+**建议：每个工作区/每个用户使用各自的集合**（在 DSH 设置面板里改
+`milvusCollection` / `adrCollection`）。共享集合目前只在"所有人把仓库克隆到
+完全相同的绝对路径、且集合名 / `milvusDim` / embedding 模型完全一致"时才安全。
 
 ## 代码分块
 

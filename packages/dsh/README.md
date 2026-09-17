@@ -12,6 +12,10 @@ The retrieval engine itself is the separate [`dsh-context-milvus-core`](https://
 - Code relations: `find_callers`, `trace_call_chain`
 - ADR decision memory: `search_adr`, `search_adr_by_file`, `create_adr`, `update_adr`, `list_adrs`, `load_constraints`, `check_adr_consistency`, `index_specs`
 
+On a large workspace `index_code` / `index_specs` only scan and tell you to run
+`dsh-context-milvus-index` (the script shipped with this package) in a terminal; see
+"Standalone Index Script" in the root README.
+
 The tool names, their parameters and the `Config` fields are covered by a freeze test (`test/public-surface.spec.ts`), so they are a stable public contract.
 
 ## Install into a DSH Web profile
