@@ -27,6 +27,24 @@ const EXPECTED_CONFIG_KEYS = [
 ].sort()
 
 describe('dsh public surface', () => {
+  it('never hard-depends on host-provided @deepseek-ai framework packages', () => {
+    // Framework packages are provided by the DSH host at runtime (the same way
+    // cordis/dsh-tools/dsh-settings already are). A hard dependency pins an
+    // ancient npm "latest" (dsh-llm@0.0.1-rc.1) which then shadows the host's
+    // modern copy for every other plugin under hoisted module linking.
+    const pkg = JSON.parse(
+      readFileSync(path.resolve(HERE, '../package.json'), 'utf-8'),
+    )
+    const hardDeps = Object.keys(pkg.dependencies ?? {}).filter(d =>
+      d.startsWith('@deepseek-ai/'),
+    )
+    expect(hardDeps).toEqual([])
+    expect(pkg.peerDependencies?.['@deepseek-ai/dsh-llm']).toBeTruthy()
+    expect(
+      pkg.peerDependenciesMeta?.['@deepseek-ai/dsh-llm']?.optional,
+    ).toBe(true)
+  })
+
   it('keeps all 13 tool names', () => {
     const names = [...toolNames('tools.ts'), ...toolNames('adr-tools.ts')]
     expect([...new Set(names)].sort()).toEqual(EXPECTED_TOOLS)

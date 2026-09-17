@@ -319,8 +319,7 @@ export function registerTools(
 
         return {
           ...codeResult,
-          adrFilesIndexed,
-          adrChunksIndexed,
+          ...(adrFilesIndexed !== undefined ? { adrFilesIndexed, adrChunksIndexed } : {}),
         }
       },
     }),

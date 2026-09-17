@@ -493,4 +493,47 @@ describe('registerTools - index_code adr config', () => {
 
     expect(mockRunAdrIndex).not.toHaveBeenCalled()
   })
+
+  it('omits adr count keys from the result when ADR is disabled', async () => {
+    resolveConfig.mockReturnValue({
+      adrEnabled: false,
+      indexRoot: '/workspace/test',
+      adrRoot: 'docs/decisions',
+      specRoot: 'docs/superpowers/specs',
+      planRoot: 'docs/superpowers/plans',
+    })
+    registerTools(ctx, resolveConfig, milvus, tracker, undefined, adrOptions)
+    const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
+
+    const result = await indexCodeDef.execute({ mode: 'incremental' })
+
+    // Keys must be absent, not present-with-undefined: the output schema types
+    // them as number and is not required, so absence is the only valid "not run".
+    expect(result).not.toHaveProperty('adrFilesIndexed')
+    expect(result).not.toHaveProperty('adrChunksIndexed')
+  })
+
+  it('includes adr count keys when ADR ran, preserving real zero counts', async () => {
+    mockRunAdrIndex.mockResolvedValue({ filesIndexed: 0, chunksIndexed: 0 })
+    registerTools(ctx, resolveConfig, milvus, tracker, undefined, adrOptions)
+    const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
+
+    const result = await indexCodeDef.execute({ mode: 'incremental' })
+
+    // 0 means "ran but nothing to index" and must not be confused with
+    // undefined ("did not run") — the keys must survive with numeric zeros.
+    expect(result).toHaveProperty('adrFilesIndexed', 0)
+    expect(result).toHaveProperty('adrChunksIndexed', 0)
+  })
+
+  it('passes nonzero adr counts through to the result', async () => {
+    mockRunAdrIndex.mockResolvedValue({ filesIndexed: 3, chunksIndexed: 12 })
+    registerTools(ctx, resolveConfig, milvus, tracker, undefined, adrOptions)
+    const indexCodeDef = mockRegister.mock.calls.find((c: any) => c[0].name === 'index_code')?.[0]
+
+    const result = await indexCodeDef.execute({ mode: 'incremental' })
+
+    expect(result).toHaveProperty('adrFilesIndexed', 3)
+    expect(result).toHaveProperty('adrChunksIndexed', 12)
+  })
 })

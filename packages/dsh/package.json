@@ -1,6 +1,6 @@
 {
   "name": "dsh-context-milvus",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "DSH plugin for semantic code search via Milvus vector database",
   "type": "module",
   "files": [
@@ -41,8 +41,15 @@
     "test": "node --experimental-vm-modules ../../node_modules/.bin/jest --config ../../jest.config.js --roots packages/dsh",
     "test:coverage": "node --experimental-vm-modules ../../node_modules/.bin/jest --config ../../jest.config.js --roots packages/dsh --coverage"
   },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": "^0.1.5-rc.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    }
+  },
   "dependencies": {
-    "@deepseek-ai/dsh-llm": "^0.0.1-rc.1",
     "@zilliz/milvus2-sdk-node": "^3.0.4",
     "dsh-context-milvus-core": "^0.2.1",
     "ignore": "^7.0.6",
@@ -59,6 +66,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-llm": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-settings": "^0.1.5-rc.2",
     "@deepseek-ai/dsh-tools": "^0.1.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.1",
