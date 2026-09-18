@@ -452,7 +452,8 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
   {
     "filePath": "src/auth/login.ts",
     "content": "export async function loginUser(credentials) { ... }",
-    "score": 0.92,
+    "score": 0.0164,
+    "scoreKind": "rrf",
     "language": "typescript",
     "chunkType": "function_declaration",
     "name": "loginUser",
@@ -461,6 +462,8 @@ dsh plugin --profile web add file:/mnt/home/bobjia/workspace/dsh-context-milvus
   }
 ]
 ```
+
+> **`score` 的含义取决于 `hybridMode`** —— 由 `scoreKind` 标明。混合检索开启时（默认）Milvus 返回的是 **RRF 融合分**，约为 `1/(bm25RrfK + 名次)`：它表达的是**名次**而非相似度，量级在 0.016 附近，**不可**当作匹配百分比，也不可与余弦值比较。`hybridMode: false` 时才是真正的余弦相似度（通常 0.5~0.8）。渲染文本与此一致：RRF 结果输出 `排序: N/M` 而非相关度数值，避免把名次误读成匹配质量。
 
 ### `index_code`
 

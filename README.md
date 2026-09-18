@@ -445,7 +445,8 @@ Semantic code search. Automatically invoked when the user asks about code functi
   {
     "filePath": "src/auth/login.ts",
     "content": "export async function loginUser(credentials) { ... }",
-    "score": 0.92,
+    "score": 0.0164,
+    "scoreKind": "rrf",
     "language": "typescript",
     "chunkType": "function_declaration",
     "name": "loginUser",
@@ -454,6 +455,8 @@ Semantic code search. Automatically invoked when the user asks about code functi
   }
 ]
 ```
+
+> **What `score` means depends on `hybridMode`** — `scoreKind` says which. With hybrid search on (the default) Milvus returns an **RRF fusion score**, roughly `1/(bm25RrfK + rank)`: it encodes *rank*, not similarity, sits near 0.016, and must not be read as a match percentage or compared against a cosine value. With `hybridMode: false` it is a real cosine similarity (typically 0.5–0.8). The rendered text follows suit: RRF results print `排序: N/M` instead of a relevance number, so a rank is never mistaken for match quality.
 
 ### `index_code`
 
