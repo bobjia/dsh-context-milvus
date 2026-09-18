@@ -27,7 +27,7 @@ import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 // Loads dsh-settings' `Context.settings` service augmentation (types only, erased at runtime).
 import type {} from '@deepseek-ai/dsh-settings'
-import { getConfig, deriveMerkleFilePath, deriveImportMapFilePath, type CordisConfig, type PluginConfig, type AdrService, type AdrAnchorIndex } from 'dsh-context-milvus-core'
+import { getConfig, deriveMerkleFilePath, deriveImportMapFilePath, type CordisConfig, type PluginConfig } from 'dsh-context-milvus-core'
 import { MilvusService } from 'dsh-context-milvus-core'
 import { HashTracker } from 'dsh-context-milvus-core'
 import { EmbeddingClient } from 'dsh-context-milvus-core'
@@ -37,6 +37,7 @@ import { registerTools } from './tools.js'
 import { registerAdrTools } from './adr-tools.js'
 import { runAdrIndex } from 'dsh-context-milvus-core'
 import { setupConstraintInjection } from './constraint-injector.js'
+import { createAdrRuntimeResolver, type AdrRuntime } from './adr-runtime.js'
 
 export const name = 'dsh-context-milvus'
 export const inject = ['tools']
@@ -322,18 +323,18 @@ export async function apply(ctx: Context, config?: CordisConfig) {
   // The ADR bundle (service + anchor index + hash tracker) is derived from
   // indexRoot/adrRoot, and the system prompt section is baked in when the ADR
   // hooks are registered, so both are part of one signature.
-  let adrOptions: {
-    service: AdrService
-    anchorIndex: AdrAnchorIndex
-    adrTracker: HashTracker
-  } | null = null
+  //
+  // `adrRuntime` is the **startup** runtime. It is mutated in place by
+  // applyAdrConfig() because tools registered earlier hold this exact object;
+  // the session-rooted runtimes are derived from it by the resolver below.
+  let adrRuntime: AdrRuntime | null = null
   let adrKey = ''
 
-  const getAdrOptions = () => {
-    if (!adrOptions) {
+  const getAdrRuntime = (): AdrRuntime => {
+    if (!adrRuntime) {
       throw new Error('[dsh-context-milvus] ADR 服务尚未初始化')
     }
-    return adrOptions
+    return adrRuntime
   }
 
   /** ADR inputs that are baked into the bundle or the prompt section. */
@@ -347,21 +348,24 @@ export async function apply(ctx: Context, config?: CordisConfig) {
   /** Build (or rebuild) the ADR bundle. Returns true if rebuilt. */
   async function applyAdrConfig(cfg: PluginConfig): Promise<boolean> {
     const key = adrSignature(cfg)
-    if (adrOptions && key === adrKey) return false
+    if (adrRuntime && key === adrKey) return false
 
     // createWhenMissing: true 延续 DSH 的历史行为 —— 加载插件即建出 ADR 目录。
     // 缺了这个参数就会变成行为变化，因为 core 的 bundle 默认不在用户仓库里建目录。
     const bundle = await createAdrBundle(cfg, { createWhenMissing: true })
-    if (adrOptions) {
-      // Mutate in place: tools registered earlier hold this exact object.
-      adrOptions.service = bundle.service
-      adrOptions.anchorIndex = bundle.anchorIndex
-      adrOptions.adrTracker = bundle.tracker
+    if (adrRuntime) {
+      // Mutate in place: tools registered earlier hold this exact object, and the
+      // session resolver captured this same reference as its `startup`.
+      adrRuntime.root = bundle.adrRoot
+      adrRuntime.service = bundle.service
+      adrRuntime.anchorIndex = bundle.anchorIndex
+      adrRuntime.tracker = bundle.tracker
     } else {
-      adrOptions = {
+      adrRuntime = {
+        root: bundle.adrRoot,
         service: bundle.service,
         anchorIndex: bundle.anchorIndex,
-        adrTracker: bundle.tracker,
+        tracker: bundle.tracker,
       }
     }
     adrKey = key
@@ -380,14 +384,15 @@ export async function apply(ctx: Context, config?: CordisConfig) {
   /** Toggle ADR features on/off at runtime without plugin reload. */
   function toggleAdr(enable: boolean): void {
     if (enable && !prevAdrEnabled) {
-      // ADR was just enabled — register tools and hooks against the current bundle
-      const adr = getAdrOptions()
+      // ADR was just enabled — register tools and hooks against the session runtime
+      // resolver. The resolver's `startup` is the same object applyAdrConfig()
+      // mutates in place, so a settings rebuild stays visible here.
       adrToolDisposers = registerAdrTools(
-        ctx, () => getConfig(current()), getMilvus, adr.service, adr.anchorIndex,
-        { runAdrIndex, tracker: adr.adrTracker },
+        ctx, () => getConfig(current()), getMilvus, adrRuntimeResolver,
+        { runAdrIndex },
       )
       constraintDisposer = setupConstraintInjection(
-        ctx, () => getConfig(current()), adr.service, adr.anchorIndex,
+        ctx, () => getConfig(current()), adrRuntimeResolver,
       )
       console.log(`[dsh-context-milvus] ADR 决策记忆已启用`)
     } else if (!enable && prevAdrEnabled) {
@@ -466,6 +471,17 @@ export async function apply(ctx: Context, config?: CordisConfig) {
   // injection hooks are registered/unregistered dynamically via toggleAdr().
   await applyAdrConfig(resolved)
 
+  // The session-rooted ADR runtime resolver. It holds the startup runtime by
+  // reference; applyAdrConfig() mutates that object's fields in place on a
+  // settings edit, so the resolver never needs rebuilding. Sessions whose
+  // workspace differs from config.indexRoot get their own three same-rooted
+  // state objects (service + anchor index + tracker) — this is the fix for
+  // check_adr_consistency reading another root's anchor index.
+  const adrRuntimeResolver = createAdrRuntimeResolver({
+    resolveConfig: () => getConfig(current()),
+    startup: getAdrRuntime(),
+  })
+
   // Startup services now exist, so later settings edits may safely use them.
   servicesReady = true
 
@@ -473,15 +489,16 @@ export async function apply(ctx: Context, config?: CordisConfig) {
   // prevAdrEnabled still starts false, so this is a real registration.
   if (resolved.adrEnabled) {
     toggleAdr(true)
-    console.log(`[dsh-context-milvus] ADR 决策记忆已加载 (${getAdrOptions().service.root})`)
+    console.log(`[dsh-context-milvus] ADR 决策记忆已加载 (${getAdrRuntime().root})`)
   }
 
   // Register all tools — pass the config thunk so each tool execution picks up
   // the latest settings without restart, plus getters for every service a
-  // settings edit can rebuild. adrOptions is a stable object mutated in place;
-  // tools check config.adrEnabled at execution time.
+  // settings edit can rebuild. The ADR resolver is a stable object whose
+  // `startup` fields are swapped in place; tools check config.adrEnabled at
+  // execution time.
   registerTools(
-    ctx, () => getConfig(current()), getMilvus, getTracker, getImportResolver, getAdrOptions(),
+    ctx, () => getConfig(current()), getMilvus, getTracker, getImportResolver, adrRuntimeResolver,
   )
 
   console.log(

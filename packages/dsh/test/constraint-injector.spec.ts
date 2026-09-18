@@ -27,11 +27,26 @@ jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
 
 const { setupConstraintInjection } = await import('../src/plugins/dsh-context-milvus/constraint-injector.js')
 
+/**
+ * 会话 runtime 解析器的桩：forExec / peek 都返回同一组 mock 状态对象。
+ * 生产实现见 adr-runtime.ts（按会话根缓存 service/anchorIndex/tracker 三者）。
+ */
+function makeRuntimeStub(state: { service: any; anchorIndex: any; tracker?: any; root?: string }) {
+  const rt = {
+    root: state.root ?? '/test/docs/decisions',
+    service: state.service,
+    anchorIndex: state.anchorIndex,
+    tracker: state.tracker ?? {},
+  }
+  return { startup: rt, forExec: jest.fn(async () => rt), peek: jest.fn(() => rt) }
+}
+
 describe('setupConstraintInjection', () => {
   let ctx: any
   let adrService: any
   let anchorIndex: any
   let resolveConfig: any
+  let runtime: any
   let sectionResult: any
   let contextResult: any
 
@@ -63,10 +78,11 @@ describe('setupConstraintInjection', () => {
       adrConstraintReinjectEvery: 5,
       adrSystemPrompt: '',
     })
+    runtime = makeRuntimeStub({ service: adrService, anchorIndex })
   })
 
   it('registers a system prompt section', () => {
-    const disposer = setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    const disposer = setupConstraintInjection(ctx, resolveConfig, runtime)
     expect(ctx.systemPrompt.section).toHaveBeenCalled()
     expect(sectionResult.name).toBe('decision-memory:rules')
     expect(sectionResult.order).toBe(50)
@@ -74,24 +90,24 @@ describe('setupConstraintInjection', () => {
   })
 
   it('registers a runtime context provider', () => {
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     expect(ctx.systemPrompt.context).toHaveBeenCalled()
     expect(contextResult.name).toBe('decision-memory:active-constraints')
   })
 
   it('registers agent/pre-step hook', () => {
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     expect(ctx.on).toHaveBeenCalledWith('agent/pre-step', expect.any(Function))
   })
 
   it('registers tools/result hook', () => {
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     expect(ctx.on).toHaveBeenCalledWith('tools/result', expect.any(Function))
   })
 
   it('registers hooks regardless of adrEnabled (guard moved to caller)', () => {
     resolveConfig.mockReturnValue({ adrEnabled: false })
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     expect(ctx.systemPrompt.section).toHaveBeenCalled()
     expect(ctx.on).toHaveBeenCalled()
   })
@@ -110,7 +126,7 @@ describe('setupConstraintInjection', () => {
       return undefined
     })
 
-    const disposer = setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    const disposer = setupConstraintInjection(ctx, resolveConfig, runtime)
     disposer()
 
     expect(sectionDisposer).toHaveBeenCalledTimes(1)
@@ -152,7 +168,7 @@ describe('setupConstraintInjection', () => {
     ]
     adrService.getActiveConstraints.mockResolvedValue(constraints)
 
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     const preStepHook = getPreStepHook()
 
     const claimedMessage = { role: 'user', content: 'claimed' }
@@ -183,7 +199,7 @@ describe('setupConstraintInjection', () => {
       adrConstraintReinjectEvery: 5,
       adrSystemPrompt: '',
     })
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     const preStepHook = getPreStepHook()
 
     const decision = { kind: 'normal', messages: [] }
@@ -204,7 +220,7 @@ describe('setupConstraintInjection', () => {
       adrConstraintReinjectEvery: 0,  // default — disabled
       adrSystemPrompt: '',
     })
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     const preStepHook = getPreStepHook()
 
     const decision = { kind: 'normal', messages: [] }
@@ -225,7 +241,7 @@ describe('setupConstraintInjection', () => {
       adrConstraintReinjectEvery: 0,
       adrSystemPrompt: '',
     })
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     const toolsResultHook = getToolsResultHook()
     const preStepHook = getPreStepHook()
 
@@ -250,7 +266,7 @@ describe('setupConstraintInjection', () => {
       adrConstraintReinjectEvery: 0,
       adrSystemPrompt: '',
     })
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     const toolsResultHook = getToolsResultHook()
     const preStepHook = getPreStepHook()
 
@@ -288,7 +304,7 @@ describe('setupConstraintInjection', () => {
       planRoot: 'plans',
       indexRoot: tempDir,
     })
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     const toolsResultHook = getToolsResultHook()
     const preStepHook = getPreStepHook()
 
@@ -326,7 +342,7 @@ describe('setupConstraintInjection', () => {
       planRoot: 'plans',
       indexRoot: tempDir,
     })
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     const toolsResultHook = getToolsResultHook()
     const preStepHook = getPreStepHook()
 
@@ -366,7 +382,7 @@ describe('setupConstraintInjection', () => {
       planRoot: 'plans',
       indexRoot: tempDir,
     })
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     const toolsResultHook = getToolsResultHook()
     const preStepHook = getPreStepHook()
 
@@ -402,7 +418,7 @@ describe('setupConstraintInjection', () => {
       indexRoot: tempDir,
     })
     // anchorIndex.getAdrsForFile already returns ['ADR-0001'] by default
-    setupConstraintInjection(ctx, resolveConfig, adrService, anchorIndex)
+    setupConstraintInjection(ctx, resolveConfig, runtime)
     const toolsResultHook = getToolsResultHook()
     const preStepHook = getPreStepHook()
 

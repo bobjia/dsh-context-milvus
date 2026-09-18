@@ -18,10 +18,9 @@ import { dump as yamlDump, load as yamlLoad } from 'js-yaml'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { MilvusService } from 'dsh-context-milvus-core'
-import { AdrService } from 'dsh-context-milvus-core'
-import type { AdrAnchorIndex } from 'dsh-context-milvus-core'
 import type { PluginConfig } from 'dsh-context-milvus-core'
-import type { HashTracker } from 'dsh-context-milvus-core'
+import type { AdrRuntimeResolver } from './adr-runtime.js'
+import { workspaceRootForExec } from './adr-runtime.js'
 import {
   runAdrIndex, probeSpecCorpus, exceedsLargeSpecCorpus, writeRunConfig, deriveMerkleFilePath,
   LARGE_SPEC_FILE_LIMIT, LARGE_SPEC_BYTE_LIMIT, SPEC_FILE_RE, PLAN_FILE_RE,
@@ -82,61 +81,23 @@ function formatDeferredSpecsResult(value: any): string {
 }
 
 /**
- * Resolve the effective ADR root directory from the execution context.
+ * 取该 exec 的会话级 ADR 运行时（service / anchorIndex / tracker 三者同根）。
  *
- * The plugin is bound to a root derived at startup, but the actual ADR files
- * live in the agent session's workspace. Tool executions receive an `exec`
- * object carrying `exec.agent.session.header.cwd` (the session workspace),
- * so we prefer that over the startup `config.indexRoot`.
- */
-function resolveEffectiveAdrRoot(resolveConfig: () => PluginConfig, exec?: any): string {
-  const config = resolveConfig()
-  const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
-  const indexRoot = sessionCwd || config.indexRoot || process.cwd()
-  return path.resolve(indexRoot, config.adrRoot || 'docs/decisions')
-}
-
-/**
- * Resolve the effective index root (workspace root) from the execution context.
- * Anchor-index paths are stored relative to the workspace, so stale-file
- * checks must resolve them against the session workspace, not process.cwd().
- */
-function resolveEffectiveIndexRoot(resolveConfig: () => PluginConfig, exec?: any): string {
-  const config = resolveConfig()
-  const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
-  return sessionCwd || config.indexRoot || process.cwd()
-}
-
-/**
- * Return an AdrService bound to the effective ADR root for this call.
- * Reuses the startup instance when the resolved root matches (the common
- * single-workspace case); otherwise creates a fresh instance for the
- * session workspace.
+ * 收敛前的三份重复逻辑（`serviceForExec`、`resolveEffectiveIndexRoot`，以及
+ * `constraint-injector.ts` 的内联版本）都只重建 `AdrService`，于是锚点索引与
+ * tracker 留在启动根，`check_adr_consistency` 报 100% 假失效。现在统一走
+ * `adr-runtime.ts`。
  *
- * When no session context is available (e.g. in tests), the startup
- * service is returned directly.
+ * 注意：`rt.root` 是 **ADR 目录**（`<workspace>/docs/decisions`）；锚点存的是相对
+ * **工作区根**的路径，解析基准要用 `workspaceRootForExec`。两者必须成对出现。
  */
-function serviceForExec(
-  resolveConfig: () => PluginConfig,
-  startup: AdrService,
-  exec?: any,
-): AdrService {
-  const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
-  if (!sessionCwd) return startup
-  const config = resolveConfig()
-  const root = path.resolve(sessionCwd, config.adrRoot || 'docs/decisions')
-  return root === startup.root ? startup : new AdrService(root)
-}
-
 export function registerAdrTools(
   ctx: Context,
   resolveConfig: () => PluginConfig,
   resolveMilvus: () => MilvusService,
-  adrService: AdrService,
-  anchorIndex: AdrAnchorIndex,
+  runtime: AdrRuntimeResolver,
   adrIndexer?: {
     runAdrIndex: typeof runAdrIndex
-    tracker: HashTracker
   },
 ): (() => void)[] {
   const disposers: (() => void)[] = []
@@ -204,12 +165,13 @@ export function registerAdrTools(
       },
     },
     async execute(params: any, exec?: any) {
-      const adrIds = anchorIndex.getAdrsForFile(params.file_path)
+      // 会话 runtime：索引与 service 必须同根（修复前 anchorIndex 固定在启动根）。
+      const rt = await runtime.forExec(exec)
+      const adrIds = rt.anchorIndex.getAdrsForFile(params.file_path)
       if (adrIds.length === 0) return []
-      const svc = serviceForExec(resolveConfig, adrService, exec)
       const results = []
       for (const adrId of adrIds) {
-        const doc = await svc.loadAdr(adrId)
+        const doc = await rt.service.loadAdr(adrId)
         if (doc && (!params.status || params.status === 'all' || doc.frontmatter.status === params.status)) {
           const firstSection = Object.values(doc.sections)[0] || ''
           results.push({
@@ -247,8 +209,8 @@ export function registerAdrTools(
     },
     async execute(params: any, exec?: any) {
       const milvus = resolveMilvus()
-      const svc = serviceForExec(resolveConfig, adrService, exec)
-      const result = await svc.createAdr({
+      const rt = await runtime.forExec(exec)
+      const result = await rt.service.createAdr({
         title: params.title,
         requirement: params.requirement,
         changeType: params.change_type,
@@ -257,9 +219,9 @@ export function registerAdrTools(
       })
       // Auto-index the newly created ADR
       if (adrIndexer) {
-        const config = resolveConfig()
-        const adrConfig = { ...config, adrRoot: resolveEffectiveAdrRoot(resolveConfig, exec) }
-        await adrIndexer.runAdrIndex(adrConfig, milvus, adrIndexer.tracker, anchorIndex, { mode: 'incremental' })
+        // 写入与索引必须同根：adrRoot 取 rt.root，tracker/anchorIndex 也来自同一个 runtime。
+        const adrConfig = { ...resolveConfig(), adrRoot: rt.root }
+        await adrIndexer.runAdrIndex(adrConfig, milvus, rt.tracker, rt.anchorIndex, { mode: 'incremental' })
       }
       return { adrId: result.id, filePath: result.filePath }
     },
@@ -288,8 +250,8 @@ export function registerAdrTools(
     },
     async execute(params: any, exec?: any) {
       const milvus = resolveMilvus()
-      const svc = serviceForExec(resolveConfig, adrService, exec)
-      const result = await svc.updateAdr(params.adr_id, {
+      const rt = await runtime.forExec(exec)
+      const result = await rt.service.updateAdr(params.adr_id, {
         content: params.content,
         status: params.status,
         supersededBy: params.superseded_by,
@@ -297,9 +259,8 @@ export function registerAdrTools(
       })
       // Re-index the updated ADR
       if (adrIndexer) {
-        const config = resolveConfig()
-        const adrConfig = { ...config, adrRoot: resolveEffectiveAdrRoot(resolveConfig, exec) }
-        await adrIndexer.runAdrIndex(adrConfig, milvus, adrIndexer.tracker, anchorIndex, { mode: 'incremental' })
+        const adrConfig = { ...resolveConfig(), adrRoot: rt.root }
+        await adrIndexer.runAdrIndex(adrConfig, milvus, rt.tracker, rt.anchorIndex, { mode: 'incremental' })
       }
       return { adrId: result.id, filePath: result.filePath }
     },
@@ -336,8 +297,8 @@ export function registerAdrTools(
       },
     },
     async execute(params: any, exec?: any) {
-      const svc = serviceForExec(resolveConfig, adrService, exec)
-      return svc.listAdrs({
+      const rt = await runtime.forExec(exec)
+      return rt.service.listAdrs({
         status: params.status ?? 'active',
         changeType: params.change_type,
         limit: params.limit ?? 100,
@@ -390,8 +351,8 @@ export function registerAdrTools(
       },
     },
     async execute(params: any, exec?: any) {
-      const svc = serviceForExec(resolveConfig, adrService, exec)
-      const all = await svc.getActiveConstraints()
+      const rt = await runtime.forExec(exec)
+      const all = await rt.service.getActiveConstraints()
       let filtered = all
       if (params.adr_ids) {
         const ids = params.adr_ids.split(',').map((s: string) => s.trim())
@@ -450,14 +411,19 @@ export function registerAdrTools(
       },
     },
     async execute(params: any, exec?: any) {
-      const svc = serviceForExec(resolveConfig, adrService, exec)
+      // 索引与会话工作区同源：读的必须是本会话的锚点索引。
+      const rt = await runtime.forExec(exec)
       const staleAnchors: Array<{ adrId: string; file: string; issue: string }> = []
       const uncoveredChanges: Array<{ adrId: string; file: string; status: string }> = []
       const fixedAnchors: Array<{ adrId: string; file: string }> = []
 
-      const allFiles = anchorIndex.getAll()
+      const allFiles = rt.anchorIndex.getAll()
       const anchoredPaths = new Set(allFiles.keys())
-      const effectiveIndexRoot = resolveEffectiveIndexRoot(resolveConfig, exec)
+      // 解析基准是**工作区根**，不是 rt.root —— 本 bug 的核心就在这里：
+      // code_anchors 存的是相对工作区根的路径（adr-anchor-generator 按 codebase
+      // root 解析），而 rt.root 是 ADR 目录（<ws>/docs/decisions）。索引与解析基准
+      // 必须同源，否则又会变成"索引来自 A 根、解析按 B 根"的假失效。
+      const effectiveIndexRoot = workspaceRootForExec(resolveConfig, exec)
 
       for (const [filePath, adrIds] of allFiles) {
         if (params.file_path && filePath !== params.file_path) continue
@@ -482,7 +448,7 @@ export function registerAdrTools(
           for (const adrId of adrIdList) {
             try {
               // Load the ADR document to get the file path
-              const doc = await svc.loadAdr(adrId)
+              const doc = await rt.service.loadAdr(adrId)
               if (!doc) continue
 
               // Read the raw file content
@@ -589,8 +555,9 @@ export function registerAdrTools(
     async execute(params: any, exec?: any) {
       const milvus = resolveMilvus()
       const config = resolveConfig()
-      const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
-      const indexRoot = sessionCwd || config.indexRoot || process.cwd()
+      // 会话 runtime：写入 anchors-*.json / adr-merkle-*.json 的必须是会话根那一份。
+      const rt = await runtime.forExec(exec)
+      const indexRoot = workspaceRootForExec(resolveConfig, exec)
       const specRoot = params.path
         ? params.path
         : path.resolve(indexRoot, config.specRoot || 'docs/superpowers/specs')
@@ -663,12 +630,12 @@ export function registerAdrTools(
       if (!params.dry_run && candidates.length > 0 && adrIndexer) {
         const adrConfig = {
           ...config,
-          adrRoot: path.resolve(indexRoot, config.adrRoot || 'docs/decisions'),
+          adrRoot: rt.root,
           specRoot,
           planRoot,
         }
         const result = await adrIndexer.runAdrIndex(
-          adrConfig, milvus, adrIndexer.tracker, anchorIndex, { mode: 'incremental' },
+          adrConfig, milvus, rt.tracker, rt.anchorIndex, { mode: 'incremental' },
         )
         filesIndexed = result.filesIndexed
         chunksIndexed = result.chunksIndexed

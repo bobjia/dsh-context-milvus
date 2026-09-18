@@ -1,5 +1,6 @@
 export * from './types.js'
 export { getConfig, deriveMerkleFilePath, deriveImportMapFilePath, deriveRunConfigPath,
+         deriveAnchorIndexPath, deriveAdrTrackerPath,
          DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS, DEFAULT_IGNORE_PATTERNS } from './config.js'
 export type { CordisConfig, PluginConfig } from './config.js'
 export { writeRunConfig, readRunConfig } from './run-config.js'

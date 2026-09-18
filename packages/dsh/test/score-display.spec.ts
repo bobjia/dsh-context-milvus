@@ -136,6 +136,7 @@ describe('search_adr score display', () => {
   let milvus: any
   let adrService: any
   let anchorIndex: any
+  let runtime: any
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -146,10 +147,13 @@ describe('search_adr score display', () => {
       loadAdr: jest.fn(), getActiveConstraints: jest.fn(),
     }
     anchorIndex = { getAdrsForFile: jest.fn(), getStats: jest.fn(), getAll: jest.fn() }
+    // 会话 runtime 解析器的桩（生产实现见 adr-runtime.ts）。
+    const rt = { root: '/test/docs/decisions', service: adrService, anchorIndex, tracker: {} }
+    runtime = { startup: rt, forExec: jest.fn(async () => rt), peek: jest.fn(() => rt) }
   })
 
   function searchAdrDef() {
-    registerAdrTools(ctx, () => ({ adrEnabled: true }) as any, () => milvus, adrService, anchorIndex)
+    registerAdrTools(ctx, () => ({ adrEnabled: true }) as any, () => milvus, runtime)
     const def = mockRegister.mock.calls.find((c: any) => c[0].name === 'search_adr')?.[0]
     expect(def).toBeDefined()
     return def

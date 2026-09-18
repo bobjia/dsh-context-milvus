@@ -68,10 +68,19 @@ const config = {
 
 const SPECS_ROOT = '/workspace/test/docs/superpowers/specs'
 
+/**
+ * 会话 runtime 解析器的桩：defer 判定与 ADR 状态对象无关，这里只需要一个
+ * 不会抛错的空 runtime（生产实现见 adr-runtime.ts）。
+ */
+function runtimeStub() {
+  const rt = { root: '/workspace/test/docs/decisions', service: {}, anchorIndex: {}, tracker: {} }
+  return { startup: rt, forExec: async () => rt, peek: () => rt }
+}
+
 function indexSpecsDef() {
   mockRegister.mockClear()
   const ctx = { tools: { register: mockRegister } } as any
-  registerAdrTools(ctx, () => config as any, () => ({}) as any, {} as any, {} as any)
+  registerAdrTools(ctx, () => config as any, () => ({}) as any, runtimeStub())
   return mockRegister.mock.calls.find((c: any) => c[0].name === 'index_specs')?.[0]
 }
 

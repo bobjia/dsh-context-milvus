@@ -20,12 +20,23 @@ import {
   LARGE_WORKSPACE_FILE_LIMIT, LARGE_WORKSPACE_BYTE_LIMIT,
 } from 'dsh-context-milvus-core'
 import { runAdrIndex, getAdrIndexStatus as getAdrIndexStatusFn } from 'dsh-context-milvus-core'
-import type { AdrService } from 'dsh-context-milvus-core'
-import type { AdrAnchorIndex } from 'dsh-context-milvus-core'
 import { findCallers, traceChain } from 'dsh-context-milvus-core'
 import type { FindBySymbol } from 'dsh-context-milvus-core'
 import { createTelemetry, sanitizeQuery } from 'dsh-context-milvus-core'
+import type { AdrRuntimeResolver } from './adr-runtime.js'
 import { buildIndexCommand } from './index-command.js'
+
+/**
+ * 以某个工作区根构造最小的 DSH 会话 exec，供 {@link AdrRuntimeResolver.forExec} 解析。
+ *
+ * index_code / index_status 支持显式 `path` 覆盖工作区根，此时被索引的根不是
+ * `exec.agent.session.header.cwd`。ADR 的 tracker / anchorIndex / adrRoot 必须与
+ * **被索引的根**同源，否则会写错工作区的 anchors-*.json。无 path 覆盖时
+ * `effectiveConfig.indexRoot` 就等于会话根，与直接传 exec 完全等价。
+ */
+function execForWorkspaceRoot(workspaceRoot: string): any {
+  return { agent: { session: { header: { cwd: path.resolve(workspaceRoot) } } } }
+}
 
 /** 混合检索说明行：每个输出只出现一次，位于第一条结果之前。 */
 const RRF_NOTE = '（混合检索：结果按 RRF 融合排序，仅提供名次，不提供绝对相似度分值。）'
@@ -147,7 +158,8 @@ async function createTrackerForPath(
  * @param resolveTracker - thunk returning the current default HashTracker
  * @param resolveImportResolver - thunk returning the current ImportResolver for
  *   cross-file import/export analysis (undefined when none is available)
- * @param adrOptions - optional ADR services for indexing & status
+ * @param adrRuntime - optional session-rooted ADR runtime resolver; ADR indexing
+ *   and status must use the same root as the workspace being indexed
  */
 export function registerTools(
   ctx: Context,
@@ -155,11 +167,7 @@ export function registerTools(
   resolveMilvus: () => MilvusService,
   resolveTracker: () => HashTracker,
   resolveImportResolver?: () => ImportResolver | undefined,
-  adrOptions?: {
-    service: AdrService
-    anchorIndex: AdrAnchorIndex
-    adrTracker: HashTracker
-  },
+  adrRuntime?: AdrRuntimeResolver,
 ): void {
   // 本地遥测（opt-in）：每次调用实时解析配置
   const telemetry = createTelemetry(() => {
@@ -388,15 +396,18 @@ export function registerTools(
         // After code indexing, also index ADRs if enabled
         let adrFilesIndexed: number | undefined
         let adrChunksIndexed: number | undefined
-        if (adrOptions && effectiveConfig.adrEnabled) {
+        if (adrRuntime && effectiveConfig.adrEnabled) {
+          // 三者同根：ADR 索引的 tracker / anchorIndex / adrRoot 都跟着**被索引的
+          // 工作区根**走（修复前 tracker 与 anchorIndex 固定在启动根）。
+          const rt = await adrRuntime.forExec(execForWorkspaceRoot(effectiveConfig.indexRoot))
           const adrConfig = {
             ...effectiveConfig,
-            adrRoot: path.resolve(effectiveConfig.indexRoot, effectiveConfig.adrRoot),
+            adrRoot: rt.root,
             specRoot: path.resolve(effectiveConfig.indexRoot, effectiveConfig.specRoot),
             planRoot: path.resolve(effectiveConfig.indexRoot, effectiveConfig.planRoot),
           }
           const adrResult = await runAdrIndex(
-            adrConfig, milvus, adrOptions.adrTracker, adrOptions.anchorIndex,
+            adrConfig, milvus, rt.tracker, rt.anchorIndex,
             { mode, progress },
           )
           adrFilesIndexed = adrResult.filesIndexed
@@ -496,9 +507,10 @@ export function registerTools(
         const status = await getIndexStatus(effectiveConfig, effectiveTracker)
         const v = status as any
 
-        // Append ADR status if available
-        if (adrOptions && config.adrEnabled) {
-          const adrStatus = await getAdrIndexStatusFn(adrOptions.adrTracker, adrOptions.service)
+        // Append ADR status if available — same root as the workspace being reported on.
+        if (adrRuntime && config.adrEnabled) {
+          const rt = await adrRuntime.forExec(execForWorkspaceRoot(effectiveConfig.indexRoot))
+          const adrStatus = await getAdrIndexStatusFn(rt.tracker, rt.service)
           v.adrTotalAdrs = adrStatus.totalAdrs
           v.adrActiveAdrs = adrStatus.activeAdrs
           v.adrLastIndexed = adrStatus.lastIndexed

@@ -11,9 +11,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import * as path from 'node:path'
 import type { PluginConfig } from 'dsh-context-milvus-core'
-import { AdrService } from 'dsh-context-milvus-core'
-import type { AdrAnchorIndex } from 'dsh-context-milvus-core'
 import type { ConstraintSummary } from 'dsh-context-milvus-core'
+import type { AdrRuntimeResolver } from './adr-runtime.js'
 
 // systemPrompt, agent/pre-step, and tools/result types are declared in DSH
 // framework packages (@deepseek-ai/dsh-system-prompt, @deepseek-ai/dsh-agent)
@@ -86,8 +85,7 @@ function buildConstraintSummary(constraints: ConstraintSummary[]): string {
 export function setupConstraintInjection(
   ctx: Context,
   resolveConfig: () => PluginConfig,
-  adrService: AdrService,
-  anchorIndex: AdrAnchorIndex,
+  runtime: AdrRuntimeResolver,
 ): () => void {
   const disposers: (() => void)[] = []
 
@@ -130,24 +128,18 @@ export function setupConstraintInjection(
     const warnings: string[] = [...state.pendingWarnings]
     state.pendingWarnings = []
 
+    // 预热会话 runtime 缓存：同步的 tools/result 钩子只能 peek（没有 await 可用），
+    // 靠这里把会话根的 anchorIndex 装进缓存。forExec 按 root 缓存，重复调用只是
+    // 一次 Map 命中，不做重复 IO。预热刻意放在 reinjectEvery 守卫**之外** —— 该守卫
+    // 默认是 0（关闭），而"缓存预热"与"约束重注入"是两件不同的事，不能一起被关掉。
+    // 失败时回落 startup（best-effort，不影响本钩子的其余逻辑）。
+    const rt = await runtime.forExec({ agent }).catch(() => runtime.startup)
+
     // Async refresh constraint cache (no message injection — the system
     // prompt context() provider reads the cache synchronously).
     if (reinjectEvery > 0 && state.stepCount % reinjectEvery === 0) {
       try {
-        // Resolve the ADR root against the session workspace when available.
-        // ADR files live in the session workspace, not the plugin's startup cwd.
-        // When no session cwd is available (e.g. in tests), use the startup service.
-        const sessionCwd = agent?.session?.header?.cwd as string | undefined
-        let svc = adrService
-        if (sessionCwd) {
-          const config = resolveConfig()
-          const effectiveRoot = path.resolve(sessionCwd, config.adrRoot || 'docs/decisions')
-          if (effectiveRoot !== adrService.root) {
-            svc = new AdrService(effectiveRoot)
-          }
-        }
-
-        const constraints = await svc.getActiveConstraints()
+        const constraints = await rt.service.getActiveConstraints()
         constraintCache = buildConstraintSummary(constraints)
       } catch {
         // Silently handle errors
@@ -194,8 +186,13 @@ export function setupConstraintInjection(
       sessionState.set(session, state)
     }
 
-    // Check if file is in anchor index (ADR code_anchors)
-    const adrIds = anchorIndex.getAdrsForFile(filePath)
+    // Check if file is in anchor index (ADR code_anchors).
+    //
+    // 本钩子是**同步**的（没有 await 可用），所以只能用 peek：命中缓存则用会话根的
+    // 索引，未命中（例如本会话第一次工具调用早于 agent/pre-step 的预热）就退化为
+    // startup 的索引 —— 这是可接受的 best-effort 降级，不是保证：该钩子只产生一条
+    // 提示，且缓存通常已被 pre-step 钩子预热。
+    const adrIds = runtime.peek(exec).anchorIndex.getAdrsForFile(filePath)
     if (adrIds.length > 0) {
       state.pendingWarnings.push(
         `⚠️ 你修改了文件 ${filePath}，它被以下 ADR 的 code_anchors 覆盖: ${adrIds.join(', ')}。请确认是否需要更新相关 ADR 的约束条件或 code_anchors。`,
