@@ -35,7 +35,7 @@ jest.unstable_mockModule('@deepseek-ai/dsh-tools', () => ({
 
 jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => {
   class MilvusClient {
-    connectPromise = Promise.resolve()
+    connectPromise: Promise<void> = Promise.resolve()
     hasCollection = jest.fn(async () => ({ value: false }))
     describeCollection = jest.fn(async () => ({ schema: { fields: [] } }))
     createCollection = jest.fn(async () => ({}))
@@ -48,6 +48,14 @@ jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => {
     query = jest.fn(async () => ({ data: [] }))
     constructor(opts: any) {
       clientAddresses.push(opts.address)
+      // A client built for this address fails its connection handshake late —
+      // it models the startup instance whose error only lands after a settings
+      // edit has already superseded it.
+      if (opts.address === 'fail-lazy:19530') {
+        this.connectPromise = new Promise((_resolve, reject) =>
+          setTimeout(() => reject(new Error('connect ECONNREFUSED fail-lazy:19530')), 80),
+        )
+      }
     }
   }
   return {
@@ -196,6 +204,44 @@ describe('settings hot-reload', () => {
       expect(h.addresses).toEqual(['old-host:19530', 'new-host:19530'])
     } finally {
       h.cleanup()
+    }
+  })
+
+  it('stays silent when the startup Milvus client fails after a settings rebuild superseded it', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const h = await createHarness({ milvusAddress: 'fail-lazy:19530' })
+    try {
+      // A settings rebuild (the GUI value arriving right after boot) replaces
+      // the startup client before its 80ms-late connection error lands.
+      h.commit({ milvusAddress: 'new-host:19530' })
+      await waitFor(() => h.addresses.length === 2)
+      // Outlive the lazy failure, a microtask flush, and the rebuild's own
+      // fire-and-forget ensureCollection.
+      await new Promise((r) => setTimeout(r, 150))
+
+      expect(warnSpy.mock.calls.map((c) => String(c[0]))).not.toContainEqual(
+        expect.stringContaining('集合初始化失败'),
+      )
+    } finally {
+      h.cleanup()
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('warns when the current Milvus client fails to initialize', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const h = await createHarness({ milvusAddress: 'fail-lazy:19530' })
+    try {
+      // No rebuild — the lazy failure belongs to the live client and must
+      // still surface so a genuinely unreachable Milvus is not swallowed.
+      await new Promise((r) => setTimeout(r, 150))
+
+      expect(warnSpy.mock.calls.map((c) => String(c[0]))).toContainEqual(
+        expect.stringContaining('集合初始化失败'),
+      )
+    } finally {
+      h.cleanup()
+      warnSpy.mockRestore()
     }
   })
 
