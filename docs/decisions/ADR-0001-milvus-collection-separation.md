@@ -3,7 +3,7 @@ id: ADR-0001-milvus-collection-separation
 type: decision-record
 status: active
 created: 2026-09-01
-updated: 2026-09-16
+updated: 2026-09-18
 author: dsh-context-milvus
 supersedes: null
 superseded_by: null
@@ -30,7 +30,7 @@ trigger:
   task_id: null
   requirement_summary: ADR 决策记忆系统需要与代码索引分离的专用 Milvus 集合，以支持独立搜索
   change_type: new_feature
-related_decisions: []
+related_decisions: [ADR-0009-rrf-score-display-semantics]
 auto_generated: false
 ---
 
@@ -84,3 +84,9 @@ auto_generated: false
 
 - 需要额外的 Milvus 集合时，按照 `ensureAdrCollection` 模式扩展
 - 当 Milvus SDK 的 BM25 API 变更时，需要更新 fallback 逻辑
+
+## 后续关联（2026-09-18）
+
+ADR-0009（混合检索下 RRF 分数的显示语义）建立在本 ADR 的隐性约束1 之上。混合检索在服务端不支持 BM25 function 时会降级为纯向量检索，此时 `MilvusService.effectiveHybridMode` 为 `false`，`searchAdr` 返回的 `score` 是余弦相似度而不是 RRF 融合分。ADR-0009 因此按 `effectiveHybridMode`（而非 `hybridMode`）标注 `scoreKind`：降级后仍渲染为 `相关度: 0.xxxx`，不会把余弦分误报成 RRF 名次。
+
+本次改动同时给 `AdrSearchResult` 增加了可选字段 `scoreKind`；隐性约束2 的 `codeAnchors` JSON 解析逻辑未变，`searchAdr` 的其余映射保持原样。

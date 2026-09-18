@@ -3,7 +3,7 @@ id: ADR-0005-tool-output-schema-validation-fixes
 type: decision-record
 status: active
 created: 2026-09-03T03:30:24.877Z
-updated: 2026-09-16
+updated: 2026-09-18
 author: dsh-context-milvus
 supersedes: null
 superseded_by: null
@@ -22,7 +22,7 @@ trigger:
   task_id: null
   requirement_summary: "`find_callers` forward 方向返回的 chunk 包含 `references` 字段但 output schema 未声明，`index_specs` dry-run 返回的 `detectedRefs` 包含 `lines` 字段但 output schema 未声明，导致 DSH 输出校验拒绝这两个工具。"
   change_type: bugfix
-related_decisions: []
+related_decisions: [ADR-0009-rrf-score-display-semantics]
 auto_generated: false
 ---
 ## 决策目标
@@ -78,3 +78,9 @@ auto_generated: false
 
 - 新增任何带结构化返回的工具参数/字段时，重新 review 其 output schema 与 execute 返回结构是否一致
 - 若 `find_callers`/`index_specs` 返回结构后续演进（字段改名/删除），需同步更新本 ADR code_anchors 指向的两个 schema
+
+## 后续关联（2026-09-18）
+
+ADR-0009（混合检索下 RRF 分数的显示语义）是本 ADR 隐性约束1 的又一实例：`search_code` 与 `search_adr` 的结果新增可选字段 `scoreKind`，两者的 output schema（`items` 均为 `additionalProperties: false`）已同步声明 `scoreKind: { type: 'string' }`，否则 DSH 运行时校验会拒绝整个工具调用。
+
+本次仅新增可选字段、未改变 execute 返回值的语义或结构，符合本 ADR 的约束条件与「变更边界」。`packages/dsh/test/score-display.spec.ts` 新增用例断言两个 schema 都声明了该字段，作为隐性约束1 的回归防护。
