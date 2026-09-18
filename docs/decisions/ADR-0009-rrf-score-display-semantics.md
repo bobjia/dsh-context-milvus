@@ -26,6 +26,12 @@ code_anchors:
   - file: packages/codex/src/result-format.ts
     symbols:
       - formatSearchResults
+trigger:
+  task_id: null
+  requirement_summary: "`search_code` / `search_adr` 在默认混合检索（hybridMode=true）下把 Milvus 的 RRF 融合分（约 0.016）当作相关度渲染，模型读成「1.6% 匹配」而弃用该工具。需让显示与分数的真实语义一致。"
+  change_type: bugfix
+related_decisions: [ADR-0001-milvus-collection-separation, ADR-0005-tool-output-schema-validation-fixes]
+auto_generated: false
 ---
 
 # 混合检索下 RRF 分数的显示语义
