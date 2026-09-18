@@ -27,6 +27,9 @@ import type { FindBySymbol } from 'dsh-context-milvus-core'
 import { createTelemetry, sanitizeQuery } from 'dsh-context-milvus-core'
 import { buildIndexCommand } from './index-command.js'
 
+/** 混合检索说明行：每个输出只出现一次，位于第一条结果之前。 */
+const RRF_NOTE = '（混合检索：结果按 RRF 融合排序，仅提供名次，不提供绝对相似度分值。）'
+
 /** Format search results for model consumption */
 function formatSearchResults(value: any[]): string {
   if (value.length === 0) return '未找到匹配的代码片段。'
@@ -34,9 +37,12 @@ function formatSearchResults(value: any[]): string {
   const lines = value.map((item: any, i: number) => {
     const lang = item.language ? ` (${item.language})` : ''
     const nameInfo = item.name ? `「${item.name}」` : ''
+    // 缺失或未知的 scoreKind 一律按 similarity 处理（向后兼容，绝不抛错）。
+    const kind = item.scoreKind ?? 'similarity'
     return [
       `[结果 ${i + 1}] 文件: ${item.filePath}${lang}, 第 ${item.startLine}-${item.endLine} 行 ${nameInfo}`,
-      `相关度: ${item.score.toFixed(4)}`,
+      // RRF 分是 1/(k+名次) 的名次编码，不是相似度：只报名次。
+      kind === 'rrf' ? `排序: ${i + 1}/${value.length}` : `相关度: ${item.score.toFixed(4)}`,
       `类型: ${item.chunkType || '未知'}`,
       '内容:',
       '```' + (item.language || ''),
@@ -45,7 +51,10 @@ function formatSearchResults(value: any[]): string {
     ].join('\n')
   })
 
-  return lines.join('\n---\n')
+  const body = lines.join('\n---\n')
+  return value.some((item: any) => (item.scoreKind ?? 'similarity') === 'rrf')
+    ? `${RRF_NOTE}\n${body}`
+    : body
 }
 
 /** Format index result for model consumption */
@@ -194,6 +203,8 @@ export function registerTools(
               filePath: { type: 'string' },
               content: { type: 'string' },
               score: { type: 'number' },
+              // 'similarity' | 'rrf' —— 分数语义，渲染层据此选择显示数值还是名次。
+              scoreKind: { type: 'string' },
               language: { type: 'string' },
               startLine: { type: 'number' },
               endLine: { type: 'number' },

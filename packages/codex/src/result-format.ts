@@ -38,14 +38,20 @@ export function errorResult(code: ErrorCode, message: string, hint: string): Too
   }
 }
 
+/** 混合检索说明行：每个输出只出现一次，位于第一条结果之前。 */
+const RRF_NOTE = '（混合检索：结果按 RRF 融合排序，仅提供名次，不提供绝对相似度分值。）'
+
 export function formatSearchResults(results: SearchResult[]): string {
   if (results.length === 0) return '未找到匹配的代码片段。'
-  return results.map((item, i) => {
+  const body = results.map((item, i) => {
     const lang = item.language ? ` (${item.language})` : ''
     const name = item.name ? `「${item.name}」` : ''
+    // 缺失或未知的 scoreKind 一律按 similarity 处理（向后兼容，绝不抛错）。
+    const kind = item.scoreKind ?? 'similarity'
     return [
       `[结果 ${i + 1}] 文件: ${item.filePath}${lang}, 第 ${item.startLine}-${item.endLine} 行 ${name}`,
-      `相关度: ${item.score.toFixed(4)}`,
+      // RRF 分是 1/(k+名次) 的名次编码，不是相似度：只报名次。
+      kind === 'rrf' ? `排序: ${i + 1}/${results.length}` : `相关度: ${item.score.toFixed(4)}`,
       `类型: ${item.chunkType || '未知'}`,
       '内容:',
       '```' + (item.language || ''),
@@ -53,6 +59,10 @@ export function formatSearchResults(results: SearchResult[]): string {
       '```',
     ].join('\n')
   }).join('\n---\n')
+
+  return results.some((item) => (item.scoreKind ?? 'similarity') === 'rrf')
+    ? `${RRF_NOTE}\n${body}`
+    : body
 }
 
 export function formatIndexResult(result: IndexResult): string {
@@ -101,16 +111,23 @@ export function formatChain(result: TraceResult): string {
 
 export function formatAdrSearch(results: AdrSearchResult[]): string {
   if (results.length === 0) return '未找到匹配的 ADR 决策记录。'
-  return results.map((item, i) => {
+  const body = results.map((item, i) => {
     const typeLabel = item.docType === 'spec' ? ', spec' : item.docType === 'plan' ? ', plan' : ''
+    // 缺失或未知的 scoreKind 一律按 similarity 处理（向后兼容，绝不抛错）。
+    const kind = item.scoreKind ?? 'similarity'
     return [
       `[结果 ${i + 1}] ADR: ${item.adrId} (${item.status}${typeLabel}), 章节: ${item.section}`,
       `文件: ${item.filePath}`,
-      `相关度: ${item.score.toFixed(4)}`,
+      // RRF 分是 1/(k+名次) 的名次编码，不是相似度：只报名次。
+      kind === 'rrf' ? `排序: ${i + 1}/${results.length}` : `相关度: ${item.score.toFixed(4)}`,
       '内容:',
       item.content,
     ].join('\n')
   }).join('\n---\n')
+
+  return results.some((item) => (item.scoreKind ?? 'similarity') === 'rrf')
+    ? `${RRF_NOTE}\n${body}`
+    : body
 }
 
 export function formatAdrByFile(adrs: Array<{ adrId: string; status: string; summary: string }>): string {

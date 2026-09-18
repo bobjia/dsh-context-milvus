@@ -29,19 +29,29 @@ import {
 import { findCandidateFiles, previewFrontmatter, generateSpecFrontmatter } from 'dsh-context-milvus-core'
 import { buildIndexCommand } from './index-command.js'
 
+/** 混合检索说明行：每个输出只出现一次，位于第一条结果之前。 */
+const RRF_NOTE = '（混合检索：结果按 RRF 融合排序，仅提供名次，不提供绝对相似度分值。）'
+
 /** Format ADR search results for model consumption */
 function formatAdrSearchResults(value: any[]): string {
   if (value.length === 0) return '未找到匹配的 ADR 决策记录。'
-  return value.map((item: any, i: number) => {
+  const body = value.map((item: any, i: number) => {
     const typeLabel = item.docType === 'spec' ? ', spec' : item.docType === 'plan' ? ', plan' : ''
+    // 缺失或未知的 scoreKind 一律按 similarity 处理（向后兼容，绝不抛错）。
+    const kind = item.scoreKind ?? 'similarity'
     return [
       `[结果 ${i + 1}] ADR: ${item.adrId} (${item.status}${typeLabel}), 章节: ${item.section}`,
       `文件: ${item.filePath}`,
-      `相关度: ${item.score.toFixed(4)}`,
+      // RRF 分是 1/(k+名次) 的名次编码，不是相似度：只报名次。
+      kind === 'rrf' ? `排序: ${i + 1}/${value.length}` : `相关度: ${item.score.toFixed(4)}`,
       `内容:`,
       item.content,
     ].join('\n')
   }).join('\n---\n')
+
+  return value.some((item: any) => (item.scoreKind ?? 'similarity') === 'rrf')
+    ? `${RRF_NOTE}\n${body}`
+    : body
 }
 
 /**
@@ -148,6 +158,8 @@ export function registerAdrTools(
             adrId: { type: 'string' }, filePath: { type: 'string' },
             status: { type: 'string' }, section: { type: 'string' },
             content: { type: 'string' }, score: { type: 'number' },
+            // 'similarity' | 'rrf' —— 分数语义，渲染层据此选择显示数值还是名次。
+            scoreKind: { type: 'string' },
             docType: { type: 'string' },
             triggerType: { type: 'string' },
             codeAnchors: { type: 'array', items: { type: 'string' } },

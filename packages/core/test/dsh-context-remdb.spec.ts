@@ -89,6 +89,7 @@ function mockEmbeddingClient(vectors: number[][] = [[0.1, 0.2, 0.3]]): any {
 const { getConfig } = await import('../src/config.js')
 const { HashTracker } = await import('../src/merkle.js')
 const { MilvusService } = await import('../src/milvus-service.js')
+const { silentLogger } = await import('../src/logger.js')
 const { EmbeddingClient } = await import('../src/embedding.js')
 const { runIndex, getIndexStatus } = await import('../src/indexer.js')
 
@@ -625,6 +626,8 @@ describe('MilvusService', () => {
       expect(results[0].filePath).toBe('src/auth.ts')
       expect(results[0].score).toBeCloseTo(0.9)
       expect(results[0].name).toBe('login')
+      // Dense search returns a real cosine similarity, so the adapter may print it.
+      expect(results[0].scoreKind).toBe('similarity')
     })
 
     it('runs hybridSearch with dense + BM25 branches and RRF rerank', async () => {
@@ -658,6 +661,34 @@ describe('MilvusService', () => {
       expect(results).toHaveLength(1)
       expect(results[0].name).toBe('login')
       expect(results[0].score).toBeCloseTo(0.5)
+      // RRF fusion score encodes rank, not similarity — adapters must not print it as 相关度.
+      expect(results[0].scoreKind).toBe('rrf')
+    })
+
+    it('labels results as similarity when a hybrid collection was downgraded to dense', async () => {
+      // BM25 sparse fields unsupported → ensureCollection falls back to a
+      // dense-only collection, so search() returns a cosine score even though
+      // the caller asked for hybridMode. effectiveHybridMode is what matters.
+      mockHasCollection.mockResolvedValue({ status: { error_code: 'Success' }, value: false })
+      mockCreateCollection
+        .mockRejectedValueOnce(new Error('function field not supported on this server'))
+        .mockResolvedValueOnce({ error_code: 'Success' })
+      mockCreateIndex.mockResolvedValue({ error_code: 'Success' })
+      mockLoadCollectionSync.mockResolvedValue({ error_code: 'Success' })
+      mockSearch.mockResolvedValue({
+        results: [{
+          score: 0.72, id: '1', file_path: 'src/auth.ts',
+          code_content: 'export function login() {}', start_line: 42, end_line: 45,
+          language: 'typescript', chunk_type: 'function_declaration', name: 'login',
+        }],
+      })
+
+      const service = new MilvusService({ ...defaultConfig, hybridMode: true, logger: silentLogger })
+      await service.ensureCollection()
+      const results = await service.search('login', 5)
+
+      expect(mockSearch).toHaveBeenCalled()
+      expect(results[0].scoreKind).toBe('similarity')
     })
   })
 
@@ -864,6 +895,37 @@ describe('MilvusService ADR collection', () => {
     expect(results[0].docType).toBe('spec')
     expect(results[0].content).toBe('text')
     expect(results[0].score).toBe(0.95)
+    expect(results[0].scoreKind).toBe('similarity')
+  })
+
+  it('labels ADR results as rrf in hybrid mode', async () => {
+    const embedding = mockEmbeddingClient([[0.1, 0.2, 0.3]])
+    const service = new MilvusService({
+      address: 'localhost:19530',
+      collection: 'code_embeddings',
+      dim: 768,
+      embeddingClient: embedding,
+      hybridMode: true,
+    })
+    ;(service as any).adrCollection = 'adr_embeddings'
+
+    mockHybridSearch.mockResolvedValue({
+      results: [{
+        adr_id: 'ADR-0003',
+        doc_type: 'adr',
+        file_path: '/doc3.md',
+        status: 'active',
+        section: 'goal',
+        content: 'text3',
+        score: 0.0164,
+        trigger_type: 'refactor',
+        code_anchors: '[]',
+      }],
+    })
+
+    const results = await service.searchAdr('test query', 5)
+    expect(mockHybridSearch).toHaveBeenCalled()
+    expect(results[0].scoreKind).toBe('rrf')
   })
 
   it('defaults docType to "adr" when missing from search results', async () => {

@@ -1,8 +1,12 @@
 import {
   formatSearchResults, formatIndexResult, formatStatus,
   formatCallers, formatChain, errorResult, okResult,
+  formatAdrSearch,
 } from '../src/result-format.js'
-import type { SearchResult } from 'dsh-context-milvus-core'
+import type { SearchResult, AdrSearchResult } from 'dsh-context-milvus-core'
+
+/** 混合检索的说明行：每个输出只出现一次，且位于第一条结果之前。 */
+const RRF_NOTE = '（混合检索：结果按 RRF 融合排序，仅提供名次，不提供绝对相似度分值。）'
 
 const sample: SearchResult = {
   filePath: '/repo/src/config.ts', content: 'export const A = 1',
@@ -21,6 +25,67 @@ describe('formatSearchResults', () => {
 
   it('handles empty results', () => {
     expect(formatSearchResults([])).toContain('未找到')
+  })
+})
+
+describe('formatSearchResults score display', () => {
+  it('keeps the legacy output byte-identical when scoreKind is absent', () => {
+    expect(formatSearchResults([sample])).toBe([
+      '[结果 1] 文件: /repo/src/config.ts (typescript), 第 12-40 行 「parseConfig」',
+      '相关度: 0.8731',
+      '类型: function_declaration',
+      '内容:',
+      '```typescript',
+      'export const A = 1',
+      '```',
+    ].join('\n'))
+  })
+
+  it('prints 相关度 for an explicit similarity kind', () => {
+    const text = formatSearchResults([{ ...sample, scoreKind: 'similarity' }])
+    expect(text).toContain('相关度: 0.8731')
+    expect(text).not.toContain('排序:')
+  })
+
+  it('prints the rank, not the RRF fusion score, with one note line up front', () => {
+    const results: SearchResult[] = [
+      { ...sample, score: 0.0164, scoreKind: 'rrf' },
+      { ...sample, filePath: '/repo/src/b.ts', score: 0.0161, scoreKind: 'rrf' },
+    ]
+    const text = formatSearchResults(results)
+    // The RRF score is a rank encoding, so printing it as 相关度 is the bug.
+    expect(text).not.toContain('相关度:')
+    expect(text).not.toContain('0.0164')
+    expect(text).toContain('排序: 1/2')
+    expect(text).toContain('排序: 2/2')
+    expect(text.startsWith(RRF_NOTE + '\n')).toBe(true)
+    // Exactly once per output, not once per result.
+    expect(text.split(RRF_NOTE)).toHaveLength(2)
+  })
+})
+
+describe('formatAdrSearch score display', () => {
+  const adr = (over: Partial<AdrSearchResult> = {}): AdrSearchResult => ({
+    adrId: 'ADR-0001', docType: 'adr', filePath: '/docs/a.md', status: 'active',
+    section: '背景', content: 'body', score: 0.7412, triggerType: 'refactor',
+    codeAnchors: [], ...over,
+  })
+
+  it('keeps the legacy output byte-identical when scoreKind is absent', () => {
+    expect(formatAdrSearch([adr()])).toBe([
+      '[结果 1] ADR: ADR-0001 (active), 章节: 背景',
+      '文件: /docs/a.md',
+      '相关度: 0.7412',
+      '内容:',
+      'body',
+    ].join('\n'))
+  })
+
+  it('prints the rank, not the RRF fusion score, with one note line up front', () => {
+    const text = formatAdrSearch([adr({ score: 0.0164, scoreKind: 'rrf' })])
+    expect(text).not.toContain('相关度:')
+    expect(text).toContain('排序: 1/1')
+    expect(text.startsWith(RRF_NOTE + '\n')).toBe(true)
   })
 })
 

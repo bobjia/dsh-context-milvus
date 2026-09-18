@@ -24,11 +24,16 @@ export interface ResolutionInfo {
   exportedAs?: string   // The exported symbol name in the target file (resolved only)
 }
 
+/** 分数语义：similarity = 绝对相似度（余弦，0~1）；rrf = 融合排序分（仅表名次）。 */
+export type ScoreKind = 'similarity' | 'rrf'
+
 /** 搜索结果（供 Agent 消费） */
 export interface SearchResult {
   filePath: string
   content: string
   score: number
+  /** 缺失时视为 'similarity'（向后兼容）。 */
+  scoreKind?: ScoreKind
   language: string
   startLine: number
   endLine: number
@@ -136,6 +141,8 @@ export interface AdrSearchResult {
   section: string
   content: string
   score: number
+  /** 缺失时视为 'similarity'（向后兼容）。 */
+  scoreKind?: ScoreKind
   triggerType: string
   codeAnchors: string[]
 }

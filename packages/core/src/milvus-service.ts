@@ -7,7 +7,7 @@
 
 import { MilvusClient, DataType, MetricType, FunctionType, ErrorCode, RANKER_TYPE } from '@zilliz/milvus2-sdk-node'
 import type { SearchResultData, SearchSimpleReq } from '@zilliz/milvus2-sdk-node'
-import type { SearchResult, CodeChunk, AdrChunk, AdrSearchResult } from './types.js'
+import type { SearchResult, CodeChunk, AdrChunk, AdrSearchResult, ScoreKind } from './types.js'
 import { EmbeddingClient } from './embedding.js'
 import { expandQuery } from './query-expansion.js'
 import { rerankResults, type RerankConfig } from './reranker.js'
@@ -334,6 +334,9 @@ export class MilvusService {
       filePath: item.file_path ?? '',
       content: item.code_content ?? '',
       score: item.score,
+      // RRF 融合分只编码名次，不是相似度——渲染层据此决定显示数值还是名次。
+      // 用 effectiveHybridMode：BM25 不可用而降级为纯向量集合时返回的是余弦分。
+      scoreKind: (this.effectiveHybridMode ? 'rrf' : 'similarity') as ScoreKind,
       language: item.language ?? '',
       startLine: Number(item.start_line ?? 0),
       endLine: Number(item.end_line ?? 0),
@@ -700,6 +703,8 @@ export class MilvusService {
       section: item.section ?? '',
       content: item.content ?? '',
       score: item.score ?? 0,
+      // 同 search()：混合分支返回的是 RRF 名次编码，降级后才是余弦分。
+      scoreKind: (this.effectiveHybridMode ? 'rrf' : 'similarity') as ScoreKind,
       triggerType: item.trigger_type ?? '',
       codeAnchors: (() => {
         try { return JSON.parse(item.code_anchors ?? '[]') } catch { return [] }
