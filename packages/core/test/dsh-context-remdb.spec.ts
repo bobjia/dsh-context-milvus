@@ -2078,7 +2078,7 @@ describe('getIndexStatus()', () => {
 
     expect(status.totalFiles).toBe(0)
     expect(status.totalChunks).toBe(0)
-    expect(status.lastIndexed).toBeUndefined()
+    expect(status.lastIndexed).toBeNull()
     expect(status.indexedExtensions.length).toBeGreaterThan(0)
 
     await rm(tempDir, { recursive: true, force: true })
@@ -2125,7 +2125,7 @@ function b(): void {}
     await rm(tempDir, { recursive: true, force: true })
   })
 
-  it('returns undefined lastIndexed when tracker has no records', async () => {
+  it('returns null lastIndexed when tracker has no records', async () => {
     const tempDir = await createTestDir({})
     const tracker = new HashTracker(
       path.join(tempDir, '.merkle.json'),
@@ -2138,7 +2138,33 @@ function b(): void {}
     const status = await getIndexStatus(config, tracker)
 
     expect(status.totalFiles).toBe(0)
-    expect(status.lastIndexed).toBeUndefined()
+    expect(status.lastIndexed).toBeNull()
+
+    await rm(tempDir, { recursive: true, force: true })
+  })
+
+  it('returns a lossless-JSON payload when the workspace was never indexed', async () => {
+    // Regression: the DSH tool layer rejects tool results that are not
+    // lossless JSON (`values is not lossless JSON`). A never-indexed
+    // workspace used to produce `{ lastIndexed: undefined }`, which the
+    // snapshot validator rejects. The payload must round-trip unchanged.
+    const tempDir = await createTestDir({})
+    const tracker = new HashTracker(
+      path.join(tempDir, '.merkle.json'),
+    )
+    const config = getConfig({
+      indexRoot: tempDir,
+      merkleFilePath: path.join(tempDir, '.merkle.json'),
+    })
+
+    const status = await getIndexStatus(config, tracker)
+
+    const roundTripped = JSON.parse(JSON.stringify(status))
+    expect(roundTripped).toEqual(status)
+    expect(Object.keys(roundTripped).sort()).toEqual(
+      Object.keys(status).sort(),
+    )
+    expect(roundTripped.lastIndexed).toBeNull()
 
     await rm(tempDir, { recursive: true, force: true })
   })

@@ -47,7 +47,8 @@ export interface SearchResult {
 export interface IndexStatus {
   totalFiles: number
   totalChunks: number
-  lastIndexed?: string   // ISO timestamp
+  /** ISO timestamp; null when the workspace has never been indexed (never undefined — must stay lossless JSON) */
+  lastIndexed: string | null
   indexedExtensions: string[]
 }
 

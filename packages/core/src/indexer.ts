@@ -441,7 +441,10 @@ export async function getIndexStatus(
 ): Promise<IndexStatus> {
   const stats = tracker.getStats()
   const lastIndexedTs = tracker.getLastIndexedTimestamp()
-  const lastIndexed = lastIndexedTs ? new Date(lastIndexedTs).toISOString() : undefined
+  // Tool boundaries (DSH defineTool, MCP structuredContent) require lossless
+  // JSON — `undefined` properties are rejected by the snapshot validator, so
+  // a never-indexed workspace reports `null` here, not `undefined`.
+  const lastIndexed = lastIndexedTs ? new Date(lastIndexedTs).toISOString() : null
 
   return {
     totalFiles: stats.totalFiles,
