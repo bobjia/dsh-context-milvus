@@ -237,6 +237,11 @@ export async function apply(ctx: Context, config?: CordisConfig) {
   // subsequent execution.
   let milvus: MilvusService | null = null
   let milvusSignature = ''
+  // Bumped on every (re)build; an ensureCollection rejection whose generation
+  // is stale lost the race to a settings-driven rebuild and must stay silent —
+  // otherwise the startup client's late ECONNREFUSED reports an address the
+  // plugin no longer uses. The live generation's own init still reports.
+  let milvusGeneration = 0
 
   const getMilvus = (): MilvusService => {
     if (!milvus) {
@@ -250,6 +255,7 @@ export async function apply(ctx: Context, config?: CordisConfig) {
     const signature = serviceSignature(cfg)
     if (milvus && signature === milvusSignature) return false
 
+    const generation = ++milvusGeneration
     const embeddingClient = new EmbeddingClient(cfg.embedding)
     milvus = new MilvusService({
       address: cfg.milvusAddress,
@@ -264,8 +270,11 @@ export async function apply(ctx: Context, config?: CordisConfig) {
     })
     milvusSignature = signature
 
-    // Try to initialize collection; failure doesn't block tool registration
+    // Try to initialize collection; failure doesn't block tool registration.
+    // A rebuild may supersede this client while its connection attempts are
+    // still running — leave reporting to the live generation's init.
     milvus.ensureCollection().catch((err: Error) => {
+      if (generation !== milvusGeneration) return
       console.warn(
         `[dsh-context-milvus] 集合初始化失败，将在首次使用工具时重试: ${err.message}`,
       )
