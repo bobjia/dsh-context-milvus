@@ -59,7 +59,7 @@ related_decisions: []
 
 - **regex 回退**：不新增 `REGEX_PATTERNS.kotlin` 与 `regexChunkType` 分支。Kotlin 与 TypeScript/JavaScript 同属「无回退」策略：grammar 加载失败时 `chunkCode` 落到 `chunkWithRegex`，因无模式而返回空数组，文件零 chunk 且不报错。
 - **修复上游 grammar 的单行类体 ERROR**（见「已知粗糙点」）。
-- **精确的 Kotlin 包根/源码根探测**：`resolveImportPath` 沿用 Java/Scala 的 `dirname(dirname(sourceFile))` 约定（假定文件位于源码根下两层），不做 `src/main/kotlin` 之类的布局自适应，也不做文件系统存在性检查。
+- **精确的 Kotlin 包根/源码根探测**：`resolveImportPath` 采用「包段锚定」启发式（把 import 首段包名锚定到文件目录链上，实现期修正），不做 `src/main/kotlin` 之类的布局自适应，也不做文件系统存在性检查。
 - **更完整的 Kotlin import 语义**：星号导入（`import com.example.util.*`）**直接跳过**（不产生名为 `*` 的符号，也不做批量符号展开），`package_header` 不解析。
 - **DSH/Codex 适配器行为改动**：本设计只改 core 包；适配器零改动自动获得 Kotlin 支持。
 - **`packages/dsh/package.json` 的 grammar 依赖列表**：该列表未随 C 支持（`tree-sitter-c`）同步，属既有陈旧残留；本次沿用同样做法只改 core，不顺手清理（见「设计 1」）。
@@ -106,12 +106,29 @@ kotlin: ['.kt', '.kts'],
     referenceNodeTypes: ['call_expression', 'navigation_expression', 'identifier', 'import'],
     importNodeTypes: ['import'],
     resolveImportPath: (importPath: string, sourceFile: string) => {
-      // import com.example.Foo → <上层目录>/com/example/Foo.kt
-      // 与 java / scala 分支同一约定（假定文件位于源码根下两层）
+      // Kotlin 的 import 是绝对路径（`import com.example.Bar`），而本函数只拿得到
+      // 导入方文件的路径，源码根必须推断。实现期修正：不用 Java/Scala 的
+      // dirname(dirname(sourceFile))（实测会重复首段包名，
+      // .../kotlin/com/example/Usage.kt + com.example.Bar → .../kotlin/com/com/example/Bar.kt），
+      // 改为「包段锚定」：把 import 的首段（顶层包名，如 com）锚定到文件目录链上，
+      // 以该目录的上一级为源码根。
+      //   .../kotlin/com/example/Usage.kt + com.example.Bar → .../kotlin/com/example/Bar.kt
+      //   .../kotlin/com/example/Usage.kt + com.other.Thing → .../kotlin/com/other/Thing.kt
+      // 目录链中找不到顶层包名时退化为「以文件自身目录为根」。
       if (!importPath) return null
-      const srcDir = path.dirname(path.dirname(sourceFile))
-      const filePath = importPath.replace(/\./g, '/') + '.kt'
-      return path.resolve(srcDir, filePath)
+      const segments = importPath.split('.').filter(Boolean)
+      if (segments.length === 0) return null
+      const dir = path.dirname(sourceFile)
+      const dirNames = dir.split(path.sep).filter(Boolean)
+      let up = 0
+      for (let i = dirNames.length - 1; i >= 0; i--) {
+        if (dirNames[i] === segments[0]) {
+          up = dirNames.length - i
+          break
+        }
+      }
+      const root = up > 0 ? path.resolve(dir, ...Array(up).fill('..')) : dir
+      return path.resolve(root, ...segments) + '.kt'
     },
   },
   loadTs: () => require('@tree-sitter-grammars/tree-sitter-kotlin'),

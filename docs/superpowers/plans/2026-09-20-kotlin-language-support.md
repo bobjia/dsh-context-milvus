@@ -215,12 +215,31 @@ Insert this object into the `LANGUAGES` array **after** the `scala` entry (which
       referenceNodeTypes: ['call_expression', 'navigation_expression', 'identifier', 'import'],
       importNodeTypes: ['import'],
       resolveImportPath: (importPath: string, sourceFile: string) => {
-        // import com.example.Foo → <two levels up>/com/example/Foo.kt
-        // Same convention as the java/scala branches: the file is assumed to sit
-        // two directories below the source root.
+        // Kotlin imports are absolute (`import com.example.Bar`), but this function
+        // only receives the importing file's path, so the source root must be inferred.
+        // Do NOT copy the java/scala dirname(dirname(sourceFile)) rule: it duplicates the
+        // leading package segment (verified: .../kotlin/com/example/Usage.kt +
+        // com.example.Bar → .../kotlin/com/com/example/Bar.kt). Instead anchor the import's
+        // top-level segment (e.g. `com`) in the file's directory chain and treat the
+        // directory above it as the source root.
+        //   .../kotlin/com/example/Usage.kt + com.example.Bar → .../kotlin/com/example/Bar.kt
+        //   .../kotlin/com/example/Usage.kt + com.other.Thing → .../kotlin/com/other/Thing.kt
+        // Falls back to the file's own directory when the top-level package segment does
+        // not appear in the path.
         if (!importPath) return null
-        const srcDir = path.dirname(path.dirname(sourceFile))
-        return path.resolve(srcDir, importPath.replace(/\./g, '/') + '.kt')
+        const segments = importPath.split('.').filter(Boolean)
+        if (segments.length === 0) return null
+        const dir = path.dirname(sourceFile)
+        const dirNames = dir.split(path.sep).filter(Boolean)
+        let up = 0
+        for (let i = dirNames.length - 1; i >= 0; i--) {
+          if (dirNames[i] === segments[0]) {
+            up = dirNames.length - i
+            break
+          }
+        }
+        const root = up > 0 ? path.resolve(dir, ...Array(up).fill('..')) : dir
+        return path.resolve(root, ...segments) + '.kt'
       },
     },
     loadTs: () => require('@tree-sitter-grammars/tree-sitter-kotlin'),
@@ -558,7 +577,8 @@ Then add the test after the C import test:
     await resolver.scanFile('/project/com/example/Usage.kt', content, '.kt')
 
     // Kotlin's `import` node has no `path` field — the qualified_identifier is the
-    // first named child. Two levels up from the file is the source root.
+    // first named child. The source root is inferred by anchoring the import's
+    // top-level segment (`com`) in the importing file's directory chain.
     const barEntry = resolver.resolve('/project/com/example/Usage.kt', 'Bar')
     expect(barEntry).not.toBeNull()
     expect(barEntry!.target).toBe('/project/com/example/Bar.kt')
@@ -591,31 +611,35 @@ Expected: FAIL on `expect(barEntry).not.toBeNull()` — the existing `case 'impo
 
 - [ ] **Step 3: Implement the structural dispatch**
 
-Replace the `case 'import'` body (`packages/core/src/import-resolver.ts:455-470`) with:
+Replace the `case 'import'` branch (in `packages/core/src/import-resolver.ts`) with:
 
 ```ts
     case 'import': {
-      // Two grammars share this node type and need different field access:
-      //   Scala:  import com.example.Foo   → `path` field holds the qualified name
-      //   Kotlin: import com.example.Foo   → no fields; first named child is a
-      //           `qualified_identifier`, and `import a.B as C` adds an alias identifier
-      const pathNode = node.childForFieldName('path') ?? node.namedChildren?.[0]
+      // Two grammars share this node type but expose it differently:
+      //   Scala:  import com.example.Foo  → the `path` field holds the qualified name
+      //   Kotlin: import com.example.Foo  → no fields at all; the first named child is
+      //           a `qualified_identifier`, and `import a.B as C` appends an alias
+      //           identifier. Falling back to the first named child keeps Scala on
+      //           its existing path (the field is present there).
+      const pathField = node.childForFieldName('path')
+      const pathNode = pathField ?? node.namedChildren?.[0]
       if (!pathNode) return null
       const importPath = pathNode.text
 
       // Star imports (`import com.example.util.*`) expand to many symbols; skip them
       // rather than recording a symbol literally named `*`.
-      if (importPath.endsWith('.*') || importPath.endsWith('*')) return null
+      if (importPath.endsWith('*')) return null
 
       const targetFile = resolveFn?.(importPath, sourceFile) ?? null
       if (!targetFile) return null
 
-      // Kotlin `as` alias: the alias identifier follows the path node
-      const pathIndex = node.namedChildren.indexOf(pathNode)
-      const aliasNode = node.namedChildren?.[pathIndex + 1]
-      const symbol = aliasNode && aliasNode.type === 'identifier'
-        ? aliasNode.text
-        : importPath.split('.').pop()!
+      // Kotlin `as` alias: the alias identifier follows the path node. Only applies
+      // when there is no `path` field, so Scala's symbol derivation is untouched.
+      let symbol = importPath.split('.').pop()!
+      if (!pathField) {
+        const aliasNode = node.namedChildren?.[1]
+        if (aliasNode && aliasNode.type === 'identifier') symbol = aliasNode.text
+      }
 
       results.push({
         symbol,
@@ -624,6 +648,7 @@ Replace the `case 'import'` body (`packages/core/src/import-resolver.ts:455-470`
       break
     }
 ```
+
 
 Note on `resolveFn(importPath, sourceFile)`: this returns the candidate path only. The import map stores it as the target and cross-file resolution decides later whether it matches a real file, so a wrong guess degrades to an unresolved edge rather than an error.
 
