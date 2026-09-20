@@ -1,6 +1,6 @@
 {
   "name": "codex-context-milvus",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Semantic code search for OpenAI Codex via Milvus (MCP server)",
   "type": "module",
   "bin": {
