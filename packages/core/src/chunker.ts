@@ -1,7 +1,7 @@
 /**
  * Tree-sitter based code chunker with regex fallback.
  *
- * Uses tree-sitter AST for TypeScript/JavaScript/Python/Java/Go/Rust/C/C++/C#/Scala
+ * Uses tree-sitter AST for TypeScript/JavaScript/Python/Java/Go/Rust/C/C++/C#/Scala/Kotlin
  * (which works with the installed version). For other languages (PHP),
  * uses a regex-based fallback that detects function/class/method boundaries.
  *
@@ -317,6 +317,39 @@ const LANGUAGES: LanguageDef[] = [
       },
     },
     loadTs: () => require('tree-sitter-scala'),
+  },
+  {
+    config: {
+      name: 'kotlin',
+      extensions: ['.kt', '.kts'],
+      chunkNodeTypes: [
+        'function_declaration',
+        'class_declaration',
+        'object_declaration',
+        'companion_object',
+        'secondary_constructor',
+        'property_declaration',
+        'type_alias',
+      ],
+      // Kotlin's `property_declaration` covers `val`/`var`/`const val` at ANY level.
+      // Only file-level and class-body properties are real API surface; local
+      // variables inside function bodies would otherwise flood the index.
+      chunkNodeFilter: (node: any) =>
+        node.type !== 'property_declaration' ||
+        node.parent?.type === 'source_file' ||
+        node.parent?.type === 'class_body',
+      referenceNodeTypes: ['call_expression', 'navigation_expression', 'identifier', 'import'],
+      importNodeTypes: ['import'],
+      resolveImportPath: (importPath: string, sourceFile: string) => {
+        // import com.example.Foo → <two levels up>/com/example/Foo.kt
+        // Same convention as the java/scala branches: the file is assumed to sit
+        // two directories below the source root.
+        if (!importPath) return null
+        const srcDir = path.dirname(path.dirname(sourceFile))
+        return path.resolve(srcDir, importPath.replace(/\./g, '/') + '.kt')
+      },
+    },
+    loadTs: () => require('@tree-sitter-grammars/tree-sitter-kotlin'),
   },
 ]
 

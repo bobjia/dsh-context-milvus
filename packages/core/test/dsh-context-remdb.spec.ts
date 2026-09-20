@@ -1330,6 +1330,60 @@ object Main {
     expect(trait_!.chunkType).toBe('trait_definition')
   })
 
+  it('extracts functions, classes, and objects from Kotlin code', async () => {
+    const { chunkCode } = await import('../src/chunker.js')
+
+    const code = `
+package com.example
+
+fun add(a: Int, b: Int): Int {
+    return a + b
+}
+
+class Greeter(val name: String) {
+    fun greet(): String {
+        return "hi " + name
+    }
+}
+
+object Registry {
+    val count = 0
+}
+
+interface Shape {
+    fun area(): Double
+}
+`
+    const chunks = await chunkCode('/tmp/test.kt', code, '.kt')
+    expect(chunks.length).toBeGreaterThanOrEqual(4)
+    expect(chunks.every((c) => c.language === 'kotlin')).toBe(true)
+
+    const fn = chunks.find((c) => c.name === 'add')
+    expect(fn).toBeDefined()
+    expect(fn!.chunkType).toBe('function_declaration')
+
+    const cls = chunks.find((c) => c.name === 'Greeter')
+    expect(cls).toBeDefined()
+    expect(cls!.chunkType).toBe('class_declaration')
+
+    const obj = chunks.find((c) => c.name === 'Registry')
+    expect(obj).toBeDefined()
+    expect(obj!.chunkType).toBe('object_declaration')
+
+    const iface = chunks.find((c) => c.name === 'Shape')
+    expect(iface).toBeDefined()
+    expect(iface!.chunkType).toBe('class_declaration')
+  })
+
+  it('registers .kt and .kts as indexed extensions', async () => {
+    const { getSupportedExtensions } = await import('../src/chunker.js')
+    const { DEFAULT_EXTENSIONS } = await import('../src/config.js')
+
+    expect(getSupportedExtensions()).toContain('.kt')
+    expect(getSupportedExtensions()).toContain('.kts')
+    expect(DEFAULT_EXTENSIONS.kotlin).toEqual(['.kt', '.kts'])
+  })
+
   it('extracts functions, classes, and interfaces from PHP code', async () => {
     const { chunkCode } = await import('../src/chunker.js')
 

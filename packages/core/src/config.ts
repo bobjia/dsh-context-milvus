@@ -117,6 +117,7 @@ export const DEFAULT_EXTENSIONS: Record<string, string[]> = {
   cpp: ['.cpp', '.cxx', '.cc', '.hpp', '.h', '.hh'],
   csharp: ['.cs'],
   scala: ['.scala'],
+  kotlin: ['.kt', '.kts'],
 }
 
 /** Default directory names to ignore during indexing */
