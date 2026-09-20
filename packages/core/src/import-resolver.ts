@@ -9,7 +9,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import * as path from 'node:path'
 import { existsSync } from 'node:fs'
-import { getParser, hasTsParser, getLanguageForExtension, extractDeclaratorName } from './chunker.js'
+import { getParser, hasTsParser, getLanguageForExtension, extractDeclaratorName, extractVariableBindingName } from './chunker.js'
 import type { LanguageConfig } from './types.js'
 
 /** A single import entry: where a symbol comes from */
@@ -265,9 +265,13 @@ export class ImportResolver {
         if (nameNode) {
           symbols.push(nameNode.text)
         } else {
+          // Kotlin: property_declaration holds its binding name in a variable_declaration child
+          const bindingName = extractVariableBindingName(node)
           // C/C++: name lives on the declarator field chain (shared helper)
           const declaratorName = extractDeclaratorName(node)
-          if (declaratorName) {
+          if (bindingName) {
+            symbols.push(bindingName)
+          } else if (declaratorName) {
             symbols.push(declaratorName)
           } else {
             const typeNode = node.childForFieldName('type')

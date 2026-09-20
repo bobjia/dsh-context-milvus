@@ -445,9 +445,29 @@ export function extractDeclaratorName(node: any): string | null {
   return fallback ? fallback.text : null
 }
 
+/**
+ * Kotlin: `property_declaration` has no `name` field — the binding lives in the
+ * `variable_declaration` child's `identifier`. Modifiers add a `modifiers` node as
+ * the first named child (`const val NAME = "a"`), so neither `childForFieldName('name')`
+ * nor "first named child" yields the name.
+ *
+ * Returns the binding identifier text, or null for nodes without a property binding.
+ * Shared by extractNodeName (chunker) and deriveExportsFromChunks (import-resolver).
+ */
+export function extractVariableBindingName(node: any): string | null {
+  const varDecl = node.namedChildren?.find((c: any) => c.type === 'variable_declaration')
+  if (!varDecl) return null
+  const ident = varDecl.namedChildren?.find((c: any) => c.type === 'identifier')
+  return ident ? ident.text : null
+}
+
 function extractNodeName(node: any): string {
   const nameNode = node.childForFieldName('name')
   if (nameNode) return nameNode.text
+
+  // Kotlin: property_declaration keeps its binding name in a variable_declaration child
+  const bindingName = extractVariableBindingName(node)
+  if (bindingName) return bindingName
 
   // C/C++: the name lives on the declarator field chain. Must be checked
   // BEFORE `type` — in C/C++ the `type` field is the return type

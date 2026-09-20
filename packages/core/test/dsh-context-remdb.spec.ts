@@ -1384,6 +1384,38 @@ interface Shape {
     expect(DEFAULT_EXTENSIONS.kotlin).toEqual(['.kt', '.kts'])
   })
 
+  it('names Kotlin properties, including const val and class members', async () => {
+    const { chunkCode } = await import('../src/chunker.js')
+
+    const code = `
+const val NAME = "a"
+val plain = 1
+
+class Holder {
+    var counter = 0
+}
+
+fun compute(): Int {
+    val localOnly = 3
+    return localOnly
+}
+`
+    const chunks = await chunkCode('/tmp/test.kt', code, '.kt')
+    const names = chunks.map((c) => c.name)
+
+    // Modifiers (`const`) must not be mistaken for the binding name
+    expect(names).toContain('NAME')
+    expect(names).not.toContain('const')
+    expect(names).toContain('plain')
+    expect(names).toContain('counter')
+
+    // Never fall back to the anonymous placeholder for properties
+    expect(names).not.toContain('anonymous_property_declaration')
+
+    // Local variables inside a function body are not chunked
+    expect(names).not.toContain('localOnly')
+  })
+
   it('extracts functions, classes, and interfaces from PHP code', async () => {
     const { chunkCode } = await import('../src/chunker.js')
 
