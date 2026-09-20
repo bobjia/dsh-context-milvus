@@ -457,13 +457,32 @@ function extractImportFromNode(
     }
 
     case 'import': {
-      // Scala: import com.example.Foo
-      const pathNode = node.childForFieldName('path')
+      // Two grammars share this node type but expose it differently:
+      //   Scala:  import com.example.Foo  → the `path` field holds the qualified name
+      //   Kotlin: import com.example.Foo  → no fields at all; the first named child is
+      //           a `qualified_identifier`, and `import a.B as C` appends an alias
+      //           identifier. Falling back to the first named child keeps Scala on
+      //           its existing path (the field is present there).
+      const pathField = node.childForFieldName('path')
+      const pathNode = pathField ?? node.namedChildren?.[0]
       if (!pathNode) return null
       const importPath = pathNode.text
+
+      // Star imports (`import com.example.util.*`) expand to many symbols; skip them
+      // rather than recording a symbol literally named `*`.
+      if (importPath.endsWith('*')) return null
+
       const targetFile = resolveFn?.(importPath, sourceFile) ?? null
       if (!targetFile) return null
-      const symbol = importPath.split('.').pop()!
+
+      // Kotlin `as` alias: the alias identifier follows the path node. Only applies
+      // when there is no `path` field, so Scala's symbol derivation is untouched.
+      let symbol = importPath.split('.').pop()!
+      if (!pathField) {
+        const aliasNode = node.namedChildren?.[1]
+        if (aliasNode && aliasNode.type === 'identifier') symbol = aliasNode.text
+      }
+
       results.push({
         symbol,
         entry: { target: targetFile, exportedAs: importPath },

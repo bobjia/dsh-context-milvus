@@ -341,12 +341,29 @@ const LANGUAGES: LanguageDef[] = [
       referenceNodeTypes: ['call_expression', 'navigation_expression', 'identifier', 'import'],
       importNodeTypes: ['import'],
       resolveImportPath: (importPath: string, sourceFile: string) => {
-        // import com.example.Foo → <two levels up>/com/example/Foo.kt
-        // Same convention as the java/scala branches: the file is assumed to sit
-        // two directories below the source root.
+        // Kotlin imports are absolute (`import com.example.Bar`), but this function
+        // only receives the importing file's path, so the source root must be
+        // inferred. The file's own package directory is the tail of its directory
+        // chain: locate the import's top-level segment (e.g. `com`) in that chain and
+        // anchor the import at the directory directly above it.
+        //   .../kotlin/com/example/Usage.kt + com.example.Bar → .../kotlin/com/example/Bar.kt
+        //   .../kotlin/com/example/Usage.kt + com.other.Thing → .../kotlin/com/other/Thing.kt
+        // Falls back to the file's own directory when the top-level package segment does
+        // not appear in the path.
         if (!importPath) return null
-        const srcDir = path.dirname(path.dirname(sourceFile))
-        return path.resolve(srcDir, importPath.replace(/\./g, '/') + '.kt')
+        const segments = importPath.split('.').filter(Boolean)
+        if (segments.length === 0) return null
+        const dir = path.dirname(sourceFile)
+        const dirNames = dir.split(path.sep).filter(Boolean)
+        let up = 0
+        for (let i = dirNames.length - 1; i >= 0; i--) {
+          if (dirNames[i] === segments[0]) {
+            up = dirNames.length - i
+            break
+          }
+        }
+        const root = up > 0 ? path.resolve(dir, ...Array(up).fill('..')) : dir
+        return path.resolve(root, ...segments) + '.kt'
       },
     },
     loadTs: () => require('@tree-sitter-grammars/tree-sitter-kotlin'),

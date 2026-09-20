@@ -141,6 +141,19 @@ describe('ImportResolver scanFile', () => {
     }
   })
 
+  let kotlinAvailable = false
+
+  beforeAll(async () => {
+    try {
+      const { getParser } = await import('../src/chunker.js')
+      const parser = await getParser('.kt')
+      const tree = parser.parse('fun main() {}')
+      kotlinAvailable = tree && tree.rootNode && tree.rootNode.type === 'source_file'
+    } catch {
+      kotlinAvailable = false
+    }
+  })
+
   test('extracts TypeScript imports', async () => {
     if (!tsAvailable) return
     const { ImportResolver } = await import('../src/import-resolver.js')
@@ -189,6 +202,49 @@ describe('ImportResolver scanFile', () => {
     const exports = resolver.getExports('/project/src/main.c')
     expect(exports).toContain('main')
     expect(exports).toContain('helper')
+  })
+
+  test('extracts Kotlin imports and exports', async () => {
+    if (!kotlinAvailable) return
+    const { ImportResolver } = await import('../src/import-resolver.js')
+    const resolver = new ImportResolver('/tmp/test-map.json')
+    await resolver.load()
+
+    const content = `
+      package com.example
+
+      import com.example.Bar
+      import com.example.util.*
+      import com.example.Legacy as Old
+
+      const val MAX = 10
+
+      fun helper(): Int {
+        return MAX
+      }
+    `
+    await resolver.scanFile('/project/com/example/Usage.kt', content, '.kt')
+
+    // Kotlin's `import` node has no `path` field — the qualified_identifier is the
+    // first named child. The source root is inferred by anchoring the import's
+    // top-level segment (`com`) in the importing file's directory chain.
+    const barEntry = resolver.resolve('/project/com/example/Usage.kt', 'Bar')
+    expect(barEntry).not.toBeNull()
+    expect(barEntry!.target).toBe('/project/com/example/Bar.kt')
+    expect(barEntry!.exportedAs).toBe('com.example.Bar')
+
+    // `as` alias: the symbol is the alias, not the last path segment
+    const aliasEntry = resolver.resolve('/project/com/example/Usage.kt', 'Old')
+    expect(aliasEntry).not.toBeNull()
+    expect(aliasEntry!.target).toBe('/project/com/example/Legacy.kt')
+
+    // Star imports are skipped entirely — no symbol named `*`
+    expect(resolver.resolve('/project/com/example/Usage.kt', '*')).toBeNull()
+
+    // Exports are derived from chunks, including the property binding name
+    const exports = resolver.getExports('/project/com/example/Usage.kt')
+    expect(exports).toContain('helper')
+    expect(exports).toContain('MAX')
   })
 
   test('handles file with no imports', async () => {
