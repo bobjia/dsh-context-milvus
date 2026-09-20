@@ -13,6 +13,7 @@
   "license": "MIT",
   "scripts": { "build": "tsc" },
   "dependencies": {
+    "@tree-sitter-grammars/tree-sitter-kotlin": "^1.1.0",
     "@zilliz/milvus2-sdk-node": "^3.0.4",
     "ignore": "^7.0.6",
     "js-yaml": "^5.4.1",
