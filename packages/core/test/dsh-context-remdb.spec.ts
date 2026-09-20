@@ -1416,6 +1416,33 @@ fun compute(): Int {
     expect(names).not.toContain('localOnly')
   })
 
+  it('collects Kotlin call references without expression noise', async () => {
+    const { chunkCode } = await import('../src/chunker.js')
+
+    const code = `
+fun main() {
+    val x = add(1, 2)
+    println(x)
+    Greeter("a").greet()
+    service.load()
+}
+`
+    const chunks = await chunkCode('/tmp/test.kt', code, '.kt')
+    const main = chunks.find((c) => c.name === 'main')
+    expect(main).toBeDefined()
+
+    const refs = main!.references ?? []
+    expect(refs).toContain('add')
+    expect(refs).toContain('println')
+    expect(refs).toContain('Greeter')
+    expect(refs).toContain('greet')
+    expect(refs).toContain('load')
+
+    // Kotlin has no `function` field on call_expression — the naive path would
+    // emit the whole expression text as a "symbol".
+    expect(refs.some((r) => r.includes('('))).toBe(false)
+  })
+
   it('extracts functions, classes, and interfaces from PHP code', async () => {
     const { chunkCode } = await import('../src/chunker.js')
 
