@@ -357,7 +357,7 @@ dsh plugin --profile web add git+https://github.com/bobjia/dsh-context-milvus.gi
     embeddingEndpoint: http://localhost:11434/api/embed
     embeddingModel: nomic-embed-text
     indexRoot: /path/to/your/code
-    indexExtensions: .ts,.tsx,.js,.py,.java,.go,.rs,.cpp,.cs,.scala,.php
+    indexExtensions: .ts,.tsx,.js,.py,.java,.go,.rs,.c,.inc,.cpp,.cs,.scala,.php,.kt,.kts
     hybridMode: true
     bm25RrfK: 60
 ```
@@ -640,9 +640,10 @@ Git 工程、却指向**同一个远程 Milvus 集合**时：
 | C++ | .cpp, .cxx, .cc, .hpp, .h, .hh | tree-sitter + regex 回退 | function_definition, class_specifier, namespace_definition, struct_specifier, enum_specifier |
 | C# | .cs | tree-sitter + regex 回退 | method_declaration, class_declaration, interface_declaration, struct_declaration, enum_declaration |
 | Scala | .scala | tree-sitter + regex 回退 | class_definition, function_definition, trait_definition, object_definition, constructor_definition |
+| Kotlin | .kt, .kts | tree-sitter | function_declaration, class_declaration, object_declaration, companion_object, secondary_constructor, property_declaration, type_alias |
 | PHP | .php | regex 回退 | function_definition, class_declaration, interface_declaration, trait_declaration, enum_declaration |
 
-> 除 PHP（纯 regex）外均优先使用 tree-sitter AST 解析。其中 Python、Java、Go、Rust、C++、C#、Scala 在 tree-sitter 解析失败时自动降级到 regex 回退；**TypeScript / JavaScript 没有 regex 回退**——若 tree-sitter 解析失败，该文件会被跳过（不产生索引）。
+> 除 PHP（纯 regex）、TypeScript/JavaScript 与 Kotlin 外均优先使用 tree-sitter AST 解析。其中 Python、Java、Go、Rust、C++、C#、Scala 在 tree-sitter 解析失败时自动降级到 regex 回退；**TypeScript / JavaScript / Kotlin 没有 regex 回退**——若 tree-sitter 解析失败，该文件会被跳过（不产生索引）。
 
 ---
 
@@ -879,6 +880,7 @@ core（`packages/core` → `dsh-context-milvus-core`）：
 - `tree-sitter-cpp` — C++ 语法
 - `tree-sitter-c-sharp` — C# 语法
 - `tree-sitter-scala` — Scala 语法
+- `@tree-sitter-grammars/tree-sitter-kotlin` — Kotlin 语法
 
 DSH 适配器（`packages/dsh`，均由 DSH 运行时提供）：
 

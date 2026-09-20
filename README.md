@@ -350,7 +350,7 @@ After installation, edit `cordis.patch.yml` under your profile:
     embeddingEndpoint: http://localhost:11434/api/embed
     embeddingModel: nomic-embed-text
     indexRoot: /path/to/your/code
-    indexExtensions: .ts,.tsx,.js,.py,.java,.go,.rs,.cpp,.cs,.scala,.php
+    indexExtensions: .ts,.tsx,.js,.py,.java,.go,.rs,.c,.inc,.cpp,.cs,.scala,.php,.kt,.kts
     hybridMode: true
     bm25RrfK: 60
 ```
@@ -619,9 +619,10 @@ The index key `file_path` is a **machine-absolute path**, and "already indexed" 
 | C++ | .cpp, .cxx, .cc, .hpp, .h, .hh | tree-sitter + regex fallback | function_definition, class_specifier, namespace_definition, struct_specifier, enum_specifier |
 | C# | .cs | tree-sitter + regex fallback | method_declaration, class_declaration, interface_declaration, struct_declaration, enum_declaration |
 | Scala | .scala | tree-sitter + regex fallback | class_definition, function_definition, trait_definition, object_definition, constructor_definition |
+| Kotlin | .kt, .kts | tree-sitter | function_declaration, class_declaration, object_declaration, companion_object, secondary_constructor, property_declaration, type_alias |
 | PHP | .php | regex fallback | function_definition, class_declaration, interface_declaration, trait_declaration, enum_declaration |
 
-> All languages except PHP (regex-only) use tree-sitter AST parsing as the primary method. Python, Java, Go, Rust, C++, C#, and Scala automatically fall back to regex when tree-sitter parsing fails; **TypeScript / JavaScript have no regex fallback** — if tree-sitter parsing fails, the file is skipped (no index entry).
+> All languages except PHP (regex-only), TypeScript/JavaScript, and Kotlin use tree-sitter AST parsing as the primary method. Python, Java, Go, Rust, C++, C#, and Scala automatically fall back to regex when tree-sitter parsing fails; **TypeScript / JavaScript / Kotlin have no regex fallback** — if tree-sitter parsing fails, the file is skipped (no index entry).
 
 ---
 
@@ -858,6 +859,7 @@ Core (`packages/core` → `dsh-context-milvus-core`):
 - `tree-sitter-cpp` — C++ grammar
 - `tree-sitter-c-sharp` — C# grammar
 - `tree-sitter-scala` — Scala grammar
+- `@tree-sitter-grammars/tree-sitter-kotlin` — Kotlin grammar
 
 DSH adapter (`packages/dsh`), all provided by the DSH runtime:
 

@@ -138,6 +138,7 @@ The 8 ADR tools are registered **at startup only when `ADR_ENABLED` is set** —
 | C++ | .cpp, .cxx, .cc, .hpp, .h, .hh | tree-sitter |
 | C# | .cs | tree-sitter |
 | Scala | .scala | tree-sitter |
+| Kotlin | .kt, .kts | tree-sitter |
 | PHP | .php | regex fallback |
 
 ## Test structure
