@@ -152,24 +152,16 @@ export function extractVariableBindingName(node: any): string | null {
 
 两处插入点都不影响现有语言（TS/JS/Python/Java/Go/Rust/C/C++/C#/Scala/PHP 均无 `property_declaration` 节点）。
 
-### 5. 引用提取：`call_expression` 缺 `function` 字段
+### 5. 引用提取：无需改动 `extractSymbolFromNode`（实现期修正）
 
-`extractSymbolFromNode` 的 `call_expression` 分支增加「无 `function` 字段时取第一个 named child」的兜底，并新增 `navigation_expression` 分支（Kotlin 的 `a.b`，取末尾 `identifier` 作为方法名，避免把整条表达式文本当符号）：
+**实现期修正**：本设计最初要求给 `extractSymbolFromNode` 的 `call_expression` 补「无 `function` 字段时取第一个 named child」的兜底，并新增 `navigation_expression` 分支。实测证伪了这一必要性：
 
-```ts
-case 'call_expression': {
-  // Kotlin has no `function` field — the callee is the first named child
-  const fnNode = node.childForFieldName('function') ?? node.namedChildren?.[0]
-  return fnNode ? fnNode.text : null
-}
-case 'navigation_expression': {
-  // Kotlin a.b() → the trailing identifier (method name)
-  const last = node.namedChildren?.[node.namedChildren.length - 1]
-  return last ? last.text : null
-}
-```
+- Kotlin 的调用名已经由 `identifier` 节点覆盖（`referenceNodeTypes` 含 `'identifier'`）：`add(1, 2)` → `identifier`(`add`)；`Greeter("a").greet()` → `identifier`(`Greeter`) + `identifier`(`greet`)；`service.load()` → `identifier`(`service`) + `identifier`(`load`)。
+- 现有 `call_expression` 分支对 Kotlin 恒返回 null（无 `function` 字段），恰恰意味着它**不产生噪音**；`navigation_expression` 不在 switch 的 case 列表里，走 default 同样返回 null。
 
-对 Kotlin 的 `Greeter("a").greet()`，`call_expression` 的首个 named child 是 `navigation_expression`，经 `navigation_expression` 分支收敛为 `greet`；嵌套的内层 `call_expression`（`Greeter("a")`）收敛为 `Greeter`。`extractReferences` 现有的长度 > 1、关键词与 `COMMON_WORDS` 过滤仍然生效。
+因此 `extractSymbolFromNode` 保持原样。补那两个分支只会把已收集到的符号再推导一遍（零新增收益），同时把 `?? node.namedChildren?.[0]` 这个兜底塞进所有语言共用的抽取逻辑，徒增回归面。`packages/core/test/dsh-context-remdb.spec.ts` 的 `collects Kotlin call references without expression noise` 用例作为行为护栏保留。
+
+实测证据（`fun main()` 内的调用集合）：`identifiers in chunk: main, x, add, println, Greeter, greet, service, load`，且 `call_expression` 的 `function` 字段全为 null。
 
 ### 6. import 解析：`import-resolver.ts`
 
@@ -206,10 +198,10 @@ case 'import': {
 3. **属性命名**：`val plain = 1`、`const val NAME = "a"`（带修饰符）、类体里的 `val member` 三者的 `name` 正确（回归 `extractVariableBindingName`），**不是** `anonymous_property_declaration`，也不是 `const`。
 4. **属性过滤**：函数体内（`block`）的局部 `val` **不**成块；顶层与 `class_body` 的 `val`/`var` 成块。
 5. **`.kts`**：`chunkCode('/tmp/build.gradle.kts', ...)` 走 Kotlin 解析，顶层 `plugins {}` / 顶层 `val` 可按设计成块，`language` 为 `kotlin`。
-6. **引用提取**：`add(1, 2)` 收集到 `add`；`Greeter("a").greet()` 收集到 `greet`（`navigation_expression` 分支），且不把整条表达式文本当符号。
+6. **引用提取**：`add(1, 2)` 收集到 `add`；`Greeter("a").greet()` 收集到 `greet`（由 `identifier` 节点覆盖，见「设计 5」实现期修正），且不把整条表达式文本当符号。
 7. **扩展名注册**：`getSupportedExtensions()` 含 `.kt`/`.kts`；`DEFAULT_EXTENSIONS.kotlin` 为 `['.kt', '.kts']`。
 8. **import 解析**（`import-resolver.spec.ts`）：`import com.example.Bar` 产生一条指向 `.../com/example/Bar.kt` 的边；`import com.example.Bar as B` 的符号名为 `B`。
-9. **回归**：现有语言（TS/Python/Java/C/Scala/PHP）的分块与命名测试保持通过——尤其 `extractNodeName` 与 `deriveExportsFromChunks` 的插入点、`extractSymbolFromNode` 的 `call_expression` 兜底不得改变既有行为。
+9. **回归**：现有语言（TS/Python/Java/C/Scala/PHP）的分块与命名测试保持通过——尤其 `extractNodeName` 与 `deriveExportsFromChunks` 的插入点（`extractSymbolFromNode` 本次不改动，见「设计 5」实现期修正）。
 
 测试遵循仓库惯例：core spec 直接 import 源码，不触碰 Milvus SDK。运行方式：`node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts packages/core/test/import-resolver.spec.ts`。
 

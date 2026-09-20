@@ -420,17 +420,26 @@ git commit -m "feat(core): resolve Kotlin property binding names via shared help
 
 ---
 
-### Task 4: Extract Kotlin call references
+### Task 4: Cover Kotlin call references (test only — no production change)
 
 **Files:**
-- Modify: `packages/core/src/chunker.ts:486-490` (`extractSymbolFromNode`, `call_expression` case) and add a `navigation_expression` case
 - Test: `packages/core/test/dsh-context-remdb.spec.ts`
 
 **Interfaces:**
 - Consumes: `chunkCode` with Kotlin support from Task 2.
-- Produces: chunk `references` arrays containing Kotlin call/method symbols. Consumed by code-relationship analysis (`find_callers` / `trace_call_chain`) via the existing `references` field on `CodeChunk`.
+- Produces: a regression guard over chunk `references` for Kotlin. No production code changes.
 
-- [ ] **Step 1: Write the failing test**
+> **Implementation-time correction.** This task originally called for extending
+> `extractSymbolFromNode` with a `call_expression` fallback and a new
+> `navigation_expression` case. Executing the failing test proved that change
+> unnecessary: Kotlin's call names are already collected through the `identifier`
+> nodes listed in the Task 2 `referenceNodeTypes`, and the existing
+> `call_expression` branch returns `null` for Kotlin (no `function` field), which
+> is exactly the non-noisy behavior we want. Adding the branches would re-derive
+> symbols that are already present while pushing a `?? node.namedChildren?.[0]`
+> fallback into shared extraction logic used by every language.
+
+- [ ] **Step 1: Write the test**
 
 Append to `packages/core/test/dsh-context-remdb.spec.ts`:
 
@@ -463,7 +472,7 @@ fun main() {
   })
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 2: Run the test — it PASSES as written**
 
 Run:
 
@@ -471,53 +480,29 @@ Run:
 node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts -t "Kotlin call references"
 ```
 
-Expected: FAIL on `expect(refs).toContain('add')` — the current `call_expression` branch calls `childForFieldName('function')`, which is always `null` for Kotlin.
-
-- [ ] **Step 3: Update `extractSymbolFromNode`**
-
-Replace the `call_expression` case (lines 486-490) and add a `navigation_expression` case right after it:
-
-```ts
-    case 'call_expression': {
-      // For a call like parseConfig(args), the function child has the name.
-      // Kotlin has no `function` field: the callee is the first named child —
-      // `add(1, 2)` → identifier, `service.load()` → navigation_expression.
-      const fnNode = node.childForFieldName('function') ?? node.namedChildren?.[0]
-      if (!fnNode) return null
-      if (fnNode.type === 'navigation_expression') {
-        // Take the trailing identifier so `Greeter("a").greet()` yields `greet`
-        const last = fnNode.namedChildren?.[fnNode.namedChildren.length - 1]
-        return last ? last.text : fnNode.text
-      }
-      return fnNode.text
-    }
-    case 'navigation_expression': {
-      // Kotlin: `a.b` → the trailing identifier (avoids emitting `a.b` as one symbol)
-      const last = node.namedChildren?.[node.namedChildren.length - 1]
-      return last ? last.text : null
-    }
-```
-
-This is verified behavior: for the test's snippet the extracted reference set is exactly `add, println, greet, Greeter, load`, with no parenthesized noise.
-
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run:
+Expected: PASS, because identifiers already supply the reference set. Record the evidence so the next reader does not "re-fix" this:
 
 ```bash
-node --experimental-vm-modules node_modules/.bin/jest packages/core/test/dsh-context-remdb.spec.ts
+node -e "
+const Parser=require('tree-sitter');const K=require('@tree-sitter-grammars/tree-sitter-kotlin');
+const p=new Parser();p.setLanguage(K);
+const src='fun main() {\n    val x = add(1, 2)\n    println(x)\n    Greeter(\"a\").greet()\n    service.load()\n}';
+const t=p.parse(src);const fn=t.rootNode.children.find(c=>c.type==='function_declaration');
+console.log('identifiers:', [...new Set(fn.descendantsOfType('identifier').map(n=>n.text))].join(', '));
+console.log('call_expression has function field:', fn.descendantsOfType('call_expression').some(c=>c.childForFieldName('function')!==null));
+"
 ```
 
-Expected: PASS. Other languages keep their existing behavior — for them `childForFieldName('function')` still returns the node it always did, and no other language grammar emits `navigation_expression`.
+Expected: `identifiers: main, x, add, println, Greeter, greet, service, load` and `call_expression has function field: false`.
 
-- [ ] **Step 5: Commit**
+A test that passes before any implementation is a signal to re-read the plan, not to write code that the test does not need. Keep the test as the guard.
+
+- [ ] **Step 3: Commit**
 
 ```bash
-git add packages/core/src/chunker.ts packages/core/test/dsh-context-remdb.spec.ts
-git commit -m "feat(core): extract Kotlin call references from field-less call_expression"
+git add packages/core/test/dsh-context-remdb.spec.ts
+git commit -m "test(core): cover Kotlin call reference extraction"
 ```
-
----
 
 ### Task 5: Resolve Kotlin `import` statements
 
@@ -864,7 +849,7 @@ If clean, no commit needed. If unexpected changes exist, review and commit or re
 | 设计 3 — `LANGUAGES` entry + header comment | Task 2 Steps 4-5 |
 | 设计 3 — `chunkNodeFilter` for properties | Task 2 Step 4 (code) + Task 3 Step 1 (behavioral test) |
 | 设计 4 — shared binding-name helper | Task 3 |
-| 设计 5 — call/navigation reference extraction | Task 4 |
+| 设计 5 — reference extraction (corrected: no production change needed, identifiers already cover it) | Task 4 |
 | 设计 6 — structural `import` dispatch + alias + star skip | Task 5 |
 | 设计 7 — docs | Task 6 |
 | 非目标 — no regex fallback | Global Constraints (explicit prohibition) |
