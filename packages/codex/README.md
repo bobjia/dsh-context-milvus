@@ -18,12 +18,12 @@ Requires Node.js ≥ 18 and Codex CLI 0.147+.
 
 ## Offline install (air-gapped target)
 
-The production closure is ~230 packages, so an air-gapped machine needs the whole tree carried over — `npm pack` of this package alone is not enough. Prepare the payload on any machine that can reach the registry; both methods below start from the same scratch install:
+The production closure is ~230 packages, so an air-gapped machine needs the whole tree carried over — `npm pack` of this package alone is not enough. Prepare the payload on any machine that can reach the registry; both methods below start from the same scratch install. Windows targets use the same two methods but with different `.bin` and config handling — see [Windows (air-gapped target)](#windows-air-gapped-target) below.
 
 ```bash
 mkdir ctxmilvus-offline && cd ctxmilvus-offline
 npm init -y
-npm pkg set dependencies.codex-context-milvus=0.7.1   # pin the version you are deploying
+npm pkg set dependencies.codex-context-milvus=0.7.4   # pin the version you are deploying
 npm install --omit=dev --cache ./npm-cache            # resolve + download the full closure
 ```
 
@@ -35,7 +35,7 @@ tar czf ctxmilvus-offline.tgz npm-cache package.json package-lock.json
 # on the target
 tar xzf ctxmilvus-offline.tgz
 npm ci --omit=dev --offline --cache ./npm-cache                           # into ./node_modules
-npm i -g codex-context-milvus@0.7.1 --offline --cache "$PWD/npm-cache"     # or globally
+npm i -g codex-context-milvus@0.7.4 --offline --cache "$PWD/npm-cache"     # or globally
 ```
 
 Keep the `--offline` flag: it makes npm fail with `ENOTCACHED` on a tarball it does not have, instead of hanging on a network that is not there. The cache must come from the scratch install above — it holds the tarballs *and* the version metadata `--offline` resolves against.
@@ -77,6 +77,57 @@ args = ["/opt/ctxmilvus/node_modules/codex-context-milvus/bin/mcp.js"]
 
 - A platform with no shipped prebuild is the single case that needs a compiler (`python3` + `make` + `g++`) at install time — build the bundle on a matching connected machine rather than compiling on the target.
 - The bundle contains the client only. Milvus and the embedding endpoint are services the target must already reach; `doctor` is how you check that.
+
+### Windows (air-gapped target)
+
+Everything under *What survives the air gap* applies to Windows unchanged: the closure has no `os` / `cpu` gates, `@zilliz/milvus2-sdk-node` talks gRPC through the pure-JS `@grpc/grpc-js`, and every `tree-sitter*` package ships `win32-x64` and `win32-arm64` N-API prebuilds inside its tarball — so a bundle built on any connected machine runs on Windows with **no compiler** (no Python, no Visual Studio Build Tools). The target only needs Node.js ≥ 18 (an offline MSI or zip) plus the same Milvus and embedding services.
+
+**A. Carry the npm cache.** The commands are the same as above; Windows 10+ ships `tar.exe` (bsdtar), or pack the cache as a `.zip` and use `Expand-Archive` on the target:
+
+```powershell
+tar xzf ctxmilvus-offline.tgz            # or: Expand-Archive ctxmilvus-offline.zip
+npm ci --omit=dev --offline --cache ./npm-cache
+npm i -g codex-context-milvus@0.7.4 --offline --cache "$PWD\npm-cache"   # optional
+```
+
+`--offline` matters more here than anywhere: without it npm hangs on the missing network instead of failing with `ENOTCACHED`. npm's global install works normally on Windows — it generates `.cmd` shims, not symlinks.
+
+**B. Carry `node_modules` verbatim.** Build the scratch install with **npm, not pnpm** — npm's flat layout is a tree of real directories, whereas pnpm's symlinked `.pnpm` store does not survive being copied to Windows. Pack with `tar`. On the target, **do not use `node_modules\.bin`**: entries there are symlinks and do not survive Windows extraction. The package never needs them — invoke the entry points with `node` directly:
+
+```powershell
+node C:\ctxmilvus\node_modules\codex-context-milvus\bin\mcp.js
+node C:\ctxmilvus\node_modules\codex-context-milvus\bin\cli.js doctor
+```
+
+**Repoint Codex at the local copy.** The `npx -y` form that `init` emits contacts the registry on every Codex launch, so on the offline box write the section by hand instead of running the wizard. User-level config is `%USERPROFILE%\.codex\config.toml`; project-level is `<repo>\.codex\config.toml`. Backslashes in TOML basic strings must be escaped (`\\`) — or use forward slashes, which Node accepts on Windows and which need no escaping. A full path to `node.exe` removes any PATH dependency:
+
+```toml
+[mcp_servers.context-milvus]
+command = "C:\\Program Files\\nodejs\\node.exe"
+args = ["C:\\ctxmilvus\\node_modules\\codex-context-milvus\\bin\\mcp.js"]
+enabled = true
+
+[mcp_servers.context-milvus.env]
+MILVUS_ADDRESS = "localhost:19530"
+EMBEDDING_ENDPOINT = "http://localhost:11434/api/embed"
+EMBEDDING_MODEL = "nomic-embed-text"
+CONTEXT_MILVUS_WORKSPACE = "C:\\absolute\\path\\to\\repo"
+```
+
+Verify before opening Codex:
+
+```powershell
+node C:\ctxmilvus\node_modules\codex-context-milvus\bin\cli.js doctor
+```
+
+**Shrink the payload.** On the target, delete every prebuild directory except the `win32-*` triple matching the machine:
+
+```powershell
+Get-ChildItem C:\ctxmilvus\node_modules -Recurse -Directory -Filter prebuilds |
+  ForEach-Object { Get-ChildItem $_.FullName -Directory | Where-Object Name -notmatch '^win32' | Remove-Item -Recurse -Force }
+```
+
+Method B only — method A's `npm ci` re-checks package contents against the cache.
 
 ## Configure
 
