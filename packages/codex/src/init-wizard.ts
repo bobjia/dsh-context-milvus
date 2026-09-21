@@ -9,6 +9,8 @@ export interface InitOptions {
   workspaceRoot: string
   milvusToken?: string
   embeddingApiKey?: string
+  /** Absolute path to a local bin/mcp.js — emit command="<node>"/args=[path] instead of the npx form. */
+  localMcpPath?: string
 }
 
 export const SECTION_HEADER = '[mcp_servers.context-milvus]'
@@ -24,10 +26,21 @@ export function renderMcpSection(options: InitOptions): string {
   if (options.milvusToken) env.push(`MILVUS_TOKEN = ${JSON.stringify(options.milvusToken)}`)
   if (options.embeddingApiKey) env.push(`EMBEDDING_API_KEY = ${JSON.stringify(options.embeddingApiKey)}`)
 
+  // Offline/local installs skip the registry: point straight at a local mcp.js,
+  // running under the node binary that started init (full path, so no PATH
+  // reliance). JSON.stringify keeps the path a valid TOML basic string — on
+  // Windows a backslash becomes `\\`.
+  const command = options.localMcpPath
+    ? `command = ${JSON.stringify(process.execPath)}`
+    : 'command = "npx"'
+  const args = options.localMcpPath
+    ? `args = [${JSON.stringify(options.localMcpPath)}]`
+    : 'args = ["-y", "codex-context-milvus", "mcp"]'
+
   return [
     SECTION_HEADER,
-    'command = "npx"',
-    'args = ["-y", "codex-context-milvus", "mcp"]',
+    command,
+    args,
     'enabled = true',
     '',
     SECTION_ENV_HEADER,

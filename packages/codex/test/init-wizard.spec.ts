@@ -18,12 +18,33 @@ describe('renderMcpSection', () => {
     expect(text).toContain('CONTEXT_MILVUS_WORKSPACE = "/repo"')
     expect(text).not.toContain('MILVUS_TOKEN')
     expect(text).not.toContain('EMBEDDING_API_KEY')
+    // The npx form stays the default.
+    expect(text).toContain('command = "npx"')
+    expect(text).toContain('args = ["-y", "codex-context-milvus", "mcp"]')
   })
 
   it('includes secrets only when explicitly provided', () => {
     const text = renderMcpSection({ ...options, milvusToken: 't', embeddingApiKey: 'k' })
     expect(text).toContain('MILVUS_TOKEN = "t"')
     expect(text).toContain('EMBEDDING_API_KEY = "k"')
+  })
+
+  it('escapes a Windows workspace path in the env value', () => {
+    // JS literal 'C:\\repo\\src' is the Windows path C:\repo\src — the TOML
+    // output must carry it as C:\\repo\\src (escaped backslashes).
+    const text = renderMcpSection({ ...options, workspaceRoot: 'C:\\repo\\src' })
+    expect(text).toContain('CONTEXT_MILVUS_WORKSPACE = "C:\\\\repo\\\\src"')
+  })
+
+  it('emits a local node + mcp.js command when localMcpPath is given', () => {
+    const text = renderMcpSection({
+      ...options,
+      localMcpPath: 'C:\\ctxmilvus\\node_modules\\codex-context-milvus\\bin\\mcp.js',
+    })
+    expect(text).toContain(`command = ${JSON.stringify(process.execPath)}`)
+    expect(text).toContain('args = ["C:\\\\ctxmilvus\\\\node_modules\\\\codex-context-milvus\\\\bin\\\\mcp.js"]')
+    expect(text).not.toContain('command = "npx"')
+    expect(text).not.toContain('"-y"')
   })
 })
 

@@ -11,6 +11,7 @@ import type { SearchResult, CodeChunk, AdrChunk, AdrSearchResult, ScoreKind } fr
 import { EmbeddingClient } from './embedding.js'
 import { expandQuery } from './query-expansion.js'
 import { rerankResults, type RerankConfig } from './reranker.js'
+import { buildFilePathLike, buildFilePathEq } from './path-normalize.js'
 import { consoleLogger, type Logger } from './logger.js'
 
 /** Search metadata captured during each search() call */
@@ -308,7 +309,7 @@ export class MilvusService {
         rerank: { strategy: RANKER_TYPE.RRF, params: { k: this.bm25RrfK } },
         limit: fetchLimit,
         output_fields: outputFields,
-        ...(pathPrefix ? { filter: `file_path like "${pathPrefix}%"` } : {}),
+        ...(pathPrefix ? { filter: buildFilePathLike(pathPrefix) } : {}),
       } as any)
     } else {
       const searchParams: SearchSimpleReq = {
@@ -318,7 +319,7 @@ export class MilvusService {
         output_fields: outputFields,
       }
       if (pathPrefix) {
-        searchParams.filter = `file_path like "${pathPrefix}%"`
+        searchParams.filter = buildFilePathLike(pathPrefix)
       }
       response = await client.search(searchParams)
     }
@@ -431,7 +432,7 @@ export class MilvusService {
 
     const response = await client.delete({
       collection_name: collection,
-      filter: `file_path == "${filePath}"`,
+      filter: buildFilePathEq(filePath),
     })
 
     return Number(response.delete_cnt ?? 0)
@@ -464,7 +465,7 @@ export class MilvusService {
     const { collection } = this
 
     const filter = `json_contains(references, "${symbol}")`
-    const expr = pathPrefix ? `file_path like "${pathPrefix}%" and ${filter}` : filter
+    const expr = pathPrefix ? `${buildFilePathLike(pathPrefix)} and ${filter}` : filter
 
     const response = await client.query({
       collection_name: collection,
@@ -495,7 +496,7 @@ export class MilvusService {
     const { collection } = this
 
     const filter = `name == "${name}"`
-    const expr = pathPrefix ? `file_path like "${pathPrefix}%" and ${filter}` : filter
+    const expr = pathPrefix ? `${buildFilePathLike(pathPrefix)} and ${filter}` : filter
 
     const response = await client.query({
       collection_name: collection,
@@ -663,7 +664,7 @@ export class MilvusService {
       filterExpr = `status == "${filters.status}"`
     }
     if (filters?.pathPrefix) {
-      const pathFilter = `file_path like "${filters.pathPrefix}%"`
+      const pathFilter = buildFilePathLike(filters.pathPrefix)
       filterExpr = filterExpr ? `${filterExpr} and ${pathFilter}` : pathFilter
     }
 
@@ -718,7 +719,7 @@ export class MilvusService {
     const client = this.getClient()
     const response = await client.delete({
       collection_name: this.adrCollection,
-      filter: `file_path == "${filePath}"`,
+      filter: buildFilePathEq(filePath),
     })
     return Number(response.delete_cnt ?? 0)
   }

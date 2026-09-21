@@ -12,7 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { MilvusService } from 'dsh-context-milvus-core'
 import type { PluginConfig } from 'dsh-context-milvus-core'
-import { deriveMerkleFilePath, deriveImportMapFilePath } from 'dsh-context-milvus-core'
+import { deriveMerkleFilePath, deriveImportMapFilePath, toPosixPath } from 'dsh-context-milvus-core'
 import { HashTracker } from 'dsh-context-milvus-core'
 import { ImportResolver } from 'dsh-context-milvus-core'
 import {
@@ -673,11 +673,15 @@ export function registerTools(
         })
 
         // Fallback: when sourceFile is provided but resolver is not available,
-        // filter by chunk filePath as a simple path match
+        // filter by chunk filePath as a simple path match. filePath from Milvus
+        // and sourceFile from path.resolve both carry the native separator on
+        // Windows — compare in posix form so separators cannot mask a match.
         if (sourceFile && !resolver && result.chunks) {
-          result.chunks = result.chunks.filter(
-            (c: any) => c.filePath === sourceFile || c.filePath.startsWith(sourceFile + '/')
-          )
+          const posixSource = toPosixPath(sourceFile)
+          result.chunks = result.chunks.filter((c: any) => {
+            const posixPath = toPosixPath(c.filePath)
+            return posixPath === posixSource || posixPath.startsWith(posixSource + '/')
+          })
         }
 
         if (sourceFileWarning) {

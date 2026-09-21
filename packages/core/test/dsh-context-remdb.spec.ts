@@ -630,6 +630,21 @@ describe('MilvusService', () => {
       expect(results[0].scoreKind).toBe('similarity')
     })
 
+    it('escapes a Windows path prefix into the filter expression', async () => {
+      mockSearch.mockResolvedValue({ results: [], recalls: [], session_ts: 0, collection_name: 'test_collection' })
+
+      const service = new MilvusService(defaultConfig)
+      await service.search('login', 5, 'C:\\repo\\src')
+
+      // Milvus expr string literals treat `\` as an escape — a Windows prefix
+      // must reach the server as `C:\\repo\\src` (literal backslashes).
+      expect(mockSearch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: 'file_path like "C:\\\\repo\\\\src%"',
+        }),
+      )
+    })
+
     it('runs hybridSearch with dense + BM25 branches and RRF rerank', async () => {
       mockHybridSearch.mockResolvedValue({
         results: [

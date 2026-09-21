@@ -23,6 +23,7 @@ import type { AdrRuntimeResolver } from './adr-runtime.js'
 import { workspaceRootForExec } from './adr-runtime.js'
 import {
   runAdrIndex, probeSpecCorpus, exceedsLargeSpecCorpus, writeRunConfig, deriveMerkleFilePath,
+  toPosixPath,
   LARGE_SPEC_FILE_LIMIT, LARGE_SPEC_BYTE_LIMIT, SPEC_FILE_RE, PLAN_FILE_RE,
 } from 'dsh-context-milvus-core'
 import { findCandidateFiles, previewFrontmatter, generateSpecFrontmatter } from 'dsh-context-milvus-core'
@@ -425,8 +426,11 @@ export function registerAdrTools(
       // 必须同源，否则又会变成"索引来自 A 根、解析按 B 根"的假失效。
       const effectiveIndexRoot = workspaceRootForExec(resolveConfig, exec)
 
+      // Anchor keys are stored posix; normalize the caller's path so a native
+      // Windows separator cannot mask a match.
+      const posixRequested = params.file_path ? toPosixPath(params.file_path) : undefined
       for (const [filePath, adrIds] of allFiles) {
-        if (params.file_path && filePath !== params.file_path) continue
+        if (posixRequested && filePath !== posixRequested) continue
         try {
           // Anchor index stores relative paths; resolve against the session workspace
           const absolutePath = path.resolve(effectiveIndexRoot, filePath)
@@ -437,7 +441,7 @@ export function registerAdrTools(
       }
 
       // If a specific file is requested but not tracked by any ADR, flag it as uncovered
-      if (params.file_path && !anchoredPaths.has(params.file_path)) {
+      if (posixRequested && !anchoredPaths.has(posixRequested)) {
         uncoveredChanges.push({ adrId: 'N/A', file: params.file_path, status: 'uncovered' })
       }
 
@@ -462,10 +466,11 @@ export function registerAdrTools(
               const parsedFm = yamlLoad(rawFm) as Record<string, any>
               if (!Array.isArray(parsedFm.code_anchors)) continue
 
-              // Filter out the stale anchor (match by file path)
+              // Filter out the stale anchor (match by file path). Frontmatter
+              // holds native paths, anchor keys are posix — compare in posix form.
               const before = parsedFm.code_anchors.length
               parsedFm.code_anchors = parsedFm.code_anchors.filter(
-                (a: any) => a?.file !== anchor.file,
+                (a: any) => toPosixPath(a?.file ?? '') !== anchor.file,
               )
               if (parsedFm.code_anchors.length === before) continue
 

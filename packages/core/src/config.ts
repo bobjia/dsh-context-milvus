@@ -162,6 +162,21 @@ export const DEFAULT_IGNORE_PATTERNS = [
 ]
 
 /**
+ * ~/.milvus-index home resolution.
+ *
+ * Prefer `$HOME` when set: it is what the historical implementation honored on
+ * POSIX, and specs exercise the derivations by overriding `process.env.HOME`.
+ * `os.homedir()` is the fallback — and the reason it is needed at all is
+ * Windows, where `HOME` is normally unset (the old `process.env.HOME ? … :
+ * cwd` fallback silently moved state files into the cwd). `os.homedir()`
+ * reads `USERPROFILE` on Windows, `HOME` on POSIX, and the passwd database
+ * when neither is set.
+ */
+function resolveHomeDir(): string {
+  return process.env.HOME ?? os.homedir()
+}
+
+/**
  * Derive a workspace-specific Merkle state file path from an index root path.
  * Each workspace gets its own state file, so indexing different workspaces
  * doesn't corrupt the Merkle state.
@@ -179,9 +194,7 @@ export function deriveMerkleFilePath(indexRoot: string): string {
   // Sanitize dirName for use in a file name
   const safeName = dirName.replace(/[^a-zA-Z0-9_\-]/g, '_')
 
-  return process.env.HOME
-    ? `${process.env.HOME}/.milvus-index/merkle-${safeName}-${hash}.json`
-    : `.milvus-merkle-${safeName}-${hash}.json`
+  return path.join(resolveHomeDir(), '.milvus-index', `merkle-${safeName}-${hash}.json`)
 }
 
 /**
@@ -195,9 +208,7 @@ export function deriveRunConfigPath(indexRoot: string): string {
   const dirName = path.basename(normalizedPath) || 'root'
   const safeName = dirName.replace(/[^a-zA-Z0-9_\-]/g, '_')
 
-  return process.env.HOME
-    ? `${process.env.HOME}/.milvus-index/run-config-${safeName}-${hash}.json`
-    : `.milvus-run-config-${safeName}-${hash}.json`
+  return path.join(resolveHomeDir(), '.milvus-index', `run-config-${safeName}-${hash}.json`)
 }
 
 /**

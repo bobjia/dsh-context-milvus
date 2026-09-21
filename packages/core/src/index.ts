@@ -8,6 +8,8 @@ export type { RunConfigFile } from './run-config.js'
 export { EmbeddingClient } from './embedding.js'
 export { MilvusService } from './milvus-service.js'
 export type { SearchMeta } from './milvus-service.js'
+export { exprEscapeString, normalizeFilterPath, toPosixPath,
+         buildFilePathLike, buildFilePathEq } from './path-normalize.js'
 export { HashTracker } from './merkle.js'
 export type { IndexDelta } from './merkle.js'
 export { IgnoreMatcher } from './ignore-matcher.js'

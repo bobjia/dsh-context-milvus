@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
 import { dump as yamlDump, load as yamlLoad } from 'js-yaml'
 import { parseFrontmatter } from './adr-frontmatter.js'
+import { toPosixPath } from './path-normalize.js'
 import type {
   AdrFrontmatter, AdrDocument, AdrListItem, ConstraintSummary,
   CreateAdrParams, UpdateAdrParams, AdrFilter,
@@ -367,7 +368,8 @@ export class AdrService {
     if (!Array.isArray(parsed.code_anchors)) return false
 
     const anchors = parsed.code_anchors as Array<Record<string, unknown>>
-    const kept = anchors.filter(a => a?.file !== file)
+    // Frontmatter holds native paths; the anchor key is posix — compare in posix form.
+    const kept = anchors.filter(a => toPosixPath(String(a?.file ?? '')) !== file)
     if (kept.length === anchors.length) return false
     parsed.code_anchors = kept
 

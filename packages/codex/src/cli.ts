@@ -16,6 +16,7 @@ export async function runInitCli(args: string[]): Promise<void> {
     embeddingEndpoint: flag(args, 'embedding-endpoint') ?? 'http://localhost:11434/api/embed',
     embeddingModel: flag(args, 'embedding-model') ?? 'nomic-embed-text',
     workspaceRoot: root,
+    localMcpPath: flag(args, 'local-mcp-path'),
   }
 
   if (!nonInteractive) {

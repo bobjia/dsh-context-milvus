@@ -99,7 +99,14 @@ node C:\ctxmilvus\node_modules\codex-context-milvus\bin\mcp.js
 node C:\ctxmilvus\node_modules\codex-context-milvus\bin\cli.js doctor
 ```
 
-**Repoint Codex at the local copy.** The `npx -y` form that `init` emits contacts the registry on every Codex launch, so on the offline box write the section by hand instead of running the wizard. User-level config is `%USERPROFILE%\.codex\config.toml`; project-level is `<repo>\.codex\config.toml`. Backslashes in TOML basic strings must be escaped (`\\`) — or use forward slashes, which Node accepts on Windows and which need no escaping. A full path to `node.exe` removes any PATH dependency:
+**Repoint Codex at the local copy.** The `npx -y` form that `init` emits contacts the registry on every Codex launch, so on the offline box don't let the wizard write the npx form. Run the wizard from the extracted copy with the local entry point, and it writes the offline form with the path escaping handled for you:
+
+```powershell
+node C:\ctxmilvus\node_modules\codex-context-milvus\bin\cli.js init --yes `
+  --local-mcp-path C:\ctxmilvus\node_modules\codex-context-milvus\bin\mcp.js
+```
+
+`--local-mcp-path` emits `command = "<node>"` (the full path to the node running `init`, so no PATH reliance) and `args = ["C:\\ctxmilvus\\...\\mcp.js"]` (backslashes TOML-escaped automatically). Prefer this over hand-writing — the section can also be written by hand; user-level config is `%USERPROFILE%\.codex\config.toml`, project-level is `<repo>\.codex\config.toml`. Backslashes in TOML basic strings must be escaped (`\\`) — or use forward slashes, which Node accepts on Windows and which need no escaping. A full path to `node.exe` removes any PATH dependency:
 
 ```toml
 [mcp_servers.context-milvus]
@@ -277,6 +284,6 @@ npx -y codex-context-milvus doctor      # exit 0 when both probes succeed
 - **ADR tools are off by default.** Set `ADR_ENABLED=true` to register them; the server assembles the ADR bundle without touching Milvus, so `tools/list` still works with no database running.
 - **No runtime dynamic tool registration.** Toggling features means editing `config.toml` and restarting Codex; there is no settings panel and no hot reload, because the MCP process environment is fixed at launch. This is also why ADR tools appear or disappear at startup rather than at runtime.
 - **No constraint / system-prompt injection.** Codex has no hook that can inject into a conversation, so ADR guidance is only a one-line `相关决策:` reminder appended to `search_code` results, plus whatever you put in `AGENTS.md`.
-- **Windows is unverified.** `tree-sitter` ships prebuilds for the mainstream platforms; on others the native install may compile from source, and chunking falls back to the regex chunker only for languages that have one.
+- **Windows is partially verified.** `tree-sitter` ships prebuilds for the mainstream platforms; on others the native install may compile from source, and chunking falls back to the regex chunker only for languages that have one. Path escaping in generated config and Milvus filter expressions is now handled, but `file_path like` prefix matching against a live Milvus on Windows still awaits real-world verification — `search_code` with a `C:\...` prefix on a Windows machine is the check.
 - **Long indexing calls block the tool call.** A full index of a large repository can take minutes; prefer `mode: "incremental"` inside a session and check progress with `index_status`.
 - **MCP Roots are not implemented** — workspace discovery uses the cwd/`.git` rules above instead.

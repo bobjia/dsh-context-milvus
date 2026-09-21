@@ -5,7 +5,7 @@ import type {
   AdrIndexResult, DetectedRef,
 } from 'dsh-context-milvus-core'
 import {
-  findCandidateFiles, previewFrontmatter, generateSpecFrontmatter,
+  findCandidateFiles, previewFrontmatter, generateSpecFrontmatter, toPosixPath,
 } from 'dsh-context-milvus-core'
 import { resolveWorkspaceRoot, type WorkspaceSource } from './workspace-resolver.js'
 import { assertWritesEnabled, requireExistingAdr } from './adr-gate.js'
@@ -265,12 +265,15 @@ export async function handleCheckAdrConsistency(
   const relative = args.filePath
     ? (path.isAbsolute(args.filePath) ? path.relative(root, args.filePath) : args.filePath)
     : undefined
+  // Anchor keys are stored posix; normalize the workspace-relative form so a
+  // native Windows separator cannot mask a match.
+  const posixRelative = relative ? toPosixPath(relative) : undefined
 
   const report: AdrConsistencyReport = { staleAnchors: [], uncoveredChanges: [], fixedAnchors: [] }
   const all = adr.anchorIndex.getAll()
 
   for (const [file, ids] of all) {
-    if (relative && file !== relative) continue
+    if (posixRelative && file !== posixRelative) continue
     try {
       await access(path.resolve(root, file))
     } catch {
@@ -278,8 +281,8 @@ export async function handleCheckAdrConsistency(
     }
   }
 
-  if (relative && !all.has(relative)) {
-    report.uncoveredChanges.push({ adrId: 'N/A', file: relative, status: 'uncovered' })
+  if (posixRelative && !all.has(posixRelative)) {
+    report.uncoveredChanges.push({ adrId: 'N/A', file: posixRelative, status: 'uncovered' })
   }
 
   if (args.fix && report.staleAnchors.length > 0) {
