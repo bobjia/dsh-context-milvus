@@ -230,6 +230,10 @@ export async function apply(ctx: Context, config?: CordisConfig) {
   // GUI edit without requiring a plugin reload.
   let current: () => CordisConfig = () => config ?? {}
 
+  // Capture plugin-startup cwd once: tools fall back to it when neither
+  // params.path, session.header.cwd, nor config.indexRoot is available.
+  const startupCwd = process.cwd()
+
   // ── Connection services (Milvus + embedding) ─────────────────────────
   // Built from the resolved config and rebuilt on a settings edit whenever one
   // of the construction-time fields changes (see serviceSignature). Tools get
@@ -508,6 +512,7 @@ export async function apply(ctx: Context, config?: CordisConfig) {
   // execution time.
   registerTools(
     ctx, () => getConfig(current()), getMilvus, getTracker, getImportResolver, adrRuntimeResolver,
+    startupCwd,
   )
 
   console.log(

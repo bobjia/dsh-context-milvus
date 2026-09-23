@@ -25,6 +25,7 @@ import type { FindBySymbol } from 'dsh-context-milvus-core'
 import { createTelemetry, sanitizeQuery } from 'dsh-context-milvus-core'
 import type { AdrRuntimeResolver } from './adr-runtime.js'
 import { buildIndexCommand } from './index-command.js'
+import { resolveWorkspaceRoot } from './workspace-root.js'
 
 /**
  * 以某个工作区根构造最小的 DSH 会话 exec，供 {@link AdrRuntimeResolver.forExec} 解析。
@@ -168,12 +169,18 @@ export function registerTools(
   resolveTracker: () => HashTracker,
   resolveImportResolver?: () => ImportResolver | undefined,
   adrRuntime?: AdrRuntimeResolver,
+  startupCwd: string = '',
 ): void {
   // 本地遥测（opt-in）：每次调用实时解析配置
   const telemetry = createTelemetry(() => {
     const c = resolveConfig()
     return { telemetryEnabled: c.telemetryEnabled, telemetryFile: c.telemetryFile }
   })
+
+  // 5 级 fallback 闭包：params.path > session.header.cwd > config.indexRoot >
+  // startupCwd > process.cwd()。startupCwd 由 index.ts 在 apply() 顶部捕获。
+  const resolvePath = (params: any, exec?: any): string =>
+    resolveWorkspaceRoot(resolveConfig(), exec, startupCwd, params.path)
 
   // ── search_code ───────────────────────────────────────────────────────
 
@@ -231,9 +238,9 @@ export function registerTools(
         const started = Date.now()
         const query = params.query
         const topK = params.topK ?? 5
-        // Use explicit path, or the current session's workspace directory
-        const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
-        const path = params.path ?? sessionCwd ?? undefined
+        // 5 级 fallback：params.path > session.header.cwd > config.indexRoot >
+        // startupCwd > process.cwd()
+        const path = resolvePath(params, exec)
 
         const milvus = resolveMilvus()
         await milvus.ensureCollection()
@@ -315,9 +322,9 @@ export function registerTools(
 
       async execute(params: any, exec?: any) {
         const mode = (params.mode as 'full' | 'incremental' | undefined) ?? 'incremental'
-        // Use explicit path, or the current session's workspace directory
-        const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
-        const overridePath = params.path ?? sessionCwd ?? undefined
+        // 5 级 fallback：params.path > session.header.cwd > config.indexRoot >
+        // startupCwd > process.cwd()
+        const overridePath = resolvePath(params, exec)
 
         // Snapshot latest config at execution time
         const config = resolveConfig()
@@ -485,9 +492,9 @@ export function registerTools(
       },
 
       async execute(params: any, exec?: any) {
-        // Use explicit path, or the current session's workspace directory
-        const sessionCwd = exec?.agent?.session?.header?.cwd as string | undefined
-        const overridePath = params.path ?? sessionCwd ?? undefined
+        // 5 级 fallback：params.path > session.header.cwd > config.indexRoot >
+        // startupCwd > process.cwd()
+        const overridePath = resolvePath(params, exec)
 
         // Snapshot latest config at execution time
         const config = resolveConfig()
