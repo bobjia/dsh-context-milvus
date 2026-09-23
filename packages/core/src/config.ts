@@ -312,10 +312,10 @@ export function getConfig(overrides?: CordisConfig): PluginConfig {
       : process.env.RERANK_ENABLED !== 'false',
     rerankMultiplier: overrides?.rerankMultiplier ?? 3,
 
-    merkleFilePath: overrides?.merkleFilePath ?? process.env.MERKLE_FILE_PATH ?? deriveMerkleFilePath(indexRoot),
+    merkleFilePath: overrides?.merkleFilePath || process.env.MERKLE_FILE_PATH || deriveMerkleFilePath(indexRoot),
 
     telemetryEnabled: overrides?.telemetryEnabled ?? false,
-    telemetryFile: overrides?.telemetryFile ?? path.join(os.homedir(), '.milvus-index', 'telemetry.jsonl'),
+    telemetryFile: overrides?.telemetryFile || path.join(os.homedir(), '.milvus-index', 'telemetry.jsonl'),
 
     adrEnabled: overrides?.adrEnabled ?? parseBoolEnv(process.env.ADR_ENABLED) ?? false,
     adrRoot: overrides?.adrRoot ?? process.env.ADR_ROOT ?? 'docs/decisions',
