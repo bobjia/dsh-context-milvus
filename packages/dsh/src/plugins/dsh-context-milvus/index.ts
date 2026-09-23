@@ -97,7 +97,10 @@ export const Config = z.object({
   /** 代码仓库根路径 */
   indexRoot: z.string()
     .default('')
-    .description('代码仓库根路径，用于索引时扫描文件'),
+    .description(
+      '代码仓库根路径，用于索引时扫描文件。' +
+      '留空时自动使用当前 DSH 会话工作目录；通常无需手动填写。'
+    ),
 
   /** 索引的文件后缀 (逗号分隔) */
   indexExtensions: z.string()
