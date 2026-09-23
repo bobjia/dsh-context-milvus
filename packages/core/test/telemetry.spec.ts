@@ -1,5 +1,5 @@
 import { describe, expect, test } from '@jest/globals'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile, chmod } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 
@@ -43,5 +43,30 @@ describe('telemetry', () => {
     tel.log({ ts: new Date().toISOString(), tool: 'search_code', query: 'q' })
     await tel.flush()
     expect(true).toBe(true)
+  })
+
+  test('creates the telemetry file with mode 0600', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'tel-'))
+    const file = path.join(dir, 't.jsonl')
+    const { createTelemetry } = await import('../src/telemetry.js')
+    const tel = createTelemetry(() => ({ telemetryEnabled: true, telemetryFile: file }))
+    tel.log({ ts: '2026-01-01T00:00:00.000Z', tool: 'search_code', query: 'auth' })
+    await tel.flush()
+    expect((await stat(file)).mode & 0o777).toBe(0o600)
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  test('tightens a pre-existing 0644 telemetry file to 0600', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'tel-'))
+    const file = path.join(dir, 't.jsonl')
+    await writeFile(file, '', { encoding: 'utf-8', mode: 0o644 })
+    await chmod(file, 0o644)
+    expect((await stat(file)).mode & 0o777).toBe(0o644)
+    const { createTelemetry } = await import('../src/telemetry.js')
+    const tel = createTelemetry(() => ({ telemetryEnabled: true, telemetryFile: file }))
+    tel.log({ ts: '2026-01-01T00:00:00.000Z', tool: 'search_code', query: 'auth' })
+    await tel.flush()
+    expect((await stat(file)).mode & 0o777).toBe(0o600)
+    await rm(dir, { recursive: true, force: true })
   })
 })
