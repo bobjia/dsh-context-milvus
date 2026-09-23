@@ -46,7 +46,7 @@ A DSH plugin that provides semantic code search over a **Milvus** vector databas
 - **ADR decision memory system** — Records design rationale behind code changes (Architecture Decision Records), supports semantic search, CRUD, constraint injection, and consistency checking
 - **Code relationship analysis** — Extracts symbol references from AST during indexing (`references`, language-specific syntax nodes), supports cross-file exact matching
 - **Cross-file import resolution (V2)** — Scans import/export statements using tree-sitter AST during indexing, builds a persistent bidirectional Import Map, enabling `find_callers`/`trace_call_chain` to perform precise cross-file symbol matching (same-name disambiguation, cross-module tracing)
-- **Native telemetry (opt-in)** — `search_code` / `index_code` / `index_status` write one JSONL line per execution (disabled by default, no source code captured), with an analysis script for descriptive stats + Bootstrap CI + correlation
+- **Native telemetry (enabled by default)** — `search_code` / `index_code` / `index_status` write one JSONL line per execution (enabled by default, metadata only, no source code captured), with an analysis script for descriptive stats + Bootstrap CI + correlation
 
 ---
 
@@ -120,9 +120,11 @@ Key findings:
 - **Highest task pass rate**: P 62.5% vs G 37.5% vs R 50.0%.
 - **Significant token reduction**: P vs G Δmean −2109 tokens/task (95% CI [−2325, −1864]), Wilcoxon p=0.014, **significant after Holm correction**, Cliff's Δ=−1.0. P also beats R by −928 tokens/task (p=0.014).
 
-### Native telemetry (opt-in)
+### Native telemetry (enabled by default)
 
-`search_code` / `index_code` / `index_status` record execution metrics (query, result count, top score, duration, files/chunks indexed, etc.) as one JSONL line per call — **disabled by default** (`telemetryEnabled: false`), no source code content captured. Run `node scripts/eval/telemetry/run.mjs` to generate a descriptive statistics + Bootstrap CI + correlation report from `~/.milvus-index/telemetry.jsonl`.
+`search_code` / `index_code` / `index_status` record execution metrics (query, result count, top score, duration, files/chunks indexed, etc.) as one JSONL line per call — **enabled by default** (`telemetryEnabled: true`), no source code content captured. Run `node scripts/eval/telemetry/run.mjs` to generate a descriptive statistics + Bootstrap CI + correlation report from `~/.milvus-index/telemetry.jsonl` (mode 0600).
+
+To turn it off: set `telemetryEnabled` to `false` in Settings → Plugins → dsh-context-milvus (or set `telemetryEnabled: false` in `cordis.patch.yml`).
 
 ---
 
@@ -734,7 +736,7 @@ After installation, go to the DSH Web interface (http://127.0.0.1:3080) **Settin
    │  chunker (AST+regex) → embedding → milvus-service        merkle (SHA-256 Δ)  │
    │  code-relations (BFS findCallers/traceChain)             import-resolver     │
    │  query-expansion → reranker                              ignore-matcher (3层) │
-   │  telemetry (JSONL, opt-in)                               logger port         │
+   │  telemetry (JSONL, enabled by default)                   logger port         │
    │  ADR engine: frontmatter/chunker/anchors/service/indexer/bundle              │
    └──────────────────────────────────────────────────────────────────────────────┘
                                           │

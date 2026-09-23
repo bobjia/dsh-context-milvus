@@ -46,7 +46,7 @@ DSH 插件：通过 **Milvus** 向量数据库实现语义代码搜索，支持�
 - **ADR 决策记忆系统** — 记录代码变更背后的设计原因（Architecture Decision Record），支持语义搜索、CRUD、约束注入和一致性检查
 - **代码关系分析** — 索引时从 AST 提取每个代码块引用的符号（`references`，各语言树状语法节点），支持跨文件精确匹配
 - **跨文件 import 解析（V2）** — 索引期用 tree-sitter AST 扫描 import/export 语句，构建持久化双向 Import Map，`find_callers` / `trace_call_chain` 据此做跨文件符号精确匹配（同名消歧、跨模块追踪）
-- **原生遥测（opt-in）** — `search_code` / `index_code` / `index_status` 每次执行写一行 JSONL（默认关闭，不采源代码内容），附带分析脚本做描述统计 + Bootstrap CI + 相关性
+- **原生遥测（默认开启）** — `search_code` / `index_code` / `index_status` 每次执行写一行 JSONL（默认开启，仅元数据，不采集源代码内容），附带分析脚本做描述统计 + Bootstrap CI + 相关性
 
 ---
 
@@ -127,9 +127,11 @@ tar czf ctxmilvus-tree.tgz node_modules                                  # 方�
 - **最高任务通过率**：P 62.5% > R 50.0% > G 37.5%。
 - **显著降低 token 消耗**：P vs G 每任务 Δ均值 −2109 (95% CI [−2325, −1864])，Wilcoxon p=0.014，**Holm 校正后显著**，Cliff's Δ=−1.0。P vs R 也少 928 tokens/任务（p=0.014）。
 
-### 原生遥测（opt-in）
+### 原生遥测（默认开启）
 
-`search_code` / `index_code` / `index_status` 每次执行记录一条 JSONL（含查询文本、结果数、最高分、耗时、索引文件/分块数等），**默认关闭**（`telemetryEnabled: false`），不采集源代码内容。运行 `node scripts/eval/telemetry/run.mjs` 从 `~/.milvus-index/telemetry.jsonl` 生成描述统计 + Bootstrap CI + 相关性报告。
+`search_code` / `index_code` / `index_status` 每次执行记录一条 JSONL（含查询文本、结果数、最高分、耗时、索引文件/分块数等），**默认开启**（`telemetryEnabled: true`），不采集源代码内容。运行 `node scripts/eval/telemetry/run.mjs` 从 `~/.milvus-index/telemetry.jsonl`（权限 0600）生成描述统计 + Bootstrap CI + 相关性报告。
+
+如要关闭：在 Settings → Plugins → dsh-context-milvus 中将 `telemetryEnabled` 设为 `false`（或在 `cordis.patch.yml` 中设置 `telemetryEnabled: false`）。
 
 ---
 
@@ -755,7 +757,7 @@ Git 工程、却指向**同一个远程 Milvus 集合**时：
    │  chunker(AST+regex) → embedding → milvus-service        merkle（SHA-256 Δ）  │
    │  code-relations（BFS findCallers/traceChain）           import-resolver      │
    │  query-expansion → reranker                            ignore-matcher（三层） │
-   │  telemetry（JSONL，opt-in）                             logger 端口           │
+   │  telemetry（JSONL，默认开启）                           logger 端口           │
    │  ADR 引擎：frontmatter/chunker/anchors/service/indexer/bundle                 │
    └──────────────────────────────────────────────────────────────────────────────┘
                                           │
