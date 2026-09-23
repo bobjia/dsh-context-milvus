@@ -175,7 +175,7 @@ Pure function; DSH adapter side only; core config unchanged."
 ### Task 2: `tools.ts` 5 个工具切换到 `resolveWorkspaceRoot`
 
 **Files:**
-- Modify: `packages/dsh/src/plugins/dsh-context-milvus/tools.ts`（5 处 `sessionCwd` 模式替换 + 新增 `startupCwd` 闭包参数 + `registerTools` 签名）
+- Modify: `packages/dsh/src/plugins/dsh-context-milvus/tools.ts`（3 处 `sessionCwd` 模式替换 + 新增 `startupCwd` 闭包参数 + `registerTools` 签名）
 - Modify: `packages/dsh/src/plugins/dsh-context-milvus/index.ts`（`apply()` 顶部记录 `startupCwd`，向 `registerTools` 传参）
 
 **Interfaces:**
