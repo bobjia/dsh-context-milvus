@@ -194,10 +194,15 @@ export const Config = z.object({
     .default('docs/superpowers/plans')
     .description('实现计划文档目录（相对 indexRoot）'),
 
-  /** 启用本地遥测统计（写入 JSONL，默认关闭） */
+  /** 启用本地遥测统计（写入 JSONL，默认开启） */
   telemetryEnabled: z.boolean()
-    .default(false)
-    .description('启用本地遥测统计（search_code/index_code/index_status 写入 JSONL，默认关闭）'),
+    .default(true)
+    .description(
+      '启用本地遥测统计（默认开启）。' +
+      '仅记录调用次数、耗时、结果数量、topScore、文件路径，以及截断至 200 字符的查询文本；' +
+      '**不采集代码内容**。' +
+      '文件位于 ~/.milvus-index/telemetry.jsonl（权限 0600），可随时在本设置中关闭。'
+    ),
 
   /** 遥测 JSONL 文件路径 */
   telemetryFile: z.string()
@@ -523,6 +528,13 @@ export async function apply(ctx: Context, config?: CordisConfig) {
     `[dsh-context-milvus] 已加载 (${resolved.indexExtensions.length} 种文件类型, ` +
     `hybrid=${resolved.hybridMode})`,
   )
+
+  if (resolved.telemetryEnabled) {
+    console.log(
+      `[dsh-context-milvus] 本地遥测已开启（仅元数据，不采集代码内容），` +
+      `写入 ${resolved.telemetryFile}；可在 Settings → Plugins → dsh-context-milvus 关闭`
+    )
+  }
 
   setupCodeSearchPrompt(ctx)
 }
