@@ -37,6 +37,7 @@ import { registerTools } from './tools.js'
 import { registerAdrTools } from './adr-tools.js'
 import { runAdrIndex } from 'dsh-context-milvus-core'
 import { setupConstraintInjection } from './constraint-injector.js'
+import { setupCodeSearchPrompt } from './code-search-prompt.js'
 import { createAdrRuntimeResolver, type AdrRuntime } from './adr-runtime.js'
 
 export const name = 'dsh-context-milvus'
@@ -519,4 +520,6 @@ export async function apply(ctx: Context, config?: CordisConfig) {
     `[dsh-context-milvus] 已加载 (${resolved.indexExtensions.length} 种文件类型, ` +
     `hybrid=${resolved.hybridMode})`,
   )
+
+  setupCodeSearchPrompt(ctx)
 }

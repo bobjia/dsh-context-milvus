@@ -314,11 +314,25 @@ describe('settings hot-reload', () => {
   it('refreshes the ADR system prompt section when adrSystemPrompt changes', async () => {
     const h = await createHarness({ adrEnabled: true })
     try {
-      expect(h.promptSections.length).toBe(1)
+      // Boot also registers the code-search:rules section (SPEC-2026-09-24-onboarding-activation
+      // fix C), so scope this to the ADR section rather than counting every prompt section.
+      expect(h.promptSections.filter((s) => s.name === 'decision-memory:rules').length).toBe(1)
 
       h.commit({ adrSystemPrompt: 'CUSTOM-PROMPT-MARKER' })
 
       await waitFor(() => h.promptSections.some((s) => s.text === 'CUSTOM-PROMPT-MARKER'))
+    } finally {
+      h.cleanup()
+    }
+  })
+
+  it('registers the code-search prompt section on boot (fix C)', async () => {
+    const h = await createHarness({})
+    try {
+      const section = h.promptSections.find((s) => s.name === 'code-search:rules')
+      expect(section).toBeDefined()
+      expect(section.order).toBe(1480)
+      expect(section.text).toContain('search_code')
     } finally {
       h.cleanup()
     }
