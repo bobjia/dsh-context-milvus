@@ -335,7 +335,7 @@ describe('index_specs tool', () => {
     expect(result.preview[0].filePath).toBe(path.join(specsDir, '2026-09-02-my-design.md'))
     expect(result.preview[0].adrId).toMatch(/^SPEC-/)
     expect(result.preview[0].detectedRefs).toHaveLength(1)
-    expect(result.preview[0].detectedRefs[0].file).toContain('src/lib.ts')
+    expect(result.preview[0].detectedRefs[0].file).toContain(path.join('src', 'lib.ts'))
 
     // Verify file was NOT modified (no frontmatter)
     const content = await fs.readFile(path.join(specsDir, '2026-09-02-my-design.md'), 'utf-8')
@@ -494,8 +494,10 @@ describe('registerTools - index_code adr config', () => {
 
     expect(mockRunAdrIndex).toHaveBeenCalledTimes(1)
     const adrConfig = mockRunAdrIndex.mock.calls[0][0]
-    expect(adrConfig.specRoot).toBe('/workspace/test/docs/superpowers/specs')
-    expect(adrConfig.planRoot).toBe('/workspace/test/docs/superpowers/plans')
+    // specRoot/planRoot are resolved against indexRoot via path.resolve (drive
+    // prefix on Windows), while adrRoot passes rt.root through verbatim.
+    expect(adrConfig.specRoot).toBe(path.resolve('/workspace', 'test', 'docs', 'superpowers', 'specs'))
+    expect(adrConfig.planRoot).toBe(path.resolve('/workspace', 'test', 'docs', 'superpowers', 'plans'))
     expect(adrConfig.adrRoot).toBe('/workspace/test/docs/decisions')
   })
 

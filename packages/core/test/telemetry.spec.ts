@@ -45,7 +45,10 @@ describe('telemetry', () => {
     expect(true).toBe(true)
   })
 
-  test('creates the telemetry file with mode 0600', async () => {
+  // POSIX file modes are not enforceable on Windows — Node always reports 0666.
+  const skipModeOnWin = process.platform === 'win32' ? test.skip : test
+
+  skipModeOnWin('creates the telemetry file with mode 0600', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'tel-'))
     const file = path.join(dir, 't.jsonl')
     const { createTelemetry } = await import('../src/telemetry.js')
@@ -56,12 +59,11 @@ describe('telemetry', () => {
     await rm(dir, { recursive: true, force: true })
   })
 
-  test('tightens a pre-existing 0644 telemetry file to 0600', async () => {
+  skipModeOnWin('tightens a pre-existing 0644 telemetry file to 0600', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'tel-'))
     const file = path.join(dir, 't.jsonl')
     await writeFile(file, '', { encoding: 'utf-8', mode: 0o644 })
     await chmod(file, 0o644)
-    expect((await stat(file)).mode & 0o777).toBe(0o644)
     const { createTelemetry } = await import('../src/telemetry.js')
     const tel = createTelemetry(() => ({ telemetryEnabled: true, telemetryFile: file }))
     tel.log({ ts: '2026-01-01T00:00:00.000Z', tool: 'search_code', query: 'auth' })

@@ -40,7 +40,13 @@ function coveredAdr() {
   return {
     exists: true,
     adrRoot: path.join(root, 'docs', 'decisions'),
-    anchorIndex: { getAdrsForFile: (f: string) => f === 'src/queue.ts' ? ['ADR-0003-retry-queue'] : [] },
+    // The real AdrAnchorIndex normalizes backslashes to forward slashes on both
+    // the stored key and the query. Mirror that so `src/queue.ts` (posix) matches
+    // what path.relative yields on Windows (`src\queue.ts`).
+    anchorIndex: {
+      getAdrsForFile: (f: string) =>
+        f.replace(/\\/g, '/') === 'src/queue.ts' ? ['ADR-0003-retry-queue'] : [],
+    },
     titles: async () => new Map([['ADR-0003-retry-queue', { title: '使用重试队列隔离下游故障', status: 'active' }]]),
   }
 }

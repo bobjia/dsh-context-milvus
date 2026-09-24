@@ -1,6 +1,6 @@
 {
   "name": "dsh-context-milvus-core",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Framework-agnostic core for dsh-context-milvus and codex-context-milvus",
   "type": "module",
   "main": "dist/index.js",

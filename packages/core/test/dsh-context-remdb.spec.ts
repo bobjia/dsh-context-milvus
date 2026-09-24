@@ -89,6 +89,7 @@ function mockEmbeddingClient(vectors: number[][] = [[0.1, 0.2, 0.3]]): any {
 const { getConfig } = await import('../src/config.js')
 const { HashTracker } = await import('../src/merkle.js')
 const { MilvusService } = await import('../src/milvus-service.js')
+const { buildFilePathLike } = await import('../src/path-normalize.js')
 const { silentLogger } = await import('../src/logger.js')
 const { EmbeddingClient } = await import('../src/embedding.js')
 const { runIndex, getIndexStatus } = await import('../src/indexer.js')
@@ -670,7 +671,10 @@ describe('MilvusService', () => {
             { anns_field: 'sparse_vector', data: 'login function — login authenticate signin auth', params: { metric_type: 'BM25' } },
           ],
           rerank: { strategy: 'rrf', params: { k: 30 } },
-          filter: 'file_path like "/workspace/proj%"',
+          // The service normalizes the prefix to native separators before
+          // building the LIKE expression — assert through the same helper so the
+          // expectation holds on Windows (backslashes) and POSIX (slashes).
+          filter: buildFilePathLike('/workspace/proj'),
         }),
       )
       expect(results).toHaveLength(1)

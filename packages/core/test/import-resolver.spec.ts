@@ -112,6 +112,12 @@ describe('ImportResolver', () => {
 })
 
 describe('ImportResolver scanFile', () => {
+  // The resolver resolves imports against `path.resolve`, so tests must feed it
+  // native absolute paths (posix `/project/...` becomes `E:\project\...` on
+  // Windows and breaks the Kotlin package-segment walk). Build one here.
+  const nativeRoot = path.join(path.parse(process.cwd()).root, 'project')
+  const nativeTmp = path.join(path.parse(process.cwd()).root, 'tmp')
+
   // These tests depend on tree-sitter native modules which may not load
   // reliably in the ESM Jest environment. Guard by actually trying to
   // create a parser and parse a TypeScript snippet.
@@ -157,7 +163,7 @@ describe('ImportResolver scanFile', () => {
   test('extracts TypeScript imports', async () => {
     if (!tsAvailable) return
     const { ImportResolver } = await import('../src/import-resolver.js')
-    const resolver = new ImportResolver('/tmp/test-map.json')
+    const resolver = new ImportResolver(path.join(nativeTmp, 'test-map.json'))
     await resolver.load()
 
     const content = `
@@ -165,23 +171,23 @@ describe('ImportResolver scanFile', () => {
       import { initDb } from './database'
       export function runApp() { return parseConfig() + initDb() }
     `
-    await resolver.scanFile('/project/src/app.ts', content, '.ts')
+    await resolver.scanFile(path.join(nativeRoot, 'src', 'app.ts'), content, '.ts')
 
     // Should extract imports from import_statement nodes
-    const parseConfigEntry = resolver.resolve('/project/src/app.ts', 'parseConfig')
+    const parseConfigEntry = resolver.resolve(path.join(nativeRoot, 'src', 'app.ts'), 'parseConfig')
     expect(parseConfigEntry).not.toBeNull()
-    expect(parseConfigEntry!.target).toContain('/project/src/config')
+    expect(parseConfigEntry!.target).toContain(path.join(nativeRoot, 'src', 'config'))
     expect(parseConfigEntry!.exportedAs).toBe('parseConfig')
 
-    const initDbEntry = resolver.resolve('/project/src/app.ts', 'initDb')
+    const initDbEntry = resolver.resolve(path.join(nativeRoot, 'src', 'app.ts'), 'initDb')
     expect(initDbEntry).not.toBeNull()
-    expect(initDbEntry!.target).toContain('/project/src/database')
+    expect(initDbEntry!.target).toContain(path.join(nativeRoot, 'src', 'database'))
   })
 
   test('extracts C #include imports and exports', async () => {
     if (!cAvailable) return
     const { ImportResolver } = await import('../src/import-resolver.js')
-    const resolver = new ImportResolver('/tmp/test-map.json')
+    const resolver = new ImportResolver(path.join(nativeTmp, 'test-map.json'))
     await resolver.load()
 
     const content = `
@@ -190,16 +196,16 @@ describe('ImportResolver scanFile', () => {
       int helper(void);
       int main(void) { return helper(); }
     `
-    await resolver.scanFile('/project/src/main.c', content, '.c')
+    await resolver.scanFile(path.join(nativeRoot, 'src', 'main.c'), content, '.c')
 
     // #include "myutil.h" → target ./myutil.h, symbol myutil
-    const myutilEntry = resolver.resolve('/project/src/main.c', 'myutil')
+    const myutilEntry = resolver.resolve(path.join(nativeRoot, 'src', 'main.c'), 'myutil')
     expect(myutilEntry).not.toBeNull()
-    expect(myutilEntry!.target).toBe('/project/src/myutil.h')
+    expect(myutilEntry!.target).toBe(path.join(nativeRoot, 'src', 'myutil.h'))
     expect(myutilEntry!.exportedAs).toBe('myutil')
 
     // main and helper should be exported as chunk symbols
-    const exports = resolver.getExports('/project/src/main.c')
+    const exports = resolver.getExports(path.join(nativeRoot, 'src', 'main.c'))
     expect(exports).toContain('main')
     expect(exports).toContain('helper')
   })
@@ -207,7 +213,7 @@ describe('ImportResolver scanFile', () => {
   test('extracts Kotlin imports and exports', async () => {
     if (!kotlinAvailable) return
     const { ImportResolver } = await import('../src/import-resolver.js')
-    const resolver = new ImportResolver('/tmp/test-map.json')
+    const resolver = new ImportResolver(path.join(nativeTmp, 'test-map.json'))
     await resolver.load()
 
     const content = `
@@ -223,26 +229,26 @@ describe('ImportResolver scanFile', () => {
         return MAX
       }
     `
-    await resolver.scanFile('/project/com/example/Usage.kt', content, '.kt')
+    await resolver.scanFile(path.join(nativeRoot, 'com', 'example', 'Usage.kt'), content, '.kt')
 
     // Kotlin's `import` node has no `path` field — the qualified_identifier is the
     // first named child. The source root is inferred by anchoring the import's
     // top-level segment (`com`) in the importing file's directory chain.
-    const barEntry = resolver.resolve('/project/com/example/Usage.kt', 'Bar')
+    const barEntry = resolver.resolve(path.join(nativeRoot, 'com', 'example', 'Usage.kt'), 'Bar')
     expect(barEntry).not.toBeNull()
-    expect(barEntry!.target).toBe('/project/com/example/Bar.kt')
+    expect(barEntry!.target).toBe(path.join(nativeRoot, 'com', 'example', 'Bar.kt'))
     expect(barEntry!.exportedAs).toBe('com.example.Bar')
 
     // `as` alias: the symbol is the alias, not the last path segment
-    const aliasEntry = resolver.resolve('/project/com/example/Usage.kt', 'Old')
+    const aliasEntry = resolver.resolve(path.join(nativeRoot, 'com', 'example', 'Usage.kt'), 'Old')
     expect(aliasEntry).not.toBeNull()
-    expect(aliasEntry!.target).toBe('/project/com/example/Legacy.kt')
+    expect(aliasEntry!.target).toBe(path.join(nativeRoot, 'com', 'example', 'Legacy.kt'))
 
     // Star imports are skipped entirely — no symbol named `*`
-    expect(resolver.resolve('/project/com/example/Usage.kt', '*')).toBeNull()
+    expect(resolver.resolve(path.join(nativeRoot, 'com', 'example', 'Usage.kt'), '*')).toBeNull()
 
     // Exports are derived from chunks, including the property binding name
-    const exports = resolver.getExports('/project/com/example/Usage.kt')
+    const exports = resolver.getExports(path.join(nativeRoot, 'com', 'example', 'Usage.kt'))
     expect(exports).toContain('helper')
     expect(exports).toContain('MAX')
   })
@@ -250,25 +256,25 @@ describe('ImportResolver scanFile', () => {
   test('handles file with no imports', async () => {
     if (!tsAvailable) return
     const { ImportResolver } = await import('../src/import-resolver.js')
-    const resolver = new ImportResolver('/tmp/test-map.json')
+    const resolver = new ImportResolver(path.join(nativeTmp, 'test-map.json'))
     await resolver.load()
 
     const content = 'export function helper() { return 42 }'
-    await resolver.scanFile('/project/src/helper.ts', content, '.ts')
+    await resolver.scanFile(path.join(nativeRoot, 'src', 'helper.ts'), content, '.ts')
 
     // Should have exports but no imports
-    const exports = resolver.getExports('/project/src/helper.ts')
+    const exports = resolver.getExports(path.join(nativeRoot, 'src', 'helper.ts'))
     expect(exports).toContain('helper')
-    expect(resolver.resolve('/project/src/helper.ts', 'anything')).toBeNull()
+    expect(resolver.resolve(path.join(nativeRoot, 'src', 'helper.ts'), 'anything')).toBeNull()
   })
 
   test('handles files with no tree-sitter parser (PHP)', async () => {
     const { ImportResolver } = await import('../src/import-resolver.js')
-    const resolver = new ImportResolver('/tmp/test-map.json')
+    const resolver = new ImportResolver(path.join(nativeTmp, 'test-map.json'))
     await resolver.load()
 
     const content = '<?php function foo() { return bar(); }'
-    await resolver.scanFile('/project/src/foo.php', content, '.php')
+    await resolver.scanFile(path.join(nativeRoot, 'src', 'foo.php'), content, '.php')
 
     // PHP should be skipped (no tree-sitter parser)
     const stats = resolver.getStats()
@@ -278,20 +284,20 @@ describe('ImportResolver scanFile', () => {
   test('deduplicates on re-scan', async () => {
     if (!tsAvailable) return
     const { ImportResolver } = await import('../src/import-resolver.js')
-    const resolver = new ImportResolver('/tmp/test-map.json')
+    const resolver = new ImportResolver(path.join(nativeTmp, 'test-map.json'))
     await resolver.load()
 
     // First scan
     const content1 = 'import { foo } from "./bar"\nexport const x = foo()'
-    await resolver.scanFile('/project/src/a.ts', content1, '.ts')
-    expect(resolver.resolve('/project/src/a.ts', 'foo')).not.toBeNull()
+    await resolver.scanFile(path.join(nativeRoot, 'src', 'a.ts'), content1, '.ts')
+    expect(resolver.resolve(path.join(nativeRoot, 'src', 'a.ts'), 'foo')).not.toBeNull()
 
     // Second scan with different imports
     const content2 = 'import { baz } from "./qux"\nexport const x = baz()'
-    await resolver.scanFile('/project/src/a.ts', content2, '.ts')
+    await resolver.scanFile(path.join(nativeRoot, 'src', 'a.ts'), content2, '.ts')
 
     // Old import should be gone, new one should be there
-    expect(resolver.resolve('/project/src/a.ts', 'foo')).toBeNull()
-    expect(resolver.resolve('/project/src/a.ts', 'baz')).not.toBeNull()
+    expect(resolver.resolve(path.join(nativeRoot, 'src', 'a.ts'), 'foo')).toBeNull()
+    expect(resolver.resolve(path.join(nativeRoot, 'src', 'a.ts'), 'baz')).not.toBeNull()
   })
 })

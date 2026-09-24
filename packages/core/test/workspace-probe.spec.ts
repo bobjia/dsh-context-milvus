@@ -103,7 +103,7 @@ describe('probeWorkspace', () => {
     const probe = await probeWorkspace(tsConfig())
 
     expect(probe.fileCount).toBe(1)
-    expect([...probe.files.keys()][0]).toContain('src/deep/a.ts')
+    expect([...probe.files.keys()][0]).toContain(path.join('src', 'deep', 'a.ts'))
   })
 
   it('flags an over-threshold directory when limits are injected', async () => {

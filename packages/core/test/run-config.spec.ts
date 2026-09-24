@@ -46,7 +46,10 @@ describe('writeRunConfig / readRunConfig', () => {
     const filePath = await writeRunConfig(config)
 
     expect(filePath).toBe(deriveRunConfigPath(root))
-    expect((await stat(filePath)).mode & 0o777).toBe(0o600)
+    // POSIX file modes are not enforceable on Windows — Node reports 0666 there.
+    if (process.platform !== 'win32') {
+      expect((await stat(filePath)).mode & 0o777).toBe(0o600)
+    }
 
     const back = await readRunConfig(filePath)
     expect(back?.version).toBe(1)
@@ -66,7 +69,10 @@ describe('writeRunConfig / readRunConfig', () => {
 
     await writeRunConfig(config)
 
-    expect((await stat(filePath)).mode & 0o777).toBe(0o600)
+    // POSIX file modes are not enforceable on Windows — Node reports 0666 there.
+    if (process.platform !== 'win32') {
+      expect((await stat(filePath)).mode & 0o777).toBe(0o600)
+    }
   })
 
   it('returns null for a missing, corrupt or wrong-version file', async () => {

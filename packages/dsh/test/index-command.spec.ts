@@ -13,9 +13,12 @@ describe('buildIndexCommand', () => {
 
     const command = buildIndexCommand('/work/my repo')
 
-    expect(command).toContain(BIN)
+    // The bin path is quoted with JSON.stringify, which escapes backslashes on
+    // Windows — assert against the JSON-quoted form. The root is passed through
+    // verbatim (no normalization), so it stays as the caller supplied it.
+    expect(command).toContain(JSON.stringify(BIN))
     expect(command).toContain('--root')
-    expect(command).toContain('"/work/my repo"') // quoted for spaces
+    expect(command).toContain('"/work/my repo"') // quoted for spaces, unmodified
     expect(command).not.toContain('--specs-only')
   })
 
