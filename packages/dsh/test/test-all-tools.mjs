@@ -244,7 +244,7 @@ const customStatus = await getIndexStatus(
   new HashTracker(path.join(tempDir, '.custom-merkle.json')),
 )
 assert(customStatus.totalFiles === 0, 'index_status: 空路径状态正确')
-assert(customStatus.lastIndexed === undefined, 'index_status: 未索引时 lastIndexed 为 undefined')
+assert(customStatus.lastIndexed === null, 'index_status: 未索引时 lastIndexed 为 null（ADR-0011 无损 JSON 约定）')
 
 console.log('\n══════════════════════════════════════════════════════════════')
 console.log('  工具注册测试')

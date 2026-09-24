@@ -20,6 +20,7 @@
 - **工具边界返回值绝不允许出现 `undefined` 属性值**（含嵌套对象/数组元素）。这条同时适用于 DSH `defineTool` 的 `execute` 返回值和 MCP `structuredContent`。写入/更新工具输出时优先用 `null`、省略展开（`...(x !== undefined ? {k: v} : {})`）或条件赋值。
 - core 引擎是 DSH 与 codex 两个适配器的共享内核（SPEC/PLAN-codex-mcp-port 的单份内核约束）：边界契约修复必须落在 core，而不是在某个适配器里打补丁，否则会漂移。
 - 修改 `IndexStatus` 公共类型时需同步检查 packages/dsh/test/public-surface.spec.ts（公共契约冻结测试）。
+- **DSH `defineTool` 输出 schema 必须与 core 返回类型一致**：当 core 字段为 `T | null` 时，DSH schema 字段必须是 `oneOf: [{type: '<T>'}, {type: 'null'}]`。DSH 的 schema 子集不支持 `nullable` 关键字（仅支持 type / oneOf / properties / required / additionalProperties / items / enum / const 加上 description/title 注释），仅写 `type: '<T>'` 会被 `validateJsonSchemaValue` 以 `"value.X" must be a <T>` 拒绝。
 
 ## 被否决的反模式
 
@@ -31,5 +32,6 @@
 - packages/core/src/indexer.ts (getIndexStatus)
 - packages/core/src/types.ts (IndexStatus)
 - packages/core/test/dsh-context-remdb.spec.ts (getIndexStatus describe)
-- packages/dsh/src/plugins/dsh-context-milvus/tools.ts (index_status formatter 兜底)
+- packages/dsh/src/plugins/dsh-context-milvus/tools.ts (index_status schema oneOf + formatter 兜底)
 - packages/core/src/adr-indexer.ts (getAdrIndexStatus 既有 '' 惯例参照)
+- packages/dsh/test/test-all-tools.mjs (未索引工作区断言对齐 null)

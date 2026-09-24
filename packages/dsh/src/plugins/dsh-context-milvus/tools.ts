@@ -463,10 +463,15 @@ export function registerTools(
           properties: {
             totalFiles: { type: 'number' },
             totalChunks: { type: 'number' },
-            lastIndexed: { type: 'string' },
+            // null is the never-indexed marker (see ADR-0011); dsh-tools schema
+            // subset has no `nullable` keyword, so model `string | null` as
+            // a oneOf over the two primitive branches.
+            lastIndexed: { oneOf: [{ type: 'string' }, { type: 'null' }] },
             indexedExtensions: { type: 'array', items: { type: 'string' } },
             adrTotalAdrs: { type: 'number' },
             adrActiveAdrs: { type: 'number' },
+            // ADR's getAdrIndexStatus() returns '' (not null) when never indexed,
+            // so a plain `string` constraint already accepts both cases.
             adrLastIndexed: { type: 'string' },
           },
           additionalProperties: false,
