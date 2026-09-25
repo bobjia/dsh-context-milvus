@@ -57,4 +57,24 @@ describe('dsh public surface', () => {
     const keys = [...text.matchAll(/^\s{2}([a-zA-Z][a-zA-Z0-9]*):\s*z\./gm)].map(m => m[1])
     expect([...new Set(keys)].sort()).toEqual(EXPECTED_CONFIG_KEYS)
   })
+
+  it('marks every config field volatile, or the GUI drops it from the form', () => {
+    // dsh-settings ≥0.1.7 lists a namespace only when its schema has volatile
+    // fields, and hides/refuses non-volatile ones. A field added without
+    // .volatile() would silently vanish from Settings → Plugins.
+    const text = readFileSync(path.join(SRC, 'index.ts'), 'utf-8')
+    const start = text.indexOf('export const Config = z.object({')
+    expect(start).toBeGreaterThanOrEqual(0)
+    const end = text.indexOf('\n})', start)
+    expect(end).toBeGreaterThan(start)
+
+    // One chunk per field, split at each `  key: z.` anchor.
+    const chunks = text.slice(start, end).split(/\n(?=  [a-zA-Z][a-zA-Z0-9]*: z\.)/).slice(1)
+    expect(chunks.length).toBe(EXPECTED_CONFIG_KEYS.length)
+
+    const notVolatile = chunks
+      .filter(c => !c.includes('.volatile()'))
+      .map(c => c.match(/^  ([a-zA-Z][a-zA-Z0-9]*):/)![1])
+    expect(notVolatile).toEqual([])
+  })
 })

@@ -294,6 +294,10 @@ docker run -it --rm \
 
 ## 安装到 DSH
 
+> **需要 DSH ≥ 0.1.7-rc.2**（自插件 0.8.0 起）。DSH 0.1.7 在宿主端移除了 `installSection()`、
+> 在客户端移除了 `settingsScope` 服务，并要求配置 schema 使用 schemastery 的 `.volatile()`
+> （旧版 harness 不提供）。本插件不提供兼容模式：在更早的 harness 上无法加载。
+
 ### 方式一：从 npm 安装（推荐）
 
 插件已发布到 npm registry，直接通过 DSH CLI 安装：
@@ -889,7 +893,7 @@ DSH 适配器（`packages/dsh`，均由 DSH 运行时提供）：
 - `@deepseek-ai/cordis` — DSH 框架
 - `@deepseek-ai/dsh-tools` — DSH 工具注册 API
 - `@deepseek-ai/schemastery` — 配置 schema 定义
-- `@deepseek-ai/dsh-settings` — 设置面板（`installSection`）
+- `@deepseek-ai/dsh-settings` — 设置面板（客户端 `configForms`；自 DSH 0.1.7 起配置节由组合条目 id 自动派生）
 - `@deepseek-ai/dsh-llm` — 约束重注入使用的 agent 入口
 
 Codex 适配器（`packages/codex`）：

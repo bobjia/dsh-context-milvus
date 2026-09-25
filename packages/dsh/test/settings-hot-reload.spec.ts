@@ -111,23 +111,21 @@ async function createHarness(entry: Record<string, unknown>) {
   promptSections.length = 0
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-hot-reload-'))
-  const state = { value: { indexRoot: tmp, adrEnabled: false, ...entry } as any }
+  const state = { value: { indexRoot: tmp, adrEnabled: false, ...entry } as Record<string, unknown> }
   const tools: any[] = []
-  let hooks: any = null
+  let volatileHandler: (() => void) | null = null
+
+  // dsh-settings ≥0.1.7 hands `apply()` the entry's reactive config: every field
+  // is a volatile accessor, so reading the section means calling .get() per key
+  // (that is exactly what the plugin's readOverrides() unwraps). The accessors
+  // close over `state`, so a commit is visible without rebuilding the object.
+  const reactiveConfig = new Proxy({} as Record<string, unknown>, {
+    ownKeys: () => Reflect.ownKeys(state.value),
+    getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
+    get: (_target, key: string) => ({ get: () => state.value[key] }),
+  })
 
   const ctx: any = {
-    inject: (_deps: string[], cb: any) =>
-      cb({
-        settings: {
-          installSection: (_owner: any, _ns: string, _schema: any, _entry: any, h: any) => {
-            hooks = h
-            // Mirrors dsh-settings: the source thunk is installed, then
-            // onChange() fires once for the attach itself.
-            h.setSource(() => state.value)
-            h.onChange()
-          },
-        },
-      }),
     tools: {
       register: (def: any) => {
         tools.push(def)
@@ -145,12 +143,17 @@ async function createHarness(entry: Record<string, unknown>) {
             context: () => () => {},
           }
         : undefined,
-    on: () => () => {},
+    // The loader announces a committed GUI edit on this event; the plugin
+    // subscribes to it in place of installSection's onChange callback.
+    on: (event: string, cb: () => void) => {
+      if (event === 'loader/volatile-update') volatileHandler = cb
+      return () => {}
+    },
     effect: () => () => {},
     logger: () => {},
   }
 
-  await plugin.apply(ctx, state.value)
+  await plugin.apply(ctx, reactiveConfig)
   await new Promise((r) => setTimeout(r, 20)) // let fire-and-forget ensureCollection settle
 
   return {
@@ -163,9 +166,10 @@ async function createHarness(entry: Record<string, unknown>) {
     /** Commit a settings-layer patch and notify the plugin, as the GUI does. */
     commit: (patch: Record<string, unknown>) => {
       state.value = { ...state.value, ...patch }
-      hooks.onChange()
+      if (!volatileHandler) throw new Error('plugin never subscribed to loader/volatile-update')
+      volatileHandler()
     },
-    config: () => getConfig(state.value),
+    config: () => getConfig(plugin.readOverrides(reactiveConfig)),
     cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }),
   }
 }

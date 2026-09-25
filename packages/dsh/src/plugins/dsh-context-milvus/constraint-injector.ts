@@ -9,10 +9,20 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import * as path from 'node:path'
 import type { PluginConfig } from 'dsh-context-milvus-core'
 import type { ConstraintSummary } from 'dsh-context-milvus-core'
 import type { AdrRuntimeResolver } from './adr-runtime.js'
+
+// dsh-llm ≥0.1.7 has no catch-all `plugin` message source: every producer
+// declares its own `kind` (plus the `form` describing what the content is).
+// Ours are the ADR constraint warnings injected below.
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'dsh-context-milvus': { kind: 'dsh-context-milvus' } & ContextFormed
+  }
+}
 
 // systemPrompt, agent/pre-step, and tools/result types are declared in DSH
 // framework packages (@deepseek-ai/dsh-system-prompt, @deepseek-ai/dsh-agent)
@@ -151,7 +161,7 @@ export function setupConstraintInjection(
       const warningText = warnings.join('\n\n')
       const warningMessage = createUserMessage({
         content: [{ type: 'text', text: warningText }],
-        source: { kind: 'plugin', plugin: 'dsh-context-milvus' },
+        source: { kind: 'dsh-context-milvus', form: 'instructions' },
       })
 
       // Find the last claimed message index and insert after it

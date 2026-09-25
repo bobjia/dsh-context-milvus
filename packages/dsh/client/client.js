@@ -1,8 +1,9 @@
 /**
  * dsh-context-milvus — 浏览器端配置组件
  *
- * 注册 settings.plugin.item 插槽，在 DSH Web GUI 设置 → 插件页面中渲染
- * dsh-context-milvus 插件的配置表单。
+ * 注册 plugins.item 插槽，在 DSH Web GUI 的设置 → 插件页面中渲染
+ * dsh-context-milvus 插件的配置表单。读写经由 dsh-settings 的 configForms
+ * 服务（namespace 即组合条目 id "dsh-context-milvus"）。
  *
  * 此文件通过 package.json 的 "dsh.client" 字段暴露给 DSH 客户端模块加载器。
  */
@@ -837,18 +838,17 @@ window.__ModuleLoader__.load({
     }
 
     // --- 导出声明（cordis fiber inject）---
-    var inject = ["slots", "locale", "settingsScope"];
+    // `configForms` 是 dsh-settings ≥0.1.7 的客户端设置通道；
+    // 它取代了被移除的 `settingsScope` 服务（同样的 snapshot 契约）。
+    var inject = ["slots", "locale", "configForms"];
 
     // --- 应用入口 ---
     function apply(ctx) {
-      console.log("[dsh-context-milvus] apply() called — plugin activated");
-
       // 注册本地化字典
       ctx.effect(function () { return ctx.locale.register(NS, { zh: zh, en: en }); });
 
-      // 绑定 settings namespace 作用域
-      var scope = ctx.settingsScope.bind({ namespace: NS });
-      console.log("[dsh-context-milvus] scope bound, initial snapshot:", scope.getSnapshot());
+      // 绑定 settings namespace 作用域（namespace = 组合条目 id）
+      var scope = ctx.configForms.get(NS);
 
       // 表单状态管理
       var staged = {};        // 暂存编辑值: { field: text }
@@ -1006,45 +1006,37 @@ window.__ModuleLoader__.load({
         },
       };
 
-      // 注册 settings.plugin.item 插槽
-      ctx.slots.inject("settings.plugin.item", function* () {
-        console.log("[dsh-context-milvus] slots.inject callback running — registering slot entry");
-        yield ctx.slots.register(
-          {
-            name: "settings.plugin.item",
-            key: NS,
-            locale: NS,
-            inject: function () {
-              return {
-                hooks: { milvusConfigCard: store },
-                edit: actions.edit,
-                resetField: actions.resetField,
-                save: actions.save,
-                discard: actions.discard,
-              };
-            },
-          },
-          MilvusConfigCard
-        );
-        console.log("[dsh-context-milvus] slot entry registered, checking entries...");
-        try {
-          var entries = ctx.slots.entries("settings.plugin.item");
-          console.log("[dsh-context-milvus] settings.plugin.item entries:", entries.map(function(e) { return e.options.key; }));
-        } catch(e) {
-          console.log("[dsh-context-milvus] error checking entries:", e);
-        }
+      // 注册插件列表条目（配置页）。
+      // dsh ≥0.1.6 只在 `plugins.item` 列表座位渲染插件的配置页；
+      // 旧的 `settings.plugin.item` 已不再渲染。whileServed 保证只有宿主
+      // 真的提供该 namespace（即插件已加载且 Config 含 volatile 字段）时才注册，
+      // 否则部署里不会留下任何痕迹。
+      var t = ctx.locale.bind(NS);
+      ctx.effect(function () {
+        return ctx.configForms.whileServed([NS], function () {
+          return ctx.slots.inject("plugins.item", function () {
+            return ctx.slots.register(
+              {
+                name: "plugins.item",
+                id: NS,
+                order: 80,
+                label: function () { return t("title"); },
+                locale: NS,
+                inject: function () {
+                  return {
+                    hooks: { milvusConfigCard: store },
+                    edit: actions.edit,
+                    resetField: actions.resetField,
+                    save: actions.save,
+                    discard: actions.discard,
+                  };
+                },
+              },
+              MilvusConfigCard
+            );
+          });
+        });
       });
-
-      // 延迟诊断：检查 scope 状态和 mirror 状态
-      setTimeout(function() {
-        console.log("[dsh-context-milvus] [delayed] scope snapshot:", scope.getSnapshot());
-        try {
-          var entries = ctx.slots.entries("settings.plugin.item");
-          console.log("[dsh-context-milvus] [delayed] settings.plugin.item entries:", entries.map(function(e) { return e.options.key; }));
-        } catch(e) {
-          console.log("[dsh-context-milvus] [delayed] error checking entries:", e);
-        }
-      }, 5000);
     }
 
     exports.apply = apply;

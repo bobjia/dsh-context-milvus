@@ -20,6 +20,12 @@ The tool names, their parameters and the `Config` fields are covered by a freeze
 
 ## Install into a DSH Web profile
 
+Requires **DSH ≥ 0.1.7-rc.2**. 0.1.7 replaced the settings plugin API on both
+halves — the host's `installSection()` and the client's `settingsScope` service
+are gone — and the config schema now relies on schemastery's `.volatile()`,
+which older harnesses do not ship. There is no compatibility mode: on an older
+harness the plugin cannot load.
+
 ```bash
 cd ~/.dsh/profiles/web
 pnpm add file:/path/to/dsh-context-milvus     # or: pnpm add dsh-context-milvus
@@ -30,6 +36,8 @@ Then add `"dsh-context-milvus"` to `dsh.profile.bundles` in `~/.dsh/profiles/web
 ## Configuration
 
 After installing, the plugin appears under **Settings → Plugins** in the DSH Web UI, with a form per field (secret fields such as `milvusToken` / `embeddingApiKey` render as password inputs, booleans as switches).
+
+Every field is declared `.volatile()`, which is what makes it appear in — and writable from — that form: dsh-settings ≥0.1.7 lists a plugin's settings section only when its schema has volatile fields, and refuses writes to any field that is not. Committed edits are delivered to the running plugin as a `loader/volatile-update` event and take effect without a reload (services that are baked in at construction — Milvus/embedding connection fields — are rebuilt).
 
 Resolution order is **plugin config → environment variables → defaults**. Every field has an env fallback: `MILVUS_ADDRESS`, `MILVUS_TOKEN`, `MILVUS_COLLECTION`, `MILVUS_EMBEDDING_DIM`, `EMBEDDING_ENDPOINT`, `EMBEDDING_API_KEY`, `EMBEDDING_MODEL`, `INDEX_ROOT`, `INDEX_EXTENSIONS`, `HYBRID_MODE`, `INDEX_IGNORE_DIRS`, `IGNORE_PATTERNS`, `MERKLE_FILE_PATH`, `QUERY_EXPANSION`, `RERANK_ENABLED`, `SPEC_ROOT`, `PLAN_ROOT` (see `packages/core/src/config.ts` for the authoritative mapping).
 

@@ -25,8 +25,6 @@
 import * as path from 'node:path'
 import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
-// Loads dsh-settings' `Context.settings` service augmentation (types only, erased at runtime).
-import type {} from '@deepseek-ai/dsh-settings'
 import { getConfig, deriveMerkleFilePath, deriveImportMapFilePath, type CordisConfig, type PluginConfig } from 'dsh-context-milvus-core'
 import { MilvusService } from 'dsh-context-milvus-core'
 import { HashTracker } from 'dsh-context-milvus-core'
@@ -43,15 +41,23 @@ import { createAdrRuntimeResolver, type AdrRuntime } from './adr-runtime.js'
 export const name = 'dsh-context-milvus'
 export const inject = ['tools']
 
-/** Settings namespace for dsh-context-milvus configuration */
-const SETTINGS_NAMESPACE = 'dsh-context-milvus'
-
 /**
  * Config schema for dsh-context-milvus.
  *
  * This schema is used by:
  * - Cordis loader for config validation before the plugin starts
- * - DSH Web GUI (Settings → Plugins) for auto-generated configuration UI
+ * - DSH Web GUI (Settings → Plugins) for the configuration UI
+ *
+ * dsh-settings ≥0.1.7 registers this section under the composition entry id
+ * (`id: dsh-context-milvus` in cordis.patch.yml) — there is no registration call.
+ * The Web client (packages/dsh/client/client.js) looks that same name up through
+ * `configForms`, so the entry id and the client's `NS` must stay in sync.
+ *
+ * Every field is `.volatile()`, which is what makes it appear in — and be
+ * editable from — the GUI: dsh-settings ≥0.1.7 lists a namespace only when its
+ * schema has at least one volatile field, and it refuses (and hides) writes to
+ * non-volatile ones. Volatile fields arrive at `apply()` as accessors, so
+ * `readOverrides()` below reads them through `.get()`.
  *
  * Fields with `.role('secret')` are rendered as password inputs in the GUI.
  * Fields with `.description(...)` show tooltips/labels in the GUI.
@@ -60,39 +66,46 @@ export const Config = z.object({
   /** Milvus 服务地址 */
   milvusAddress: z.string()
     .default('localhost:19530')
-    .description('Milvus 服务地址，例如 localhost:19530'),
+    .description('Milvus 服务地址，例如 localhost:19530')
+    .volatile(),
 
   /** Milvus 鉴权 Token (可选) */
   milvusToken: z.string()
     .default('')
     .description('Milvus 鉴权 Token（如不需要可留空）')
-    .role('secret'),
+    .role('secret')
+    .volatile(),
 
   /** Milvus 集合名称 */
   milvusCollection: z.string()
     .default('code_embeddings')
-    .description('Milvus 集合名称，用于存储代码向量'),
+    .description('Milvus 集合名称，用于存储代码向量')
+    .volatile(),
 
   /** 向量维度 */
   milvusDim: z.number()
     .default(768)
-    .description('Embedding 向量维度（需与模型匹配）'),
+    .description('Embedding 向量维度（需与模型匹配）')
+    .volatile(),
 
   /** Embedding API 地址 */
   embeddingEndpoint: z.string()
     .default('http://localhost:11434/api/embed')
-    .description('Embedding API 地址（例如 Ollama: http://localhost:11434/api/embed）'),
+    .description('Embedding API 地址（例如 Ollama: http://localhost:11434/api/embed）')
+    .volatile(),
 
   /** Embedding API 密钥 (可选) */
   embeddingApiKey: z.string()
     .default('')
     .description('Embedding API 密钥（如不需要可留空）')
-    .role('secret'),
+    .role('secret')
+    .volatile(),
 
   /** Embedding 模型名称 */
   embeddingModel: z.string()
     .default('nomic-embed-text')
-    .description('Embedding 模型名称（例如 Ollama: nomic-embed-text）'),
+    .description('Embedding 模型名称（例如 Ollama: nomic-embed-text）')
+    .volatile(),
 
   /** 代码仓库根路径 */
   indexRoot: z.string()
@@ -100,99 +113,117 @@ export const Config = z.object({
     .description(
       '代码仓库根路径，用于索引时扫描文件。' +
       '留空时自动使用当前 DSH 会话工作目录；通常无需手动填写。'
-    ),
+    )
+    .volatile(),
 
   /** 索引的文件后缀 (逗号分隔) */
   indexExtensions: z.string()
     .default('')
-    .description('索引的文件后缀（逗号分隔，留空则索引所有支持的扩展名）'),
+    .description('索引的文件后缀（逗号分隔，留空则索引所有支持的扩展名）')
+    .volatile(),
 
   /** 启用混合搜索 (BM25 + 向量) */
   hybridMode: z.boolean()
     .default(true)
-    .description('启用混合搜索模式（BM25 全文检索 + 向量语义搜索）'),
+    .description('启用混合搜索模式（BM25 全文检索 + 向量语义搜索）')
+    .volatile(),
 
   /** BM25 关键词融合 RRF 参数 */
   bm25RrfK: z.number()
     .default(60)
-    .description('混合检索 RRF 融合参数 k（默认 60）'),
+    .description('混合检索 RRF 融合参数 k（默认 60）')
+    .volatile(),
 
   /** 分块上下文重叠行数 */
   chunkContextLines: z.number()
     .default(2)
     .description('AST 分块时每个 chunk 前后附加的行数（默认 2，增加可提升检索召回率）')
     .min(0)
-    .max(10),
+    .max(10)
+    .volatile(),
 
   /** 启用查询扩展 */
   queryExpansion: z.boolean()
     .default(true)
-    .description('用代码同义词扩充查询后再 embedding（可提升语义检索命中率）'),
+    .description('用代码同义词扩充查询后再 embedding（可提升语义检索命中率）')
+    .volatile(),
 
   /** 启用两阶段重排序 */
   rerankEnabled: z.boolean()
     .default(true)
-    .description('对检索结果做第二阶段重排序（提升 precision 和 hit@1）'),
+    .description('对检索结果做第二阶段重排序（提升 precision 和 hit@1）')
+    .volatile(),
 
   /** 重排序 pool 倍数 */
   rerankMultiplier: z.number()
     .default(3)
     .description('检索时取 topK × multiplier 个结果再重排序（默认 3）')
     .min(1)
-    .max(10),
+    .max(10)
+    .volatile(),
 
   /** 跳过索引的目录名 (逗号分隔) */
   indexIgnoreDirs: z.string()
     .default('')
-    .description('扫描时跳过的目录名（逗号分隔，默认跳过 dist, build, target, __pycache__, vendor 等）'),
+    .description('扫描时跳过的目录名（逗号分隔，默认跳过 dist, build, target, __pycache__, vendor 等）')
+    .volatile(),
 
   /** Merkle 状态文件路径 */
   merkleFilePath: z.string()
     .default('')
-    .description('Merkle 哈希状态文件路径（用于增量索引，留空使用默认位置）'),
+    .description('Merkle 哈希状态文件路径（用于增量索引，留空使用默认位置）')
+    .volatile(),
 
   /** 自定义忽略规则 (gitignore 风格) */
   ignorePatterns: z.string()
     .default('')
     .description('自定义 gitignore 风格忽略规则，每行一个模式')
-    .role('textarea'),
+    .role('textarea')
+    .volatile(),
 
   /** 启用 ADR 决策记忆功能 */
   adrEnabled: z.boolean()
     .default(false)
-    .description('启用 ADR 决策记忆功能（索引/docs/decisions/中的决策记录）'),
+    .description('启用 ADR 决策记忆功能（索引/docs/decisions/中的决策记录）')
+    .volatile(),
 
   /** ADR 目录路径 */
   adrRoot: z.string()
     .default('docs/decisions')
-    .description('ADR 决策记录目录（相对 indexRoot）'),
+    .description('ADR 决策记录目录（相对 indexRoot）')
+    .volatile(),
 
   /** ADR Milvus 集合名称 */
   adrCollection: z.string()
     .default('adr_embeddings')
-    .description('Milvus 集合名称，用于存储 ADR 向量'),
+    .description('Milvus 集合名称，用于存储 ADR 向量')
+    .volatile(),
 
   /** 约束重注入步数间隔 */
   adrConstraintReinjectEvery: z.number()
     .default(0)
     .description('约束重注入步数间隔（每 N 步重新注入 active ADR 约束，0=禁用）')
-    .min(0),
+    .min(0)
+    .volatile(),
 
   /** 自定义系统提示段落 */
   adrSystemPrompt: z.string()
     .default('')
     .description('自定义 ADR 系统提示段落（留空使用内置模板）')
-    .role('textarea'),
+    .role('textarea')
+    .volatile(),
 
   /** 规格文档目录 */
   specRoot: z.string()
     .default('docs/superpowers/specs')
-    .description('Brainstorming 规格文档目录（相对 indexRoot）'),
+    .description('Brainstorming 规格文档目录（相对 indexRoot）')
+    .volatile(),
 
   /** 实现计划目录 */
   planRoot: z.string()
     .default('docs/superpowers/plans')
-    .description('实现计划文档目录（相对 indexRoot）'),
+    .description('实现计划文档目录（相对 indexRoot）')
+    .volatile(),
 
   /** 启用本地遥测统计（写入 JSONL，默认开启） */
   telemetryEnabled: z.boolean()
@@ -202,12 +233,14 @@ export const Config = z.object({
       '仅记录调用次数、耗时、结果数量、topScore、文件路径，以及截断至 200 字符的查询文本；' +
       '**不采集代码内容**。' +
       '文件位于 ~/.milvus-index/telemetry.jsonl（权限 0600），可随时在本设置中关闭。'
-    ),
+    )
+    .volatile(),
 
   /** 遥测 JSONL 文件路径 */
   telemetryFile: z.string()
     .default('')
-    .description('遥测 JSONL 文件路径（留空使用默认 ~/.milvus-index/telemetry.jsonl）'),
+    .description('遥测 JSONL 文件路径（留空使用默认 ~/.milvus-index/telemetry.jsonl）')
+    .volatile(),
 })
 
 /**
@@ -233,11 +266,46 @@ function serviceSignature(c: PluginConfig): string {
   ])
 }
 
+// dsh-settings ≥0.1.7 hands plugin configs down through the loader, which
+// announces a committed GUI edit as `loader/volatile-update` instead of calling
+// back into the registering plugin. The event is declared by
+// `@deepseek-ai/cordis-plugin-loader`; we re-declare it here rather than depend
+// on that package, because the DSH host supplies the loader at runtime (see
+// public-surface.spec.ts: no hard `@deepseek-ai/*` dependencies).
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    'loader/volatile-update'(paths: readonly (readonly string[])[]): void
+  }
+}
+
+/**
+ * Read the plain override object out of the plugin's config.
+ *
+ * Since every field in {@link Config} is `.volatile()`, the loader hands us a
+ * reactive object whose fields are accessors, not values. Fields that were never
+ * set resolve to `undefined` and are omitted, so `getConfig()` keeps its
+ * overrides > env vars > defaults precedence. A plain object (a plugin mounted
+ * without the Loader, or a test) passes through unchanged.
+ */
+export function readOverrides(raw: unknown): CordisConfig {
+  if (raw === null || typeof raw !== 'object') return {}
+  const out: Record<string, unknown> = {}
+  for (const [key, field] of Object.entries(raw)) {
+    const value =
+      field !== null && typeof field === 'object' && typeof (field as { get?: unknown }).get === 'function'
+        ? (field as { get: () => unknown }).get()
+        : field
+    if (value !== undefined) out[key] = value
+  }
+  return out as CordisConfig
+}
+
 export async function apply(ctx: Context, config?: CordisConfig) {
-  // ── Settings registration (mirrors web-search-deepseek pattern) ──────
-  // `current` is a thunk so tools always read the latest config after a
-  // GUI edit without requiring a plugin reload.
-  let current: () => CordisConfig = () => config ?? {}
+  // ── Settings ─────────────────────────────────────────────────────────
+  // The section needs no registration call: dsh-settings derives it from this
+  // entry's id plus the volatile `Config` schema above. `current` is a thunk so
+  // tools always read the latest config after a GUI edit without a reload.
+  let current: () => CordisConfig = () => readOverrides(config)
 
   // Capture plugin-startup cwd once: tools fall back to it when neither
   // params.path, session.header.cwd, nor config.indexRoot is available.
@@ -463,22 +531,15 @@ export async function apply(ctx: Context, config?: CordisConfig) {
       })
   }
 
-  // dsh-settings ≥0.1.5: the settings section API moved onto the `ctx.settings`
-  // service (installSection). It is optional — when no provider is mounted the
-  // plugin keeps working off its composition entry config.
-  ctx.inject(['settings'], (sctx) => {
-    sctx.settings.installSection(ctx, SETTINGS_NAMESPACE, Config, config ?? {}, {
-      setSource: (source) => {
-        current = source
-      },
-      onChange: () => {
-        // The provider fires onChange() synchronously while attaching, before
-        // the startup services below exist; the startup path applies the
-        // initial config itself, so ignore that first notification.
-        if (!servicesReady) return
-        applySettingsChange()
-      },
-    })
+  // A committed GUI edit reaches us as `loader/volatile-update` (the loader
+  // re-resolves the entry config and mutates the accessors `current` reads from).
+  // Only listeners on this plugin's own fiber see it, so no source filtering is
+  // needed. The event fires synchronously while the entry is still activating,
+  // before the startup services below exist; the startup path applies the initial
+  // config itself, so ignore anything before that point.
+  ctx.on('loader/volatile-update', () => {
+    if (!servicesReady) return
+    applySettingsChange()
   })
 
   // Resolve initial config for startup services

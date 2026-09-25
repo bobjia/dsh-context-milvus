@@ -287,6 +287,11 @@ docker run -it --rm \
 
 ## Install to DSH
 
+> **Requires DSH ≥ 0.1.7-rc.2** (since plugin 0.8.0). DSH 0.1.7 replaced the settings plugin API on
+> both halves — the host's `installSection()` and the client's `settingsScope` service are gone, and
+> the config schema now relies on schemastery's `.volatile()`, which older harnesses do not ship.
+> There is no compatibility mode: on an older harness the plugin cannot load.
+
 ### Method 1: From npm (recommended)
 
 The plugin is published to the npm registry. Install directly via DSH CLI:
@@ -868,7 +873,7 @@ DSH adapter (`packages/dsh`), all provided by the DSH runtime:
 - `@deepseek-ai/cordis` — DSH framework
 - `@deepseek-ai/dsh-tools` — DSH tool registration API
 - `@deepseek-ai/schemastery` — Config schema definition
-- `@deepseek-ai/dsh-settings` — settings panel (`installSection`)
+- `@deepseek-ai/dsh-settings` — settings panel (client `configForms`; the section is auto-derived from the composition entry id since DSH 0.1.7)
 - `@deepseek-ai/dsh-llm` — agent access used by constraint re-injection
 
 Codex adapter (`packages/codex`):

@@ -20,11 +20,13 @@ jest.unstable_mockModule('@zilliz/milvus2-sdk-node', () => ({
 }))
 
 const { getConfig } = await import('dsh-context-milvus-core')
-const { Config } = await import('../src/plugins/dsh-context-milvus/index.js')
+const { Config, readOverrides } = await import('../src/plugins/dsh-context-milvus/index.js')
 
 describe('telemetry defaults (SPEC-2026-09-24-onboarding-activation fix H)', () => {
-  test('schema default: telemetryEnabled is true when nothing is configured', () => {
-    const parsed = Config({} as any) as any
+  test('schema default: telemetryEnabled resolves to true when nothing is configured', () => {
+    // Since dsh-settings ≥0.1.7 every field is volatile, so a resolved schema
+    // hands back accessors rather than values — read them the way apply() does.
+    const parsed = readOverrides(Config({} as any)) as any
     expect(parsed.telemetryEnabled).toBe(true)
   })
 
@@ -39,11 +41,12 @@ describe('telemetry defaults (SPEC-2026-09-24-onboarding-activation fix H)', () 
   })
 
   test('mechanism: schema-resolved defaults flow through getConfig to a real telemetry file', () => {
-    // Regression guard: the settings provider hands the plugin exactly the
-    // schema-resolved object (Config({})), and getConfig must turn the
-    // schema's '' telemetryFile into the home default — otherwise telemetry
-    // silently never writes (the inert-default bug).
-    const cfg = getConfig(Config({}) as any)
+    // Regression guard: the loader hands the plugin exactly the schema-resolved
+    // object (Config({})), and getConfig must turn the schema's '' telemetryFile
+    // into the home default — otherwise telemetry silently never writes (the
+    // inert-default bug). Goes through the real readOverrides(), so a change to
+    // how volatile accessors are unwrapped is caught here rather than at runtime.
+    const cfg = getConfig(readOverrides(Config({}) as any))
     expect(cfg.telemetryEnabled).toBe(true)
     expect(cfg.telemetryFile).not.toBe('')
     expect(cfg.telemetryFile).toMatch(/telemetry\.jsonl$/)

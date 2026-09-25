@@ -1,5 +1,10 @@
 # dsh-context-milvus — DSH 配置示例
 
+# 前置要求：DSH ≥ 0.1.7-rc.2。
+# 0.1.7 在宿主端移除了 settings 的 installSection()、在客户端移除了 settingsScope
+# 服务，并要求配置 schema 使用 schemastery 的 .volatile()（旧版 harness 不提供）。
+# 本插件不再兼容更早的 harness。
+
 ## 安装到 DSH Web Profile
 
 ```bash
