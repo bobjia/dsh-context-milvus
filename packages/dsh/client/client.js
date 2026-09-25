@@ -1,9 +1,12 @@
 /**
  * dsh-context-milvus — 浏览器端配置组件
  *
- * 注册 plugins.item 插槽，在 DSH Web GUI 的设置 → 插件页面中渲染
- * dsh-context-milvus 插件的配置表单。读写经由 dsh-settings 的 configForms
- * 服务（namespace 即组合条目 id "dsh-context-milvus"）。
+ * 注册 plugins.bundle.config 插槽（按包名 keyed），在 DSH Web GUI 的设置 →
+ * 插件页面中、本插件自己的详情页里渲染配置表单。读写经由 dsh-settings 的
+ * configForms 服务（namespace 即组合条目 id "dsh-context-milvus"）。
+ *
+ * 不要注册到 plugins.item：那个列表座位是官方设置页占用的，页面会把注册的
+ * 条目渲染两次（卡片摘要一次、详情页正文一次），于是同一个配置表单会出现两遍。
  *
  * 此文件通过 package.json 的 "dsh.client" 字段暴露给 DSH 客户端模块加载器。
  */
@@ -80,7 +83,9 @@ window.__ModuleLoader__.load({
       telemetryFile: "遥测 JSONL 文件路径",
       telemetryFileHint: "遥测 JSONL 文件路径（留空使用默认 ~/.milvus-index/telemetry.jsonl）",
       save: "保存",
+      saving: "保存中…",
       discard: "撤销",
+      loading: "加载中…",
       overridden: "已覆盖",
       reset: "重置",
       invalidNumber: "请输入有效数字",
@@ -144,7 +149,9 @@ window.__ModuleLoader__.load({
       telemetryFile: "Telemetry JSONL Path",
       telemetryFileHint: "Telemetry JSONL file path (empty = ~/.milvus-index/telemetry.jsonl)",
       save: "Save",
+      saving: "Saving…",
       discard: "Discard",
+      loading: "Loading…",
       overridden: "Overridden",
       reset: "Reset",
       invalidNumber: "Enter a valid number",
@@ -523,17 +530,24 @@ window.__ModuleLoader__.load({
       };
     }
 
-    // --- 卡片组件 ---
-    // 使用 CardForm 模式：renderSlot 自动将 hooks.milvusConfigCard 转为
-    // useMilvusConfigCard hook，state 通过该 hook 获取
+    // --- 页面表单组件 ---
+    // 注册在 plugins.bundle.config（按包名 keyed）：宿主只在插件详情页的配置区渲染
+    // view: "page"，标题、图标与描述由宿主自己绘制，所以这里只画表单本体。其余 view
+    // 一律不渲染。字段值经 renderSlot 把 hooks.milvusConfigCard 转成的
+    // useMilvusConfigCard hook 读取。
     function MilvusConfigCard(props) {
+      if (props.view !== "page") return null;
       var t = props.t;
       var state = props.useMilvusConfigCard(function (snapshot) { return snapshot; });
       var disabled = !state.writable || state.saving;
-      var pending = !state.available;
-      var expanded = react.useState(false);
-      var isExpanded = expanded[0];
-      var setExpanded = expanded[1];
+
+      if (!state.available) {
+        return jsxRuntime.jsx("p", {
+          role: "status",
+          style: { margin: 0, fontSize: "13px", color: "var(--dsw-alias-label-tertiary, #999)" },
+          children: t("loading"),
+        });
+      }
 
       var fields = [
         { id: "milvusAddress", label: t("milvusAddress"), hint: t("milvusAddressHint"), numeric: false, secret: false },
@@ -552,7 +566,6 @@ window.__ModuleLoader__.load({
         { id: "queryExpansion", label: t("queryExpansion"), hint: t("queryExpansionHint"), numeric: false, secret: false, boolean: true },
         { id: "rerankEnabled", label: t("rerankEnabled"), hint: t("rerankEnabledHint"), numeric: false, secret: false, boolean: true },
         { id: "rerankMultiplier", label: t("rerankMultiplier"), hint: t("rerankMultiplierHint"), numeric: true, secret: false },
-        { id: "ignorePatterns", label: t("ignorePatterns"), hint: t("ignorePatternsHint"), numeric: false, secret: false, textarea: true },
         { id: "specRoot", label: t("specRoot"), hint: t("specRootHint"), numeric: false, secret: false },
         { id: "planRoot", label: t("planRoot"), hint: t("planRootHint"), numeric: false, secret: false },
         { id: "telemetryEnabled", label: t("telemetryEnabled"), hint: t("telemetryEnabledHint"), numeric: false, secret: false, boolean: true },
@@ -564,275 +577,163 @@ window.__ModuleLoader__.load({
         { id: "adrSystemPrompt", label: t("adrSystemPrompt"), hint: t("adrSystemPromptHint"), numeric: false, secret: false, textarea: true },
       ];
 
-      return jsxRuntime.jsxs("div", {
-        style: {
-          border: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
-          borderRadius: "12px",
-          background: "var(--dsw-alias-bg-layer-2, #fff)",
-          overflow: "hidden",
-        },
+      return jsxRuntime.jsxs(react.Fragment, {
         children: [
-          // 头部（可点击展开/折叠）
+          // 表单体
+          jsxRuntime.jsx("div", {
+            children: fields.map(function (field) {
+              var fieldState = state[field.id] || {};
+              if (field.boolean) {
+                return jsxRuntime.jsx(BooleanField, {
+                  id: "plugin-config-dsh-context-milvus-" + field.id,
+                  label: field.label,
+                  hint: field.hint,
+                  disabled: disabled,
+                  overriddenLabel: t("overridden"),
+                  resetLabel: t("reset"),
+                  text: fieldState.text,
+                  overridden: fieldState.overridden,
+                  onEdit: function (text) {
+                    props.edit(field.id, text);
+                  },
+                  onReset: function () {
+                    props.resetField(field.id);
+                  },
+                }, field.id);
+              }
+              if (field.textarea) {
+                return jsxRuntime.jsx(TextareaField, {
+                  id: "plugin-config-dsh-context-milvus-" + field.id,
+                  label: field.label,
+                  hint: field.hint,
+                  disabled: disabled,
+                  overriddenLabel: t("overridden"),
+                  resetLabel: t("reset"),
+                  text: fieldState.text,
+                  overridden: fieldState.overridden,
+                  onEdit: function (text) {
+                    props.edit(field.id, text);
+                  },
+                  onReset: function () {
+                    props.resetField(field.id);
+                  },
+                }, field.id);
+              }
+              return jsxRuntime.jsx(ValueField, {
+                id: "plugin-config-dsh-context-milvus-" + field.id,
+                label: field.label,
+                hint: field.hint,
+                numeric: field.numeric,
+                secret: field.secret,
+                disabled: disabled,
+                overriddenLabel: t("overridden"),
+                resetLabel: t("reset"),
+                invalidLabel: t("invalidNumber"),
+                text: fieldState.text,
+                overridden: fieldState.overridden,
+                invalid: fieldState.invalid,
+                onEdit: function (text) {
+                  props.edit(field.id, text);
+                },
+                onReset: function () {
+                  props.resetField(field.id);
+                },
+              }, field.id);
+            }),
+          }),
+          // 混合搜索字段（不在通用字段表里，所以单独一块）
+          jsxRuntime.jsx("div", {
+            children: jsxRuntime.jsx(BooleanField, {
+              id: "plugin-config-dsh-context-milvus-hybridMode",
+              label: t("hybridMode"),
+              hint: t("hybridModeHint"),
+              disabled: disabled,
+              overriddenLabel: t("overridden"),
+              resetLabel: t("reset"),
+              text: (state.hybridMode || {}).text,
+              overridden: (state.hybridMode || {}).overridden,
+              onEdit: function (text) {
+                props.edit("hybridMode", text);
+              },
+              onReset: function () {
+                props.resetField("hybridMode");
+              },
+            }),
+          }),
+          // 自定义忽略规则字段（多行文本，同样单独一块）
+          jsxRuntime.jsx("div", {
+            children: jsxRuntime.jsx(TextareaField, {
+              id: "plugin-config-dsh-context-milvus-ignorePatterns",
+              label: t("ignorePatterns"),
+              hint: t("ignorePatternsHint"),
+              disabled: disabled,
+              overriddenLabel: t("overridden"),
+              resetLabel: t("reset"),
+              text: (state.ignorePatterns || {}).text,
+              overridden: (state.ignorePatterns || {}).overridden,
+              onEdit: function (text) {
+                props.edit("ignorePatterns", text);
+              },
+              onReset: function () {
+                props.resetField("ignorePatterns");
+              },
+            }),
+          }),
+          // 底部操作栏
           jsxRuntime.jsxs("div", {
-            onClick: function () { setExpanded(!isExpanded); },
-            onKeyDown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded(!isExpanded); } },
-            role: "button",
-            tabIndex: 0,
-            "aria-expanded": isExpanded,
             style: {
               display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "16px 20px",
-              cursor: "pointer",
-              gap: "12px",
-              userSelect: "none",
+              justifyContent: "flex-end",
+              gap: "8px",
+              padding: "12px 0",
+              borderTop: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
             },
             children: [
-              jsxRuntime.jsxs("div", {
-                style: { flex: "1", minWidth: 0 },
-                children: [
-                  jsxRuntime.jsx("h3", {
-                    style: {
-                      margin: 0,
-                      fontSize: "15px",
-                      fontWeight: 600,
-                      lineHeight: "1.5",
-                      color: "var(--dsw-alias-label-primary, #333)",
-                    },
-                    children: t("title"),
-                  }),
-                  jsxRuntime.jsx("p", {
-                    style: {
-                      margin: "2px 0 0 0",
-                      fontSize: "13px",
-                      lineHeight: "1.5",
-                      color: "var(--dsw-alias-label-tertiary, #999)",
-                    },
-                    children: t("description"),
-                  }),
-                ],
-              }),
-              jsxRuntime.jsxs("div", {
-                style: {
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  flexShrink: 0,
+              jsxRuntime.jsx("button", {
+                onClick: function (e) {
+                  e.preventDefault();
+                  props.discard();
                 },
-                children: [
-                  pending
-                    ? jsxRuntime.jsx("span", {
-                        style: {
-                          color: "var(--dsw-alias-label-tertiary, #999)",
-                          fontSize: "12px",
-                        },
-                        children: "加载中…",
-                      })
-                    : null,
-                  jsxRuntime.jsx("span", {
-                    style: {
-                      color: "var(--dsw-alias-label-tertiary, #999)",
-                      flex: "none",
-                      transition: "transform 0.16s",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: "14px",
-                      height: "14px",
-                      transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                    },
-                    children: jsxRuntime.jsx("svg", {
-                      width: "14",
-                      height: "14",
-                      viewBox: "0 0 14 14",
-                      fill: "none",
-                      children: jsxRuntime.jsx("path", {
-                        d: "M4.375 5.25L7 7.875L9.625 5.25",
-                        stroke: "currentColor",
-                        strokeWidth: "1.5",
-                        strokeLinecap: "round",
-                        strokeLinejoin: "round",
-                      }),
-                    }),
-                  }),
-                ],
+                disabled: disabled || !state.dirty,
+                style: {
+                  font: "inherit",
+                  color: "var(--dsw-alias-label-secondary, #666)",
+                  cursor: (disabled || !state.dirty) ? "default" : "pointer",
+                  background: "var(--dsw-alias-bg-layer-3, #fafafa)",
+                  border: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
+                  borderRadius: "8px",
+                  padding: "6px 16px",
+                  fontSize: "13px",
+                  lineHeight: "1.5",
+                },
+                children: t("discard"),
+              }),
+              jsxRuntime.jsx("button", {
+                onClick: function (e) {
+                  e.preventDefault();
+                  props.save();
+                },
+                disabled: disabled,
+                style: {
+                  font: "inherit",
+                  color: disabled
+                    ? "var(--dsw-alias-label-tertiary, #999)"
+                    : "var(--dsw-alias-label-primary-inverse, #fff)",
+                  cursor: disabled ? "default" : "pointer",
+                  background: disabled
+                    ? "var(--dsw-alias-bg-layer-3, #fafafa)"
+                    : "var(--dsw-alias-brand-primary, #1677ff)",
+                  border: "none",
+                  borderRadius: "8px",
+                  padding: "6px 16px",
+                  fontSize: "13px",
+                  lineHeight: "1.5",
+                  fontWeight: 500,
+                },
+                children: state.saving ? t("saving") : t("save"),
               }),
             ],
           }),
-          // 展开的内容
-          isExpanded
-            ? jsxRuntime.jsxs(react.Fragment, {
-                children: [
-                  // 表单体
-                  jsxRuntime.jsx("div", {
-                    style: {
-                      padding: "0 20px 16px",
-                    },
-                    children: jsxRuntime.jsxs("div", {
-                      children: fields.map(function (field) {
-                        var fieldState = state[field.id] || {};
-                        if (field.boolean) {
-                          return jsxRuntime.jsx(BooleanField, {
-                            id: "plugin-config-dsh-context-milvus-" + field.id,
-                            label: field.label,
-                            hint: field.hint,
-                            disabled: disabled,
-                            overriddenLabel: t("overridden"),
-                            resetLabel: t("reset"),
-                            text: fieldState.text,
-                            overridden: fieldState.overridden,
-                            onEdit: function (text) {
-                              props.edit(field.id, text);
-                            },
-                            onReset: function () {
-                              props.resetField(field.id);
-                            },
-                          }, field.id);
-                        }
-                        if (field.textarea) {
-                          return jsxRuntime.jsx(TextareaField, {
-                            id: "plugin-config-dsh-context-milvus-" + field.id,
-                            label: field.label,
-                            hint: field.hint,
-                            disabled: disabled,
-                            overriddenLabel: t("overridden"),
-                            resetLabel: t("reset"),
-                            text: fieldState.text,
-                            overridden: fieldState.overridden,
-                            onEdit: function (text) {
-                              props.edit(field.id, text);
-                            },
-                            onReset: function () {
-                              props.resetField(field.id);
-                            },
-                          }, field.id);
-                        }
-                        return jsxRuntime.jsx(ValueField, {
-                          id: "plugin-config-dsh-context-milvus-" + field.id,
-                          label: field.label,
-                          hint: field.hint,
-                          numeric: field.numeric,
-                          secret: field.secret,
-                          disabled: disabled,
-                          overriddenLabel: t("overridden"),
-                          resetLabel: t("reset"),
-                          invalidLabel: t("invalidNumber"),
-                          text: fieldState.text,
-                          overridden: fieldState.overridden,
-                          invalid: fieldState.invalid,
-                          onEdit: function (text) {
-                            props.edit(field.id, text);
-                          },
-                          onReset: function () {
-                            props.resetField(field.id);
-                          },
-                        }, field.id);
-                      }),
-                    }),
-                  }),
-                  // 混合搜索字段
-                  jsxRuntime.jsx("div", {
-                    style: {
-                      padding: "0 20px 16px",
-                    },
-                    children: jsxRuntime.jsx(BooleanField, {
-                      id: "plugin-config-dsh-context-milvus-hybridMode",
-                      label: t("hybridMode"),
-                      hint: t("hybridModeHint"),
-                      disabled: disabled,
-                      overriddenLabel: t("overridden"),
-                      resetLabel: t("reset"),
-                      text: (state.hybridMode || {}).text,
-                      overridden: (state.hybridMode || {}).overridden,
-                      onEdit: function (text) {
-                        props.edit("hybridMode", text);
-                      },
-                      onReset: function () {
-                        props.resetField("hybridMode");
-                      },
-                    }),
-                  }),
-                  // 自定义忽略规则字段
-                  jsxRuntime.jsx("div", {
-                    style: {
-                      padding: "0 20px 16px",
-                    },
-                    children: jsxRuntime.jsx(TextareaField, {
-                      id: "plugin-config-dsh-context-milvus-ignorePatterns",
-                      label: t("ignorePatterns"),
-                      hint: t("ignorePatternsHint"),
-                      disabled: disabled,
-                      overriddenLabel: t("overridden"),
-                      resetLabel: t("reset"),
-                      text: (state.ignorePatterns || {}).text,
-                      overridden: (state.ignorePatterns || {}).overridden,
-                      onEdit: function (text) {
-                        props.edit("ignorePatterns", text);
-                      },
-                      onReset: function () {
-                        props.resetField("ignorePatterns");
-                      },
-                    }),
-                  }),
-                  // 底部操作栏
-                  jsxRuntime.jsxs("div", {
-                    style: {
-                      display: "flex",
-                      justifyContent: "flex-end",
-                      gap: "8px",
-                      padding: "12px 20px",
-                      borderTop: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
-                    },
-                    children: [
-                      jsxRuntime.jsx("button", {
-                        onClick: function (e) {
-                          e.preventDefault();
-                          props.discard();
-                        },
-                        disabled: disabled || !state.dirty,
-                        style: {
-                          font: "inherit",
-                          color: "var(--dsw-alias-label-secondary, #666)",
-                          cursor: (disabled || !state.dirty) ? "default" : "pointer",
-                          background: "var(--dsw-alias-bg-layer-3, #fafafa)",
-                          border: "1px solid var(--dsw-alias-border-l2, #e5e5e5)",
-                          borderRadius: "8px",
-                          padding: "6px 16px",
-                          fontSize: "13px",
-                          lineHeight: "1.5",
-                        },
-                        children: t("discard"),
-                      }),
-                      jsxRuntime.jsx("button", {
-                        onClick: function (e) {
-                          e.preventDefault();
-                          props.save();
-                        },
-                        disabled: disabled,
-                        style: {
-                          font: "inherit",
-                          color: disabled
-                            ? "var(--dsw-alias-label-tertiary, #999)"
-                            : "var(--dsw-alias-label-primary-inverse, #fff)",
-                          cursor: disabled ? "default" : "pointer",
-                          background: disabled
-                            ? "var(--dsw-alias-bg-layer-3, #fafafa)"
-                            : "var(--dsw-alias-brand-primary, #1677ff)",
-                          border: "none",
-                          borderRadius: "8px",
-                          padding: "6px 16px",
-                          fontSize: "13px",
-                          lineHeight: "1.5",
-                          fontWeight: 500,
-                        },
-                        children: state.saving ? "保存中…" : t("save"),
-                      }),
-                    ],
-                  }),
-                ],
-              })
-            : null,
         ],
       });
     }
@@ -1006,21 +907,19 @@ window.__ModuleLoader__.load({
         },
       };
 
-      // 注册插件列表条目（配置页）。
-      // dsh ≥0.1.6 只在 `plugins.item` 列表座位渲染插件的配置页；
-      // 旧的 `settings.plugin.item` 已不再渲染。whileServed 保证只有宿主
-      // 真的提供该 namespace（即插件已加载且 Config 含 volatile 字段）时才注册，
+      // 注册插件的配置表单：`plugins.bundle.config` 按包名 keyed，宿主把它渲染在
+      // 本插件自己的详情页上（仅 view: "page"）。不要改注册到 `plugins.item`：
+      // 那是官方设置页占用的列表座位，页面会把条目渲染两次（摘要 + 正文），
+      // 配置表单就会在页面上出现两份。whileServed 保证只有宿主真的提供该
+      // namespace（即插件已加载且 Config 含 volatile 字段）时才注册，
       // 否则部署里不会留下任何痕迹。
-      var t = ctx.locale.bind(NS);
       ctx.effect(function () {
         return ctx.configForms.whileServed([NS], function () {
-          return ctx.slots.inject("plugins.item", function () {
+          return ctx.slots.inject("plugins.bundle.config", function () {
             return ctx.slots.register(
               {
-                name: "plugins.item",
-                id: NS,
-                order: 80,
-                label: function () { return t("title"); },
+                name: "plugins.bundle.config",
+                key: NS,
                 locale: NS,
                 inject: function () {
                   return {

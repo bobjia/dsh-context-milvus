@@ -16,7 +16,9 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const bundlePath = join(here, '..', 'client', 'client.js')
+// The bundle ships with the DSH adapter package, not at the repository root
+// (this path predates the monorepo split and made the check fail with ENOENT).
+const bundlePath = join(here, '..', 'packages', 'dsh', 'client', 'client.js')
 
 // Seed-module stubs. The factory only requires these at module scope; the
 // real UI is only touched inside render functions, which we never call here.

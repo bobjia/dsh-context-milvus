@@ -35,7 +35,7 @@ Then add `"dsh-context-milvus"` to `dsh.profile.bundles` in `~/.dsh/profiles/web
 
 ## Configuration
 
-After installing, the plugin appears under **Settings → Plugins** in the DSH Web UI, with a form per field (secret fields such as `milvusToken` / `embeddingApiKey` render as password inputs, booleans as switches).
+After installing, the plugin appears under **Settings → Plugins** in the DSH Web UI, with a form per field (secret fields such as `milvusToken` / `embeddingApiKey` render as password inputs, booleans as switches). The form lives on the plugin's own page — open the `dsh-context-milvus` entry in the **Installed** group, not in the **Official** group, which lists the harness's own settings pages.
 
 Every field is declared `.volatile()`, which is what makes it appear in — and writable from — that form: dsh-settings ≥0.1.7 lists a plugin's settings section only when its schema has volatile fields, and refuses writes to any field that is not. Committed edits are delivered to the running plugin as a `loader/volatile-update` event and take effect without a reload (services that are baked in at construction — Milvus/embedding connection fields — are rebuilt).
 
