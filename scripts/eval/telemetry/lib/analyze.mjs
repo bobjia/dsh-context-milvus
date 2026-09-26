@@ -67,3 +67,43 @@ export function pearson(x, y) {
   if (dx === 0 || dy === 0) return 0
   return num / Math.sqrt(dx * dy)
 }
+
+/**
+ * 按量级自适应小数位的数值格式化。
+ *
+ * 曾统一用 `toFixed(1)`：真实 RRF 融合分量级约 0.03，于是报告里 topScore 的
+ * 中位数 / IQR / 均值全被抹成 "0.0"——而它恰恰是唯一能反映命中深浅的字段。
+ * 计数与延迟（>=1）维持原有 1 位小数，<1 的值改用 5 位有效数字。
+ */
+export function formatNumber(v, sig = 5) {
+  if (!Number.isFinite(v)) return String(v)
+  if (v === 0) return '0'
+  return Math.abs(v) >= 1 ? v.toFixed(1) : String(Number(v.toPrecision(sig)))
+}
+
+/**
+ * 分数语义说明行。默认 hybridMode 下 Milvus 返回的是 RRF 融合分
+ * `Σ 1/(k + 名次)`（k = bm25RrfK，默认 60），只编码名次，不是相似度；
+ * 旧条目没有 `scoreKind` 字段，无法区分两种语义，单独计数以便警惕。
+ */
+export function scoreSemantics(entries) {
+  const count = { rrf: 0, similarity: 0, unlabeled: 0 }
+  let k = null
+  for (const e of entries) {
+    if (e.scoreKind === 'rrf') count.rrf++
+    else if (e.scoreKind === 'similarity') count.similarity++
+    else if (Number.isFinite(Number(e.topScore))) count.unlabeled++
+    if (Number.isFinite(Number(e.bm25RrfK))) k = Number(e.bm25RrfK)
+  }
+  const lines = [
+    `- 分数语义: rrf=${count.rrf}, similarity=${count.similarity}, 未标注=${count.unlabeled}`,
+  ]
+  if (count.rrf > 0 || count.unlabeled > 0) {
+    const kText = k === null ? 'bm25RrfK，默认 60' : `bm25RrfK=${k}`
+    lines.push(
+      `- ⚠ RRF 分是 1/(k+名次) 的名次编码（${kText}），不是相似度：` +
+        '不要按绝对分值判断检索质量；未标注的行无法区分两种语义',
+    )
+  }
+  return lines
+}

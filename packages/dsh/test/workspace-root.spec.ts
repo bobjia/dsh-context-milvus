@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals'
+import * as path from 'node:path'
 
 // core barrel pulls in Milvus SDK at import time; Jest's ESM runtime can't load it
 // (uuid is ESM-only — see CLAUDE.md). This spec never touches Milvus.
@@ -52,5 +53,30 @@ describe('resolveWorkspaceRoot', () => {
 
   test('explicit path beats session cwd', () => {
     expect(resolveWorkspaceRoot(cfg, execWith('/proj'), '/home/u', '/force')).toBe('/force')
+  })
+
+  // 相对显式路径：曾原样返回，随后 buildFilePathLike() 拿它去 LIKE 绝对
+  // file_path，恒不命中 → 表现为「零结果」而不是报错。
+  // 实测 evidence: telemetry.jsonl 2026-09-25T22:26:12Z，path="ui/src/components/ChatArea"，
+  // resultCount=0 且 rerankEnabled=false。
+  test('relative explicit path is anchored to the session cwd', () => {
+    expect(resolveWorkspaceRoot(cfg, execWith('/proj'), '/home/u', 'ui/src/components'))
+      .toBe(path.resolve('/proj', 'ui/src/components'))
+  })
+
+  test('relative explicit path falls back to config.indexRoot when no session cwd', () => {
+    const c = { ...cfg, indexRoot: '/repo' }
+    expect(resolveWorkspaceRoot(c, undefined, '/home/u', 'ui/src'))
+      .toBe(path.resolve('/repo', 'ui/src'))
+  })
+
+  test('relative explicit path falls back to startupCwd when nothing else is set', () => {
+    expect(resolveWorkspaceRoot(cfg, undefined, '/home/u', 'ui/src'))
+      .toBe(path.resolve('/home/u', 'ui/src'))
+  })
+
+  test('already-absolute explicit path is never rewritten', () => {
+    expect(resolveWorkspaceRoot(cfg, execWith('/proj'), '/home/u', '/explicit'))
+      .toBe('/explicit')
   })
 })

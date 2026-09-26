@@ -254,6 +254,11 @@ export function registerTools(
           path: path ?? '',
           resultCount: results.length,
           topScore: results.length > 0 ? results[0].score : null,
+          // RRF 分是名次编码（Σ 1/(k+名次)），不是相似度。不把语义与 k 一起
+          // 记下来，事后无法反解（k 在分数上不可辨识）——ADR-0009 只覆盖了
+          // 渲染层，遥测层当时留了缺口。
+          scoreKind: results.length > 0 ? (results[0].scoreKind ?? 'similarity') : null,
+          bm25RrfK: resolveConfig().bm25RrfK,
           durationMs: Date.now() - started,
           // Telemetry meta (from MilvusService)
           queryExpansionApplied: meta?.queryExpansionApplied ?? false,

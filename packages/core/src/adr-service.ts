@@ -76,6 +76,29 @@ function sectionKey(section: string, sub: string): string {
   return sub ? `${section} > ${sub}` : section
 }
 
+/** frontmatter 块形状与 `adr-frontmatter.ts` 的 `FRONTMATTER_PATTERN` 保持一致 */
+const LEADING_FRONTMATTER_RE = /^\s*---\n[\s\S]*?\n---\n?/
+const FRONTMATTER_ONLY_RE = /^---\n[\s\S]*?\n---\n?/
+
+/**
+ * 把自定义正文挂到引擎生成的 frontmatter 之下。
+ *
+ * `content` 是**正文**语义（DSH 与 codex 两个适配器的参数说明都是"自定义正文"），
+ * frontmatter 必须由引擎写：缺 frontmatter 的记录会被 `parseFrontmatter()` 判为
+ * `null`，于是对 `list_adrs` / `search_adr` / `search_adr_by_file` /
+ * `load_constraints` 全部隐身（历史事故：ADR-0011 就是这样丢的）。
+ *
+ * 调用方自带 frontmatter 时只取正文：否则会写出两个 frontmatter 块，而
+ * `FRONTMATTER_PATTERN` 只认第一个，记录 id 会与文件名不一致。
+ */
+function withGeneratedFrontmatter(renderedTemplate: string, body: string): string {
+  const header = FRONTMATTER_ONLY_RE.exec(renderedTemplate)?.[0]
+  // 模板被改坏时的兜底：宁可只有正文，也不吞掉调用方的输入。
+  if (!header) return body
+  const cleaned = body.replace(LEADING_FRONTMATTER_RE, '').replace(/^\n+/, '')
+  return `${header}\n${cleaned}`
+}
+
 export class AdrService {
   /**
    * Historically the constructor always created the ADR directory, and
@@ -127,7 +150,7 @@ export class AdrService {
     const filePath = path.join(this.adrRoot, fileName)
     const now = new Date().toISOString()
 
-    const content = params.content || DEFAULT_TEMPLATE
+    const rendered = DEFAULT_TEMPLATE
       .replace(/{serial}/g, serialStr)
       .replace(/{title}/g, title)
       .replace(/{created}/g, now)
@@ -136,6 +159,12 @@ export class AdrService {
       .replace(/{supersedes}/g, params.supersedes ?? 'null')
       .replace(/{description}/g, `New ADR: ${params.title}`)
       .replace(/{constraints}/g, '')
+
+    // frontmatter 无条件由引擎生成：曾经 `params.content || DEFAULT_TEMPLATE`
+    // 让自定义正文整体覆盖模板（含 frontmatter），产出的记录对决策系统隐身。
+    const content = params.content
+      ? withGeneratedFrontmatter(rendered, params.content)
+      : rendered
 
     // Atomic write via temp file + rename to prevent partial writes on crash
     const tmpPath = `${filePath}.tmp`

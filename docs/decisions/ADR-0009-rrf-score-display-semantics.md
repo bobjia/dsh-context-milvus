@@ -3,7 +3,7 @@ id: ADR-0009-rrf-score-display-semantics
 type: decision-record
 status: active
 created: 2026-09-18
-updated: 2026-09-18
+updated: 2026-09-26T00:17:05.564Z
 author: dsh-context-milvus
 supersedes: null
 superseded_by: null
@@ -33,7 +33,6 @@ trigger:
 related_decisions: [ADR-0001-milvus-collection-separation, ADR-0005-tool-output-schema-validation-fixes]
 auto_generated: false
 ---
-
 # 混合检索下 RRF 分数的显示语义
 
 ## 背景
@@ -89,5 +88,39 @@ auto_generated: false
 
 - 默认配置下模型不再看到 0.0xxx 的伪相关度，改为明确的名次，消除"工具不可用"的误判。
 - 余弦模式（`hybridMode: false`）行为完全不变。
-- **未解决**：`test/` 下的文件常含字面标识符（如 `BM25_RRF_K`），BM25 会强命中，导致测试文件霸榜、挤掉真正实现。这是独立的检索质量议题，需另行处理。
-- **未验证**："模型只用一次"确实由此分数导致，属于高置信度推断。仓库 `telemetryEnabled` 默认 `false`，无真实使用记录可佐证；如需确认应开启遥测后回看 `~/.milvus-index/telemetry.jsonl`。
+
+## 事后验证（2026-09-25 真实遥测）
+
+数据来源 `~/.milvus-index/telemetry.jsonl`：5 个会话、17 条 `search_code`，全部作用于 `pipixia-rs`。本条 ADR 原先遗留的两个开放项至此有了实测结论。
+
+### 1. RRF 分确实会被误读 —— 但被误读的是分析者，不是模型
+
+按 `k = 60` 反解 `1/(60+a) + 1/(60+b)`，17 条中 16 条带分数的记录**全部命中**（14 条唯一解）：
+
+- `topScore` 取值域仅 0.0271–0.0328
+- 反解出最终 top-1 在至少一个检索分支的**真实名次中位数 = 2，13/16 ≤ 3**
+- 即检索质量并不差，「0.03 分」纯粹是名次编码的假象
+- `k` 在分数上**不可辨识**（`k = 10` 同样能解释全部 16 条），这是本条 ADR 当时未覆盖的观测缺口
+
+渲染层修复已生效：模型侧拿到的是 `排序: N/M`，0.03 从未进入模型上下文。真正的受害方是**分析侧**——`scripts/eval/telemetry/run.mjs` 对所有数值字段统一 `toFixed(1)`，把 `topScore` 的中位数 / IQR / 均值渲染成 `0.0`，唯一能反映命中深浅的字段被抹平。
+
+### 2. 「测试文件霸榜」从推断升级为量化
+
+本条 ADR 的"未解决"项不再需要另行论证，数据如下：
+
+- 120 个结果槽位中 **32 个（26.7%）** 是测试文件，来自 10 个不同测试文件
+- 16 次非空检索中 **5 次（31.3%）** 的 top-1 就是测试文件
+- 极端案例：query = `apply_tool_hard_cap function implementation`，5/5 结果全部是 `crates/core/src/query_engine/tests/mod.rs`，**零实现命中**
+- 另有 4 次需挖到第 2–4 位才是实现
+
+成因与推断一致：测试文件整段复述函数名与断言字符串，BM25 分支对字面标识符强命中。
+
+### 3. 「模型只用一次」仍不能证实
+
+17 条里没有任何同一 query 的重复调用；每会话 3.4 次调用是**探索型**（query 各异）而非**重试型**。只能说修复后模型**连续多次**使用该工具、未出现"用一次就弃用"。5 个会话样本太小，仍属弱证据。
+
+### 由本次验证产出的补丁
+
+- `search_code` 遥测新增 `scoreKind` 与 `bm25RrfK`，并在 eval 报告中新增「分数语义」小节（决策见 ADR-0012）。
+- 相对 `path` 现在锚定到工作区根后再作 `file_path` 前缀（决策见 ADR-0013）。
+- 两项都不改变本条 ADR 的决策本身：渲染语义与「不移除 `score` 字段」的结论依然成立。

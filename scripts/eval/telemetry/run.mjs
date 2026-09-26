@@ -2,7 +2,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { parseJsonl, groupByTool, quartiles, bootstrapCi, pearson } from './lib/analyze.mjs'
+import { parseJsonl, groupByTool, quartiles, bootstrapCi, pearson, formatNumber, scoreSemantics } from './lib/analyze.mjs'
 import { mulberry32 } from '../retrieval/lib/stats.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -34,12 +34,18 @@ for (const [tool, es] of Object.entries(byTool)) {
     if (vals.length === 0) continue
     const q = quartiles(vals)
     const ci = bootstrapCi(vals, { nBoot: 1000, rng })
-    lines.push(`  - ${field}: n=${vals.length}, 中位数=${q.median.toFixed(1)}, IQR=[${q.q1.toFixed(1)}, ${q.q3.toFixed(1)}], 均值=${ci.mean.toFixed(1)} (95% CI [${ci.lo.toFixed(1)}, ${ci.hi.toFixed(1)}])`)
+    lines.push(`  - ${field}: n=${vals.length}, 中位数=${formatNumber(q.median)}, IQR=[${formatNumber(q.q1)}, ${formatNumber(q.q3)}], 均值=${formatNumber(ci.mean)} (95% CI [${formatNumber(ci.lo)}, ${formatNumber(ci.hi)}])`)
   }
 }
 
-// 相关性：search_code 中 query 长度 vs resultCount / topScore
+// 分数语义必须先声明：默认 hybridMode 下 topScore 是 RRF 名次编码，
+// 按相似度解读会得出「检索质量极差」的反向结论。
 const searches = byTool.search_code ?? []
+if (searches.length > 0) {
+  lines.push('')
+  lines.push('## 分数语义（search_code）', '')
+  lines.push(...scoreSemantics(searches))
+}
 if (searches.length >= 3) {
   const qlen = searches.map((e) => String(e.query ?? '').length)
   const rc = searches.map((e) => Number(e.resultCount)).filter((v) => Number.isFinite(v))

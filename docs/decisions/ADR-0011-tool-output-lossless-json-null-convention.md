@@ -1,3 +1,40 @@
+---
+id: ADR-0011-tool-output-lossless-json-null-convention
+type: decision-record
+status: active
+created: 2026-09-18
+updated: 2026-09-26
+author: dsh-context-milvus
+supersedes: null
+superseded_by: null
+code_anchors:
+  - file: packages/core/src/indexer.ts
+    symbols:
+      - getIndexStatus
+  - file: packages/core/src/types.ts
+    symbols:
+      - IndexStatus
+  - file: packages/core/src/adr-indexer.ts
+    symbols:
+      - getAdrIndexStatus
+  - file: packages/dsh/src/plugins/dsh-context-milvus/tools.ts
+  - file: packages/core/test/dsh-context-remdb.spec.ts
+  - file: packages/dsh/test/test-all-tools.mjs
+trigger:
+  task_id: null
+  requirement_summary: '未建立过索引的项目调用 index_status 时，core 在工作区从未索引时返回 { lastIndexed: undefined }，DSH 的 lossless-JSON 快照校验拒绝 undefined 属性并抛 ToolOutputError。'
+  change_type: bugfix
+related_decisions: []
+auto_generated: false
+---
+
+# 工具边界输出必须是无损 JSON：lastIndexed 用 null 而非 undefined
+
+> 本 frontmatter 于 2026-09-26 补写：该文件最初由 `create_adr` 以 `content` 传入正文产出，
+> 而当时的 `AdrService.createAdr()` 会用 `content` 整文件覆盖模板，导致 frontmatter 丢失、
+> 记录对 `list_adrs` / `search_adr` / `search_adr_by_file` / `load_constraints` 隐身。
+> 产出侧的根因已由 ADR-0014 修复。
+
 ## 背景
 
 未建立过索引的项目调用 `index_status` 时，DSH 报 `Error: tool "index_status" returned invalid output: values is not lossless JSON`。

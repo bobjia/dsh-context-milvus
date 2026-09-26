@@ -22,7 +22,7 @@ code_anchors:
     symbols:
       - getActiveConstraints
       - root
-    lines: [97, 389]
+    lines: [120, 412]
     git_commit: ''
   - file: packages/dsh/src/plugins/dsh-context-milvus/adr-tools.ts
     symbols:

@@ -95,6 +95,54 @@ describe('AdrService', () => {
     expect(keys.some(k => k.includes('方案B'))).toBe(true)
   })
 
+  describe('createAdr with a custom body', () => {
+    // 缺 frontmatter 的记录会被 parseFrontmatter() 判为 null，对 list_adrs /
+    // search_adr / search_adr_by_file / load_constraints 全部隐身。
+    // 历史事故：docs/decisions/ADR-0011-tool-output-lossless-json-null-convention.md
+    const customBody = '# 标题\n\n正文\n'
+
+    it('still emits frontmatter when a custom body is supplied', async () => {
+      const result = await service.createAdr({
+        title: 'custom-body',
+        requirement: 'Req',
+        changeType: 'bugfix',
+        content: customBody,
+      })
+      const raw = await readFile(result.filePath, 'utf-8')
+      expect(raw.startsWith('---\n')).toBe(true)
+      const doc = await service.loadAdr(result.id)
+      expect(doc).not.toBeNull()
+      expect(doc!.frontmatter.id).toBe('ADR-0001-custom-body')
+      expect(doc!.frontmatter.trigger.change_type).toBe('bugfix')
+      expect(doc!.frontmatter.trigger.requirement_summary).toBe('Req')
+    })
+
+    it('keeps the custom body verbatim instead of the template body', async () => {
+      const result = await service.createAdr({ title: 'body-kept', content: customBody })
+      const raw = await readFile(result.filePath, 'utf-8')
+      expect(raw).toContain('# 标题\n\n正文')
+      expect(raw).not.toContain('### 方案A')
+    })
+
+    it('makes the ADR visible to listAdrs', async () => {
+      await service.createAdr({ title: 'listed', changeType: 'refactor', content: '## 背景\n\nx\n' })
+      const list = await service.listAdrs({ status: 'active' })
+      expect(list.map(a => a.id)).toEqual(['ADR-0001-listed'])
+    })
+
+    it('strips a caller-supplied frontmatter block instead of writing two', async () => {
+      const result = await service.createAdr({
+        title: 'pre',
+        content: '---\nid: ADR-0009-pre\nstatus: active\n---\n\n# 已有正文\n',
+      })
+      const raw = await readFile(result.filePath, 'utf-8')
+      expect(raw.split('\n').filter(l => l === '---')).toHaveLength(2)
+      expect(raw).toContain('# 已有正文')
+      const doc = await service.loadAdr(result.id)
+      expect(doc!.frontmatter.id).toBe('ADR-0001-pre')
+    })
+  })
+
   describe('updateAdr', () => {
     it('updates ADR content with merge', async () => {
       const created = await service.createAdr({ title: 'test' })
