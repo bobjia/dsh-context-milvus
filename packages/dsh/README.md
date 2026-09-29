@@ -20,11 +20,11 @@ The tool names, their parameters and the `Config` fields are covered by a freeze
 
 ## Install into a DSH Web profile
 
-Requires **DSH ≥ 0.1.7-rc.2**. 0.1.7 replaced the settings plugin API on both
-halves — the host's `installSection()` and the client's `settingsScope` service
-are gone — and the config schema now relies on schemastery's `.volatile()`,
-which older harnesses do not ship. There is no compatibility mode: on an older
-harness the plugin cannot load.
+Requires **DSH ≥ 0.2.0-rc.1**. The 0.2.0 release train keeps the settings plugin
+contract established in 0.1.7 — the host's `installSection()` and the client's
+`settingsScope` service are gone, and the config schema relies on schemastery's
+`.volatile()`, which older harnesses do not ship. There is no compatibility
+mode: on an older harness the plugin cannot load.
 
 ```bash
 cd ~/.dsh/profiles/web
